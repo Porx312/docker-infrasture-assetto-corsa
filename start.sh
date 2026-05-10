@@ -72,16 +72,16 @@ fi
 
 # Start telemetry-data (Docker)
 echo -e "${YELLOW}Starting telemetry-data (Docker)...${NC}"
-if docker ps -a --filter name=assetto-telemetry-data --format '{{.Names}}' | grep -q assetto-telemetry-data; then
-    if docker ps --filter name=assetto-telemetry-data --format '{{.Names}}' | grep -q assetto-telemetry-data; then
+if sg docker -c "docker ps -a --filter name=assetto-telemetry-data --format '{{.Names}}'" 2>/dev/null | grep -q assetto-telemetry-data; then
+    if sg docker -c "docker ps --filter name=assetto-telemetry-data --format '{{.Names}}'" 2>/dev/null | grep -q assetto-telemetry-data; then
         echo -e "${GREEN}telemetry-data is running${NC}"
     else
         echo -e "${YELLOW}Restarting telemetry-data...${NC}"
-        docker compose -f "$DOCKER_COMPOSE" up -d telemetry-data
+        sg docker -c "docker compose -f $DOCKER_COMPOSE up -d telemetry-data"
         echo -e "${GREEN}telemetry-data started${NC}"
     fi
 else
-    docker compose -f "$DOCKER_COMPOSE" up -d telemetry-data
+    sg docker -c "docker compose -f $DOCKER_COMPOSE up -d telemetry-data"
     echo -e "${GREEN}telemetry-data started${NC}"
 fi
 
@@ -104,7 +104,7 @@ fi
 echo -e "${GREEN}=== All services started ===${NC}"
 echo ""
 echo "Services:"
-echo "  - telemetry-data: $(docker ps --filter name=assetto-telemetry-data --format '{{.Status}}' 2>/dev/null || echo 'stopped')"
+echo "  - telemetry-data: $(sg docker -c "docker ps --filter name=assetto-telemetry-data --format '{{.Status}}'" 2>/dev/null || echo 'stopped')"
 echo "  - ac-data: $(is_running 'tsx.*src/index' && echo 'running' || echo 'stopped')"
 echo "  - Redis: $([ "$ENV_MODE" = "dev" ] && (is_running 'redis-server' && echo 'running (local)' || echo 'stopped') || echo 'Cloud (external)')"
 echo ""

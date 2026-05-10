@@ -18,9 +18,9 @@ echo -e "${YELLOW}=== Stopping Assetto Corsa Services ===${NC}"
 
 # Stop telemetry-data (Docker)
 echo -e "${YELLOW}Stopping telemetry-data...${NC}"
-docker compose -f docker-compose.dev.yml stop telemetry-data 2>/dev/null || true
-docker compose -f docker-compose.prod.yml stop telemetry-data 2>/dev/null || true
-docker rm -f assetto-telemetry-data 2>/dev/null || true
+sg docker -c "docker compose -f docker-compose.dev.yml stop telemetry-data" 2>/dev/null || true
+sg docker -c "docker compose -f docker-compose.prod.yml stop telemetry-data" 2>/dev/null || true
+sg docker -c "docker rm -f assetto-telemetry-data" 2>/dev/null || true
 
 # Stop ac-data (Node.js)
 echo -e "${YELLOW}Stopping ac-data...${NC}"
