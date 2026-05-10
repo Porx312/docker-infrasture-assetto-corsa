@@ -1,0 +1,49 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: assetto-redis-cloud
+    env_file:
+      - path: ./.env.production
+        required: true
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  ac-data:
+    build:
+      context: ./ac-data
+      dockerfile: Dockerfile
+    container_name: assetto-ac-data
+    env_file:
+      - path: ./.env.production
+        required: true
+    volumes:
+      - /home/jose/assetto-install/assetto/server:/home/jose/assetto-install/assetto/server:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  telemetry-data:
+    build:
+      context: ./telemetry-data
+      dockerfile: Dockerfile
+    container_name: assetto-telemetry-data
+    env_file:
+      - path: ./.env.production
+        required: true
+    volumes:
+      - /home/jose/assetto-install/assetto/server:/home/jose/assetto-install/assetto/server:ro
+      - /home/jose/assetto-install/assetto/server-timeattack:/home/jose/assetto-install/assetto/server-timeattack:ro
+    ports:
+      - "9000-9010:9000-9010/udp"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped

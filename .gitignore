@@ -1,0 +1,42 @@
+# Environment files (contain secrets)
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Logs
+*.log
+ac-data.log
+ac-data.pid
+
+# Node modules
+ac-data/node_modules/
+telemetry-data/__pycache__/
+telemetry-data/*.pyc
+
+# AC Server content (too large, managed separately)
+assetto-install/
+
+# Results and logs from servers
+**/results/
+**/logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+ac-data/dist/
+telemetry-data/.pytest_cache/
+
+# Docker volumes
+redis-data/
+
+# GitHub workflows (don't need to be in main repo)
+.github/

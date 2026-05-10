@@ -1,0 +1,27 @@
+################################################################################
+#                      Assetto Server Manager Configuration
+################################################################################
+
+steam:
+  username: projectdtouge
+  password: Porx_31245
+  install_path: assetto
+  executable_path: acServer
+  force_update: false
+
+http:
+  hostname: 0.0.0.0:8772
+  session_key: CHANGE_THIS_TO_SOMETHING_RANDOM_12345
+  session_store_type: cookie
+
+store:
+  type: boltdb
+  path: server_manager.db
+
+server:
+  audit_logging: true
+  performance_mode: false
+  use_car_name_cache: true
+
+monitoring:
+  enabled: false
