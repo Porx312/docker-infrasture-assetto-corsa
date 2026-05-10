@@ -37,3 +37,6 @@ telemetry-data/.pytest_cache/
 
 # Docker volumes
 redis-data/
+
+# Runtime data
+ac-data/server_pids.json
