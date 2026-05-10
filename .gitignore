@@ -37,6 +37,3 @@ telemetry-data/.pytest_cache/
 
 # Docker volumes
 redis-data/
-
-# GitHub workflows (don't need to be in main repo)
-.github/
