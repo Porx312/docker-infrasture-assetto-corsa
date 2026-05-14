@@ -5,7 +5,7 @@
 set -e
 
 TEMPLATE_DIR="$(dirname "$0")/server-template"
-ASSETTO_ROOT="${ASSETTO_ROOT:-/home/jose/assetto-install/assetto/server}"
+ASSETTO_ROOT="${ASSETTO_ROOT:-/home/jose/assetto-infra/server}"
 NEW_SERVER_NAME="$1"
 BASE_UDP_PORT="$2"
 BASE_HTTP_PORT="$3"

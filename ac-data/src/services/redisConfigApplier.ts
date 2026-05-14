@@ -6,6 +6,7 @@ import { createClient } from 'redis';
 import {
   activeServers,
   applyServerConfiguration,
+  cleanupOrphanProcesses,
   restartServerCore,
   startServerCore,
   stopServerCore,
@@ -106,7 +107,8 @@ function rowToConfigPayload(row: ServerRow): ServerConfigPayload {
 function getAvailableCars(): Set<string> {
   const serversPath = process.env.SERVERS_PATH;
   if (!serversPath) return new Set();
-  const carsPath = path.join(serversPath, '..', 'content', 'cars');
+  const contentBase = path.join(serversPath, 'content');
+  const carsPath = path.join(contentBase, 'cars');
   const available = new Set<string>();
   try {
     const entries = fs.readdirSync(carsPath, { withFileTypes: true });
@@ -178,7 +180,6 @@ async function reconcileServer(row: ServerRow, isFirstSnapshot: boolean): Promis
     return;
   }
 
-  // isActive === true (or undefined treated as true).
   const apply = applyServerConfiguration(row.serverName, rowToConfigPayload(row));
   if (!apply.ok) {
     console.warn(`[redis-config-applier] applyConfig ${row.serverName} failed: ${apply.reason}`);
@@ -195,16 +196,15 @@ async function reconcileServer(row: ServerRow, isFirstSnapshot: boolean): Promis
     );
   } else if (!running) {
     if (isFirstSnapshot && !RESTART_ON_BOOT) {
-      // On first snapshot we only auto-start when the process is offline; this
-      // is exactly the auto-recovery case the user expects.
+      console.log(`[redis-config-applier] ${row.serverName} first snapshot skip (RESTART_ON_BOOT=false)`);
+    } else {
+      const result = startServerCore(row.serverName);
+      console.log(
+        `[redis-config-applier] start ${row.serverName}: ${result.ok ? 'ok' : 'failed'} | ${result.message}`,
+      );
     }
-    const result = startServerCore(row.serverName);
-    console.log(
-      `[redis-config-applier] start ${row.serverName}: ${result.ok ? 'ok' : 'failed'} | ${result.message}`,
-    );
   } else {
-    // running && !changed && firstSnapshot -> nothing to do
-    console.log(`[redis-config-applier] ${row.serverName} already running with current config`);
+    console.log(`[redis-config-applier] ${row.serverName} already running, config${changed ? ' changed' : ' unchanged'}`);
   }
 
   lastSignatures.set(row.serverName, signature);
@@ -260,6 +260,8 @@ export async function startRedisConfigApplier(): Promise<void> {
   console.log(
     `[redis-config-applier] listening stream=${REDIS_CONFIG_STREAM_KEY} group=${APPLIER_GROUP} consumer=${APPLIER_CONSUMER} instance=${AC_INSTANCE_ID}`,
   );
+
+  await cleanupOrphanProcesses();
 
   let isFirstSnapshot = true;
   while (true) {

@@ -22,7 +22,7 @@ services:
       - path: ./.env.production
         required: true
     volumes:
-      - /home/jose/assetto-install/assetto/server:/home/jose/assetto-install/assetto/server:ro
+      - /home/jose/assetto-infra/server:/home/jose/assetto-infra/server:ro
     ports:
       - "3000:3000"
     depends_on:
@@ -39,8 +39,8 @@ services:
       - path: ./.env.production
         required: true
     volumes:
-      - /home/jose/assetto-install/assetto/server:/home/jose/assetto-install/assetto/server:ro
-      - /home/jose/assetto-install/assetto/server-timeattack:/home/jose/assetto-install/assetto/server-timeattack:ro
+      - /home/jose/assetto-infra/server:/home/jose/assetto-infra/server:ro
+      
     ports:
       - "9000-9010:9000-9010/udp"
     depends_on:

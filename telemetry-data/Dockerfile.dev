@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-ENV SERVERS_PATH=/home/jose/assetto-install/assetto/server
+ENV SERVERS_PATH=/home/jose/assetto-infra/server
 ENV AC_INSTANCE_ID=vps-eu-2
 
 CMD ["python", "-m", "main"]

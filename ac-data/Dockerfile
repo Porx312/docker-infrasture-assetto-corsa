@@ -11,7 +11,7 @@ COPY . .
 
 RUN npm install typescript && ./node_modules/.bin/tsc
 
-ENV SERVERS_PATH=/home/jose/assetto-install/assetto/server
+ENV SERVERS_PATH=/home/jose/assetto-infra/server
 ENV PORT=3000
 
 EXPOSE 3000

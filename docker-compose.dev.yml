@@ -9,8 +9,7 @@ services:
         required: true
     volumes:
       - ./telemetry-data:/app
-      - /home/jose/assetto-install/assetto/server:/home/jose/assetto-install/assetto/server:ro
-      - /home/jose/assetto-install/assetto/server-timeattack:/home/jose/assetto-install/assetto/server-timeattack:ro
+      - /home/jose/assetto-infra/server:/home/jose/assetto-infra/server:ro
     network_mode: host
     restart: unless-stopped
     command: python -m main

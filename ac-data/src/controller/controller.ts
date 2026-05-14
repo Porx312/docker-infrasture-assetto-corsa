@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
 
-dotenv.config();
+dotenv.config({ path: '/home/jose/assetto-infra/.env' });
 
 const _serversPath = process.env.SERVERS_PATH;
 if (!_serversPath) throw new Error('SERVERS_PATH no definido en .env');
@@ -34,6 +34,62 @@ const savePids = () => {
 };
 
 export const activeServers: Record<string, { pid: number; process: ChildProcess } | undefined> = {};
+
+function getServerPorts(serverName: string): { udp: number; tcp: number } | null {
+    const ports: Record<string, { udp: number; tcp: number }> = {
+        'server': { udp: 9600, tcp: 9610 },
+        'server-1': { udp: 9610, tcp: 9620 },
+        'server-2': { udp: 9620, tcp: 9630 },
+        'server-3': { udp: 9630, tcp: 9640 },
+        'server-4': { udp: 9640, tcp: 9650 },
+        'server-5': { udp: 9650, tcp: 9660 },
+        'server-6': { udp: 9660, tcp: 9670 },
+        'server-7': { udp: 9670, tcp: 9680 },
+        'server-8': { udp: 9680, tcp: 9690 },
+        'server-9': { udp: 9690, tcp: 9700 },
+        'server-10': { udp: 9700, tcp: 9710 },
+        'server-11': { udp: 9710, tcp: 9720 },
+    };
+    return ports[serverName] || null;
+}
+
+function isPortInUse(port: number, type: 'tcp' | 'udp'): boolean {
+    try {
+        const result = execSync(`ss -${type[0]}lnp 2>/dev/null | grep ':${port}'`, { encoding: 'utf-8' });
+        return result.includes(`:${port}`);
+    } catch {
+        return false;
+    }
+}
+
+export async function cleanupOrphanProcesses(): Promise<void> {
+    console.log('[cleanup] Scanning for orphan AC server processes...');
+    const serversPath = SERVERS_PATH;
+    if (!fs.existsSync(serversPath)) return;
+
+    const entries = fs.readdirSync(serversPath, { withFileTypes: true });
+    for (const entry of entries) {
+        if (!entry.isDirectory() || !entry.name.startsWith('server')) continue;
+
+        const ports = getServerPorts(entry.name);
+        if (!ports) continue;
+
+        const isUdpInUse = isPortInUse(ports.udp, 'udp');
+        const isTcpInUse = isPortInUse(ports.tcp, 'tcp');
+
+        if (isUdpInUse || isTcpInUse) {
+            console.log(`[cleanup] ${entry.name} has orphan process on UDP:${ports.udp} TCP:${ports.tcp}`);
+
+            try {
+                execSync(`pkill -f "acServer.*${entry.name}" 2>/dev/null`, { encoding: 'utf-8' });
+                await new Promise(r => setTimeout(r, 2000));
+                console.log(`[cleanup] Killed orphan process for ${entry.name}`);
+            } catch {
+                console.log(`[cleanup] No process found or already dead for ${entry.name}`);
+            }
+        }
+    }
+}
 
 export type ServerConfigPayload = {
     displayName?: string;
@@ -143,6 +199,13 @@ export function applyServerConfiguration(
                     entryListContent += `RESTRICTOR=0\n\n`;
                     carIndex++;
                 }
+            }
+            try {
+                const entryListStats = fs.lstatSync(entryListPath);
+                if (entryListStats.isSymbolicLink()) {
+                    fs.unlinkSync(entryListPath);
+                }
+            } catch {
             }
             fs.writeFileSync(entryListPath, entryListContent, 'utf-8');
             modifications.push('entry_list.ini (regenerated)');
