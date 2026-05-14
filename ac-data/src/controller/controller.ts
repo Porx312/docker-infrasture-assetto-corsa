@@ -1,4 +1,4 @@
-import { spawn, exec, ChildProcess } from 'child_process';
+import { spawn, exec, execSync, ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';

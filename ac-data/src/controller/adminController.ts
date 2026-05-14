@@ -7,7 +7,7 @@ import { listContent, deleteContent, uploadSingleFile, extractZip, getContentSum
 const JWT_COOKIE_OPTIONS = {
     httpOnly: true,
     secure: false,
-    sameSite: 'none',
+    sameSite: 'none' as const,
     maxAge: 24 * 60 * 60 * 1000,
 };
 
@@ -32,7 +32,7 @@ export async function adminLogin(req: Request, res: Response): Promise<void> {
 }
 
 export async function adminLogout(req: Request, res: Response): Promise<void> {
-    res.clearCookie('admin_token', { httpOnly: true, secure: false, sameSite: 'none' });
+    res.clearCookie('admin_token', { httpOnly: true, secure: false, sameSite: 'none' as const });
     res.json({ ok: true, message: 'Logged out' });
 }
 

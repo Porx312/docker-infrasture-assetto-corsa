@@ -32,6 +32,9 @@ else
     pkill -f "node.*dist/index" 2>/dev/null || true
 fi
 
+# Remove stale PID file
+rm -f /home/jose/assetto-infra/server_pids.json
+
 # Stop AC servers
 echo -e "${YELLOW}Stopping AC servers...${NC}"
 if [ "$FORCE" = "force" ]; then

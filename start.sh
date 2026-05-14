@@ -70,19 +70,28 @@ else
     echo -e "${YELLOW}Using Redis Cloud (no local Redis needed)${NC}"
 fi
 
-# Start telemetry-data (Docker)
-echo -e "${YELLOW}Starting telemetry-data (Docker)...${NC}"
-if sg docker -c "docker ps -a --filter name=assetto-telemetry-data --format '{{.Names}}'" 2>/dev/null | grep -q assetto-telemetry-data; then
-    if sg docker -c "docker ps --filter name=assetto-telemetry-data --format '{{.Names}}'" 2>/dev/null | grep -q assetto-telemetry-data; then
-        echo -e "${GREEN}telemetry-data is running${NC}"
+# Start telemetry-data (host for dev, Docker for prod)
+echo -e "${YELLOW}Starting telemetry-data...${NC}"
+if [ "$ENV_MODE" = "dev" ]; then
+    if pgrep -f "python3 main.py" > /dev/null 2>&1; then
+        echo -e "${GREEN}telemetry-data is already running${NC}"
     else
-        echo -e "${YELLOW}Restarting telemetry-data...${NC}"
+        nohup ./start-telemetry.sh > telemetry-data.log 2>&1 &
+        echo -e "${GREEN}telemetry-data started (host)${NC}"
+    fi
+else
+    if sg docker -c "docker ps -a --filter name=assetto-telemetry-data --format '{{.Names}}'" 2>/dev/null | grep -q assetto-telemetry-data; then
+        if sg docker -c "docker ps --filter name=assetto-telemetry-data --format '{{.Names}}'" 2>/dev/null | grep -q assetto-telemetry-data; then
+            echo -e "${GREEN}telemetry-data is running${NC}"
+        else
+            echo -e "${YELLOW}Restarting telemetry-data...${NC}"
+            sg docker -c "docker compose -f $DOCKER_COMPOSE up -d telemetry-data"
+            echo -e "${GREEN}telemetry-data started${NC}"
+        fi
+    else
         sg docker -c "docker compose -f $DOCKER_COMPOSE up -d telemetry-data"
         echo -e "${GREEN}telemetry-data started${NC}"
     fi
-else
-    sg docker -c "docker compose -f $DOCKER_COMPOSE up -d telemetry-data"
-    echo -e "${GREEN}telemetry-data started${NC}"
 fi
 
 # Start ac-data (Node.js on host)
@@ -104,12 +113,12 @@ fi
 echo -e "${GREEN}=== All services started ===${NC}"
 echo ""
 echo "Services:"
-echo "  - telemetry-data: $(sg docker -c "docker ps --filter name=assetto-telemetry-data --format '{{.Status}}'" 2>/dev/null || echo 'stopped')"
+echo "  - telemetry-data: $(pgrep -f 'python3 main.py' > /dev/null 2>&1 && echo 'running (host)' || echo 'stopped')"
 echo "  - ac-data: $(is_running 'tsx.*src/index' && echo 'running' || echo 'stopped')"
 echo "  - Redis: $([ "$ENV_MODE" = "dev" ] && (is_running 'redis-server' && echo 'running (local)' || echo 'stopped') || echo 'Cloud (external)')"
 echo ""
 echo "Logs:"
-echo "  - telemetry-data: docker logs -f assetto-telemetry-data"
+echo "  - telemetry-data: tail -f telemetry-data.log"
 echo "  - ac-data: tail -f ac-data.log"
 echo "  - Redis events: redis-cli xlen ac:events"
 echo ""
