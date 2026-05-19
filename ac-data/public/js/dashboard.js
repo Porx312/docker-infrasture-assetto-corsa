@@ -8,11 +8,11 @@ async function checkAuth() {
         const res = await fetch(`${API_BASE}/check`, { credentials: 'include' });
         const data = await res.json();
         if (!data.authenticated) {
-            window.location.href = '/admin/login.html';
+            window.location.href = '/admin/login';
         }
         return data.authenticated;
     } catch {
-        window.location.href = '/admin/login.html';
+        window.location.href = '/admin/login';
         return false;
     }
 }
@@ -21,7 +21,7 @@ async function logout() {
     try {
         await fetch(`${API_BASE}/logout`, { method: 'POST', credentials: 'include' });
     } finally {
-        window.location.href = '/admin/login.html';
+        window.location.href = '/admin/login';
     }
 }
 

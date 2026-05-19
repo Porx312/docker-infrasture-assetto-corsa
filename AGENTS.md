@@ -63,6 +63,7 @@ redis-cli xlen ac:events
 4. **server_cfg.ini CARS/TRACK must be in [SERVER] section** — Not at end of file
 5. **ac-data continuously restarting servers** — Convex config version changing on every poll; use stable version strings
 6. **Servers not restarting after stop** — Delete stale `server_pids.json`
+7. **Config race** — Keep `REDIS_CONFIG_INI_WRITE_ENABLED=false` in telemetry; ac-data owns INI writes + restarts
 
 ## CI/CD
 
@@ -73,4 +74,7 @@ redis-cli xlen ac:events
 
 - `README.md` — Quick start and architecture
 - `SETUP_GUIDE.md` — Full setup with troubleshooting
+- `docs/VPS_CAPACITY.md` — VPS sizing, 300 on-demand pool, hardware checklist
+- `scripts/vps-capacity-check.sh` — RAM/CPU/acServer snapshot on the host
+- `scripts/load-test-ac-servers.sh` — start N servers via API and log metrics
 - `install.sh` — Automated dependency installation

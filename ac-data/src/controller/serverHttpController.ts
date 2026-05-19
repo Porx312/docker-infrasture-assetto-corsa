@@ -30,7 +30,11 @@ function availableServerNames(): string[] {
     .readdirSync(base, { withFileTypes: true })
     .filter((e) => e.isDirectory())
     .map((e) => e.name)
-    .filter((name) => fs.existsSync(path.join(base, name, 'acServer.exe')))
+    .filter((name) => {
+      const bin = path.join(base, name, 'acServer');
+      const binExe = path.join(base, name, 'acServer.exe');
+      return fs.existsSync(bin) || fs.existsSync(binExe);
+    })
     .sort((a, b) => a.localeCompare(b));
 }
 

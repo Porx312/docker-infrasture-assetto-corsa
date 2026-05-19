@@ -116,7 +116,7 @@
                 const data = await res.json();
 
                 if (res.ok && data.ok) {
-                    window.location.href = '/admin/dashboard.html';
+                    window.location.href = '/admin/dashboard';
                 } else {
                     errorEl.textContent = data.message || 'Login failed';
                     errorEl.classList.add('show');

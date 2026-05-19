@@ -12,6 +12,7 @@ import {
   stopServerCore,
   ServerConfigPayload,
 } from '../controller/controller.js';
+import { shouldStartFromConfig } from './serverPool.js';
 
 dotenv.config();
 
@@ -175,6 +176,25 @@ async function reconcileServer(row: ServerRow, isFirstSnapshot: boolean): Promis
       );
     } else {
       console.log(`[redis-config-applier] ${row.serverName} inactive (no process to stop)`);
+    }
+    lastSignatures.set(row.serverName, signature);
+    return;
+  }
+
+  if (!shouldStartFromConfig(row.isActive)) {
+    const apply = applyServerConfiguration(row.serverName, rowToConfigPayload(row));
+    if (!apply.ok) {
+      console.warn(`[redis-config-applier] applyConfig ${row.serverName} failed: ${apply.reason}`);
+    } else if (apply.modifications.length) {
+      console.log(
+        `[redis-config-applier] applyConfig ${row.serverName} (pool idle): ${apply.modifications.join(', ')}`,
+      );
+    }
+    if (running) {
+      const result = await stopServerCore(row.serverName);
+      console.log(
+        `[redis-config-applier] pool stop ${row.serverName}: ${result.ok ? 'ok' : 'failed'} | ${result.message}`,
+      );
     }
     lastSignatures.set(row.serverName, signature);
     return;

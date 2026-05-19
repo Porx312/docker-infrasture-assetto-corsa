@@ -1,51 +1,55 @@
+import os
 import socket
 import select
+import sys
 import threading
 import time
-import os
-import sys
+import struct
 from dotenv import load_dotenv
 
 os.environ["PYTHONUNBUFFERED"] = "1"
 
-# Load .env BEFORE importing modules that read env vars at module load time
-# (event_dispatcher / redis_config_sync cache REDIS_HOST etc. on import).
+# Load .env BEFORE importing modules that read env via core.settings on import.
 load_dotenv()
 
-from core.config_loader import load_server_configs
-from core.session_manager import ServerState, send_registration
-from core.packet_processor import process_packet
-from network.event_dispatcher import send_server_event
-from core.redis_config_sync import start_redis_config_consumer
-
-SERVER_IP = '127.0.0.1'
-GHOST_DRIVER_TIMEOUT_MS = int(os.getenv("GHOST_DRIVER_TIMEOUT_MS", "90000"))
-
-# Local UDP polling cadence to detect ghost drivers; cheap, no network egress.
-SERVER_STATUS_POLL_INTERVAL_SEC = int(os.getenv("SERVER_STATUS_POLL_INTERVAL_SEC", "15"))
-# Cadence used when the server state actually changed (player joined/left,
-# track/config swap). Keep small so the dashboard reacts fast.
-SERVER_STATUS_PUBLISH_INTERVAL_SEC = int(os.getenv("SERVER_STATUS_PUBLISH_INTERVAL_SEC", "30"))
-# Force a "still alive" publish even when nothing changed, so Convex can mark
-# the server offline if heartbeats stop arriving.
-SERVER_STATUS_HEARTBEAT_INTERVAL_SEC = int(os.getenv("SERVER_STATUS_HEARTBEAT_INTERVAL_SEC", "300"))
-SERVER_STATUS_ON_CHANGE_ONLY = os.getenv("SERVER_STATUS_ON_CHANGE_ONLY", "true").strip().lower() in (
-    "1", "true", "yes", "on",
+from core import runtime_config, settings  # noqa: E402
+from core.config_loader import load_server_configs  # noqa: E402
+from core.logging_config import get_logger, setup_logging  # noqa: E402
+from core.session_manager import ServerState, send_registration  # noqa: E402
+from core.packet_processor import process_packet  # noqa: E402
+from network.event_dispatcher import send_server_event  # noqa: E402
+from core.redis_config_sync import (  # noqa: E402
+    bootstrap_runtime_config_from_stream,
+    start_redis_config_consumer,
 )
 
-# ──────────────────────────────────────────────
-# SERVER LISTENER THREAD
-# ──────────────────────────────────────────────
+setup_logging()
+log = get_logger("main")
+
+SERVER_IP = "127.0.0.1"
+
+
+def bind_udp_listener(port: int) -> socket.socket:
+    """Bind a UDP socket for an AC plugin listen port (raises OSError on conflict)."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind((SERVER_IP, port))
+    sock.setblocking(False)
+    return sock
+
 
 def listen_server(server_state):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind((SERVER_IP, server_state.port))
-    sock.setblocking(False)
-    server_state.sock = sock
+    sock = server_state.sock
+    if sock is None:
+        log.error("[%s] listener skipped (socket not bound)", server_state.port)
+        return
 
-    print(f"🎧 Events listener started on port {server_state.port} — Server: {server_state.server_name}", flush=True)
+    log.info(
+        "listener started port=%s server=%s",
+        server_state.port,
+        server_state.server_name,
+    )
 
-    # Force connection immediately so we can get NEW_SESSION and active players
     server_state.last_server_addr = (SERVER_IP, server_state.server_cmd_port)
     send_registration(server_state, SERVER_IP)
 
@@ -56,18 +60,12 @@ def listen_server(server_state):
                 data, addr = sock.recvfrom(4096)
                 process_packet(data, server_state, addr)
             except ConnectionResetError:
-                # This happen on Windows if a previous sendto() failed (ICMP Port Unreachable).
-                # It's safe to ignore for UDP.
                 pass
             except Exception as e:
-                print(f"❌ [{server_state.port}] Packet error: {e}", flush=True)
+                log.exception("[%s] packet error: %s", server_state.port, e)
 
-# ──────────────────────────────────────────────
-# SERVER STATUS SYNC THREAD
-# ──────────────────────────────────────────────
 
 def _build_server_status_signature(players, track, config):
-    """Stable signature so we can compare two server snapshots cheaply."""
     sorted_players = sorted(
         ({"steamId": p.get("steamId"), "carModel": p.get("carModel")} for p in players),
         key=lambda x: (x.get("steamId") or "", x.get("carModel") or ""),
@@ -76,53 +74,37 @@ def _build_server_status_signature(players, track, config):
 
 
 def server_status_loop(servers):
-    """
-    Polls the AC server every SERVER_STATUS_POLL_INTERVAL_SEC for CAR_INFO so
-    we can detect ghost players (cheap local UDP, no Redis cost).
-
-    Publishing the resulting `server_status` event to Redis is decoupled from
-    that polling cadence:
-      * If the snapshot changed (players joined/left, track/config swap) and
-        at least SERVER_STATUS_PUBLISH_INTERVAL_SEC seconds passed, publish.
-      * Otherwise force a heartbeat every SERVER_STATUS_HEARTBEAT_INTERVAL_SEC
-        seconds so Convex can detect a dead worker.
-    """
-    import struct
     last_signatures: dict[int, tuple] = {}
     last_publish_at: dict[int, float] = {}
     while True:
-        time.sleep(max(1, SERVER_STATUS_POLL_INTERVAL_SEC))
+        time.sleep(max(1, settings.SERVER_STATUS_POLL_INTERVAL_SEC))
         now = time.time()
         for state in servers.values():
             if not state.last_server_addr:
-                continue  # Never got a packet from this server yet
+                continue
 
-            # Ping AC server for all slots to detect silent disconnects
             for i in range(32):
-                packet = struct.pack('BB', 201, i)
+                packet = struct.pack("BB", 201, i)
                 try:
                     state.sock.sendto(packet, state.last_server_addr)
                 except Exception:
                     pass
                 time.sleep(0.01)
 
-            # Build list of active players safely (values might change during loop)
             now_ms = int(time.time() * 1000)
             players = []
             stale_car_ids = []
             for car_id, d in list(state.active_drivers.items()):
                 last_seen = getattr(d, "last_seen_ms", 0)
-                if last_seen and (now_ms - last_seen) > GHOST_DRIVER_TIMEOUT_MS:
+                if last_seen and (now_ms - last_seen) > settings.GHOST_DRIVER_TIMEOUT_MS:
                     stale_car_ids.append(car_id)
                     continue
-                if not d.guid.startswith('unknown_'):
-                    players.append({
-                        "steamId": d.guid,
-                        "name": d.name,
-                        "carModel": d.model
-                    })
+                if not d.guid.startswith("unknown_"):
+                    players.append(
+                        {"steamId": d.guid, "name": d.name, "carModel": d.model}
+                    )
 
-            # Purga defensiva de "ghost players" cuando no llegaron paquetes de salida.
+            server_label = getattr(state, "config_server_name", state.server_name)
             for car_id in stale_car_ids:
                 d = state.active_drivers.get(car_id)
                 if not d:
@@ -130,27 +112,30 @@ def server_status_loop(servers):
                 if d.guid in state.guid_to_driver:
                     del state.guid_to_driver[d.guid]
                 del state.active_drivers[car_id]
-                if not d.guid.startswith('unknown_'):
-                    send_server_event("player_leave", getattr(state, 'config_server_name', state.server_name), {
-                        "steamId": d.guid,
-                        "trackName": state.track,
-                        "trackConfig": state.config
-                    })
+                if not d.guid.startswith("unknown_"):
+                    send_server_event(
+                        "player_leave",
+                        server_label,
+                        {
+                            "steamId": d.guid,
+                            "trackName": state.track,
+                            "trackConfig": state.config,
+                        },
+                    )
             if stale_car_ids:
-                print(f"🧹 [{state.port}] Purga estado: {len(stale_car_ids)} ghost(s) removidos por timeout", flush=True)
+                log.info("[%s] purged %d ghost driver(s)", state.port, len(stale_car_ids))
 
             signature = _build_server_status_signature(players, state.track, state.config)
             previous_sig = last_signatures.get(state.port)
             previous_publish = last_publish_at.get(state.port, 0.0)
             elapsed = now - previous_publish
-            heartbeat_due = elapsed >= SERVER_STATUS_HEARTBEAT_INTERVAL_SEC
+            heartbeat_due = elapsed >= settings.SERVER_STATUS_HEARTBEAT_INTERVAL_SEC
             change_due = (
                 signature != previous_sig
-                and elapsed >= SERVER_STATUS_PUBLISH_INTERVAL_SEC
+                and elapsed >= settings.SERVER_STATUS_PUBLISH_INTERVAL_SEC
             )
 
-            if not SERVER_STATUS_ON_CHANGE_ONLY:
-                # Legacy mode: publish every poll tick.
+            if not settings.SERVER_STATUS_ON_CHANGE_ONLY:
                 should_publish = True
             else:
                 should_publish = previous_sig is None or change_due or heartbeat_due
@@ -158,49 +143,108 @@ def server_status_loop(servers):
             if not should_publish:
                 continue
 
-            send_server_event("server_status", getattr(state, 'config_server_name', state.server_name), {
-                "players": players,
-                "trackName": state.track,
-                "trackConfig": state.config
-            })
+            send_server_event(
+                "server_status",
+                server_label,
+                {
+                    "players": players,
+                    "trackName": state.track,
+                    "trackConfig": state.config,
+                },
+            )
             last_signatures[state.port] = signature
             last_publish_at[state.port] = now
 
-# ──────────────────────────────────────────────
-# MAIN
-# ──────────────────────────────────────────────
+
+def _bootstrap_modes_from_redis() -> None:
+    if not settings.REDIS_CONFIG_CONSUMER_ENABLED or not settings.REDIS_HOST:
+        return
+    if runtime_config.has_data():
+        return
+    try:
+        from core.redis_client import get_redis_client
+
+        bootstrap_runtime_config_from_stream(get_redis_client())
+    except Exception as exc:
+        log.warning("cold-start config bootstrap failed: %s", exc)
+
 
 def main():
-    # Load all server configurations into ServerState objects
     servers = load_server_configs(ServerState)
 
     if not servers:
-        print("❌ No event server configurations found. Check EVENTS_SERVERS_PATH in .env", flush=True)
-        return
+        log.error(
+            "no server configurations found; set SERVERS_PATH, "
+            "TIME_ATTACK_SERVERS_PATH, and/or EVENTS_SERVERS_PATH in .env"
+        )
+        sys.exit(1)
+
+    _bootstrap_modes_from_redis()
+    runtime_config.log_listener_modes(servers)
+
+    bound_servers = []
+    bind_failures = []
+    for server_state in servers.values():
+        try:
+            server_state.sock = bind_udp_listener(server_state.port)
+            bound_servers.append(server_state)
+        except OSError as exc:
+            server_state.sock = None
+            bind_failures.append((server_state.port, server_state.server_name, exc))
+
+    for port, name, exc in bind_failures:
+        log.error("cannot bind UDP %s:%s for %s: %s", SERVER_IP, port, name, exc)
+
+    if not bound_servers:
+        log.error(
+            "no UDP listeners started — port(s) already in use. "
+            "Stop the other telemetry instance: ./stop.sh or pkill -f 'python3 main.py'"
+        )
+        sys.exit(1)
+
+    if bind_failures:
+        log.warning(
+            "%d/%d UDP listener(s) failed; continuing with %d server(s)",
+            len(bind_failures),
+            len(servers),
+            len(bound_servers),
+        )
 
     threads = []
-    for server_state in servers.values():
+    for server_state in bound_servers:
         t = threading.Thread(target=listen_server, args=(server_state,), daemon=True)
         t.start()
         threads.append(t)
 
-    # Start 5-minute sync loop in the background
-    sync_thread = threading.Thread(target=server_status_loop, args=(servers,), daemon=True)
+    active_servers = {s.port: s for s in bound_servers}
+    sync_thread = threading.Thread(target=server_status_loop, args=(active_servers,), daemon=True)
     sync_thread.start()
     threads.append(sync_thread)
 
-    # Consume server configuration snapshots from Redis and apply to local AC cfg files.
-    cfg_sync_thread = threading.Thread(target=start_redis_config_consumer, args=(servers,), daemon=True)
+    cfg_sync_thread = threading.Thread(
+        target=start_redis_config_consumer, args=(active_servers,), daemon=True
+    )
     cfg_sync_thread.start()
     threads.append(cfg_sync_thread)
 
-    print(f"\n✅ {len(servers)} event server(s) running. Press Ctrl+C to stop.\n", flush=True)
+    log.info(
+        "%d UDP listener(s) running (%d configured); press Ctrl+C to stop",
+        len(bound_servers),
+        len(servers),
+    )
 
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        print("\n👋 Stopping event servers.")
+        log.info("stopping event servers")
+
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception:
+        log.exception("fatal error")
+        sys.exit(1)

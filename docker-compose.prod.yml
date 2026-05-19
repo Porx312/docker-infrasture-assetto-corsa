@@ -40,9 +40,8 @@ services:
         required: true
     volumes:
       - /home/jose/assetto-infra/server:/home/jose/assetto-infra/server:ro
-      
-    ports:
-      - "9000-9010:9000-9010/udp"
+    # Bind AC plugin ports 12000+ on the host (see server_cfg.ini UDP_PLUGIN_ADDRESS).
+    network_mode: host
     depends_on:
       redis:
         condition: service_healthy

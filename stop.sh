@@ -16,8 +16,15 @@ FORCE="${1:-}"
 
 echo -e "${YELLOW}=== Stopping Assetto Corsa Services ===${NC}"
 
-# Stop telemetry-data (Docker)
+# Stop telemetry-data (host + Docker)
 echo -e "${YELLOW}Stopping telemetry-data...${NC}"
+if [ "$FORCE" = "force" ]; then
+    pkill -9 -f "python3 main.py" 2>/dev/null || true
+    pkill -9 -f "python -m main" 2>/dev/null || true
+else
+    pkill -f "python3 main.py" 2>/dev/null || true
+    pkill -f "python -m main" 2>/dev/null || true
+fi
 sg docker -c "docker compose -f docker-compose.dev.yml stop telemetry-data" 2>/dev/null || true
 sg docker -c "docker compose -f docker-compose.prod.yml stop telemetry-data" 2>/dev/null || true
 sg docker -c "docker rm -f assetto-telemetry-data" 2>/dev/null || true

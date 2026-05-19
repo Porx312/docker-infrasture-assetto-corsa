@@ -1,3 +1,7 @@
+"""Consume ac:config snapshots and update in-memory runtime_config (modes + event rules)."""
+
+from __future__ import annotations
+
 import json
 import os
 import re
@@ -5,34 +9,12 @@ import threading
 import time
 from typing import Any, Dict, Optional
 
-from dotenv import load_dotenv
-
-try:
-    import redis
-except Exception:
-    redis = None
-
-from core import runtime_config
+from core import runtime_config, settings
+from core.logging_config import get_logger
+from core.redis_client import get_redis_client
 from network.event_dispatcher import send_server_event
 
-
-load_dotenv()
-
-AC_INSTANCE_ID = os.getenv("AC_INSTANCE_ID", "default").strip() or "default"
-REDIS_HOST = os.getenv("REDIS_HOST", "").strip()
-REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
-REDIS_USERNAME = os.getenv("REDIS_USERNAME", "").strip() or None
-REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "").strip() or None
-REDIS_DB = int(os.getenv("REDIS_DB", "0"))
-REDIS_SSL = os.getenv("REDIS_SSL", "false").strip().lower() == "true"
-REDIS_STREAM_KEY = os.getenv("REDIS_STREAM_KEY", "ac:events").strip()
-REDIS_CONFIG_STREAM_KEY = os.getenv("REDIS_CONFIG_STREAM_KEY", "ac:config").strip() or REDIS_STREAM_KEY
-
-REDIS_CONFIG_CONSUMER_ENABLED = (
-    os.getenv("REDIS_CONFIG_CONSUMER_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
-)
-REDIS_CONFIG_CONSUMER_GROUP = os.getenv("REDIS_CONFIG_CONSUMER_GROUP", "ac-config-consumers").strip()
-REDIS_CONFIG_CONSUMER_NAME = os.getenv("REDIS_CONFIG_CONSUMER_NAME", f"py-{AC_INSTANCE_ID}").strip()
+log = get_logger("config_sync")
 
 _VERSIONS_FILE = os.path.join(os.getcwd(), "redis_applied_config_versions.json")
 _versions_lock = threading.Lock()
@@ -53,7 +35,7 @@ def _save_versions(data: Dict[str, str]) -> None:
         with open(_VERSIONS_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        print(f"⚠️ [CONFIG-SYNC] Could not save versions file: {e}", flush=True)
+        log.warning("could not save versions file: %s", e)
 
 
 def _replace_or_append(content: str, key: str, value: str) -> str:
@@ -152,11 +134,6 @@ def _write_entry_list(cfg_path: str, cfg: Dict[str, Any]) -> bool:
 def _find_state_by_server_name(
     servers: Dict[int, Any], server_name: str, display_name: str = ""
 ) -> Optional[Any]:
-    """
-    Resolve a `ServerState` from a snapshot row. The Convex `serverName` is the
-    folder slug (e.g. ``server-2``) while `displayName` matches the AC
-    SERVER_NAME, so we try multiple state attributes to find a hit.
-    """
     targets = []
     for value in (server_name, display_name):
         text = (value or "").strip().lower()
@@ -176,13 +153,19 @@ def _find_state_by_server_name(
     return None
 
 
-def _apply_snapshot(servers: Dict[int, Any], payload: Dict[str, Any]) -> tuple[int, int]:
+def apply_snapshot(servers: Dict[int, Any], payload: Dict[str, Any]) -> tuple[int, int]:
+    """
+    Apply a server_config_snapshot payload.
+
+    Always updates runtime_config (modes + event constraints).
+    Writes INI files only when REDIS_CONFIG_INI_WRITE_ENABLED=true (legacy).
+    """
     data = payload.get("data") or {}
     if not isinstance(data, dict):
         return 0, 0
     instance_id = str(data.get("instanceId") or payload.get("instanceId") or "")
     version = str(data.get("version") or "")
-    if instance_id != AC_INSTANCE_ID or not version:
+    if instance_id != settings.AC_INSTANCE_ID or not version:
         return 0, 0
 
     rows = data.get("servers") or []
@@ -190,11 +173,29 @@ def _apply_snapshot(servers: Dict[int, Any], payload: Dict[str, Any]) -> tuple[i
         rows = []
 
     runtime_config.set_server_modes(rows)
+    log.info(
+        "runtime_config modes updated version=%s count=%d map=%s",
+        version,
+        len(rows),
+        runtime_config.snapshot(),
+    )
 
     with _versions_lock:
         versions = _load_versions()
         if versions.get(instance_id) == version:
             return 0, 0
+
+    if not settings.REDIS_CONFIG_INI_WRITE_ENABLED:
+        with _versions_lock:
+            versions = _load_versions()
+            versions[instance_id] = version
+            _save_versions(versions)
+        log.info(
+            "runtime_config updated version=%s servers=%d (ini write disabled)",
+            version,
+            len(rows),
+        )
+        return len(rows), 0
 
     applied = 0
     errors = 0
@@ -208,15 +209,16 @@ def _apply_snapshot(servers: Dict[int, Any], payload: Dict[str, Any]) -> tuple[i
         )
         if not state or not getattr(state, "cfg_path", None):
             continue
+        server_label = getattr(state, "config_server_name", getattr(state, "server_name", "unknown"))
         try:
             changed = _write_server_cfg(state.cfg_path, row)
             entry_written = _write_entry_list(state.cfg_path, row)
             applied += 1
             send_server_event(
                 "server_config_applied",
-                getattr(state, "config_server_name", getattr(state, "server_name", "unknown")),
+                server_label,
                 {
-                    "instanceId": AC_INSTANCE_ID,
+                    "instanceId": settings.AC_INSTANCE_ID,
                     "version": version,
                     "serverName": row.get("serverName"),
                     "updatedKeys": changed,
@@ -228,9 +230,9 @@ def _apply_snapshot(servers: Dict[int, Any], payload: Dict[str, Any]) -> tuple[i
             errors += 1
             send_server_event(
                 "server_config_applied",
-                getattr(state, "config_server_name", getattr(state, "server_name", "unknown")),
+                server_label,
                 {
-                    "instanceId": AC_INSTANCE_ID,
+                    "instanceId": settings.AC_INSTANCE_ID,
                     "version": version,
                     "serverName": row.get("serverName"),
                     "ok": False,
@@ -246,41 +248,90 @@ def _apply_snapshot(servers: Dict[int, Any], payload: Dict[str, Any]) -> tuple[i
     return applied, errors
 
 
+def bootstrap_runtime_config_from_stream(client) -> bool:
+    """
+    On cold start the consumer group only reads '>' (new) messages, so modes would
+    stay empty until Convex publishes again. Load the latest snapshot from the stream.
+    """
+    try:
+        entries = client.xrevrange(settings.REDIS_CONFIG_STREAM_KEY, count=100)
+    except Exception as exc:
+        log.warning("bootstrap xrevrange failed: %s", exc)
+        return False
+
+    for msg_id, fields in entries:
+        raw_payload = fields.get("payload")
+        if not raw_payload:
+            continue
+        try:
+            payload = json.loads(raw_payload)
+        except json.JSONDecodeError:
+            continue
+        if payload.get("event") != "server_config_snapshot":
+            continue
+        data = payload.get("data") or {}
+        if not isinstance(data, dict):
+            continue
+        instance_id = str(data.get("instanceId") or payload.get("instanceId") or "")
+        if instance_id != settings.AC_INSTANCE_ID:
+            continue
+        rows = data.get("servers") or []
+        if not isinstance(rows, list):
+            rows = []
+        runtime_config.set_server_modes(rows)
+        log.info(
+            "bootstrapped runtime_config from stream id=%s version=%s modes=%s",
+            msg_id,
+            data.get("version"),
+            runtime_config.snapshot(),
+        )
+        return True
+
+    log.warning(
+        "no server_config_snapshot in stream for instance %s; "
+        "battle/time-attack modes stay unknown until ac-data publishes to ac:config",
+        settings.AC_INSTANCE_ID,
+    )
+    return False
+
+
 def start_redis_config_consumer(servers: Dict[int, Any]) -> None:
-    if not REDIS_CONFIG_CONSUMER_ENABLED:
-        print("[CONFIG-SYNC] disabled by REDIS_CONFIG_CONSUMER_ENABLED", flush=True)
+    if not settings.REDIS_CONFIG_CONSUMER_ENABLED:
+        log.info("disabled by REDIS_CONFIG_CONSUMER_ENABLED")
         return
-    if not REDIS_HOST:
-        print("[CONFIG-SYNC] REDIS_HOST missing, consumer disabled", flush=True)
-        return
-    if redis is None:
-        print("[CONFIG-SYNC] redis package missing. Run: pip install redis", flush=True)
+    if not settings.REDIS_HOST:
+        log.warning("REDIS_HOST missing, consumer disabled")
         return
 
-    client = redis.Redis(
-        host=REDIS_HOST,
-        port=REDIS_PORT,
-        decode_responses=True,
-        username=REDIS_USERNAME,
-        password=REDIS_PASSWORD,
-        db=REDIS_DB,
-        ssl=REDIS_SSL,
-    )
+    client = get_redis_client()
     try:
-        client.xgroup_create(REDIS_CONFIG_STREAM_KEY, REDIS_CONFIG_CONSUMER_GROUP, id="0", mkstream=True)
+        client.xgroup_create(
+            settings.REDIS_CONFIG_STREAM_KEY,
+            settings.REDIS_CONFIG_CONSUMER_GROUP,
+            id="0",
+            mkstream=True,
+        )
     except Exception:
         pass
 
-    print(
-        f"[CONFIG-SYNC] listening stream={REDIS_CONFIG_STREAM_KEY} "
-        f"group={REDIS_CONFIG_CONSUMER_GROUP} consumer={REDIS_CONFIG_CONSUMER_NAME} instance={AC_INSTANCE_ID}"
+    if not runtime_config.has_data():
+        bootstrap_runtime_config_from_stream(client)
+
+    log.info(
+        "listening stream=%s group=%s consumer=%s instance=%s ini_write=%s modes_loaded=%s",
+        settings.REDIS_CONFIG_STREAM_KEY,
+        settings.REDIS_CONFIG_CONSUMER_GROUP,
+        settings.REDIS_CONFIG_CONSUMER_NAME,
+        settings.AC_INSTANCE_ID,
+        settings.REDIS_CONFIG_INI_WRITE_ENABLED,
+        runtime_config.has_data(),
     )
     while True:
         try:
             res = client.xreadgroup(
-                REDIS_CONFIG_CONSUMER_GROUP,
-                REDIS_CONFIG_CONSUMER_NAME,
-                {REDIS_CONFIG_STREAM_KEY: ">"},
+                settings.REDIS_CONFIG_CONSUMER_GROUP,
+                settings.REDIS_CONFIG_CONSUMER_NAME,
+                {settings.REDIS_CONFIG_STREAM_KEY: ">"},
                 count=25,
                 block=5000,
             )
@@ -291,21 +342,35 @@ def start_redis_config_consumer(servers: Dict[int, Any]) -> None:
                     try:
                         raw_payload = fields.get("payload")
                         if not raw_payload:
-                            client.xack(REDIS_CONFIG_STREAM_KEY, REDIS_CONFIG_CONSUMER_GROUP, msg_id)
+                            client.xack(
+                                settings.REDIS_CONFIG_STREAM_KEY,
+                                settings.REDIS_CONFIG_CONSUMER_GROUP,
+                                msg_id,
+                            )
                             continue
                         payload = json.loads(raw_payload)
                         if payload.get("event") != "server_config_snapshot":
-                            client.xack(REDIS_CONFIG_STREAM_KEY, REDIS_CONFIG_CONSUMER_GROUP, msg_id)
-                            continue
-                        applied, errors = _apply_snapshot(servers, payload)
-                        if applied or errors:
-                            print(
-                                f"[CONFIG-SYNC] processed snapshot version="
-                                f"{(payload.get('data') or {}).get('version')} applied={applied} errors={errors}"
+                            client.xack(
+                                settings.REDIS_CONFIG_STREAM_KEY,
+                                settings.REDIS_CONFIG_CONSUMER_GROUP,
+                                msg_id,
                             )
-                        client.xack(REDIS_CONFIG_STREAM_KEY, REDIS_CONFIG_CONSUMER_GROUP, msg_id)
+                            continue
+                        applied, errors = apply_snapshot(servers, payload)
+                        if applied or errors:
+                            log.info(
+                                "processed snapshot version=%s applied=%d errors=%d",
+                                (payload.get("data") or {}).get("version"),
+                                applied,
+                                errors,
+                            )
+                        client.xack(
+                            settings.REDIS_CONFIG_STREAM_KEY,
+                            settings.REDIS_CONFIG_CONSUMER_GROUP,
+                            msg_id,
+                        )
                     except Exception as e:
-                        print(f"[CONFIG-SYNC] message error: {e}", flush=True)
+                        log.exception("message error: %s", e)
         except Exception as e:
-            print(f"[CONFIG-SYNC] loop error: {e}", flush=True)
+            log.exception("loop error: %s", e)
             time.sleep(1)

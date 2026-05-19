@@ -1,16 +1,13 @@
-import time
 import os
+import time
 import re
 from network.ac_packet import ACSP, PacketParser
 from core.session_manager import DriverInfo, send_registration, send_chat, send_admin_command
-from core import runtime_config
+from core import runtime_config, settings
+from core.logging_config import get_logger
 from network.event_dispatcher import send_server_event
 
-MIN_VALID_LAP_MS = int(os.getenv("MIN_VALID_LAP_MS", "10000"))
-GHOST_DRIVER_TIMEOUT_MS = int(os.getenv("GHOST_DRIVER_TIMEOUT_MS", "90000"))
-GHOST_CARINFO_DEBOUNCE_MS = int(os.getenv("GHOST_CARINFO_DEBOUNCE_MS", "2000"))
-REGISTRATION_REFRESH_MIN_MS = int(os.getenv("REGISTRATION_REFRESH_MIN_MS", "5000"))
-CAR_UPDATE_WATCHDOG_MS = int(os.getenv("CAR_UPDATE_WATCHDOG_MS", "3000"))
+log = get_logger("packet_processor")
 
 
 def _mark_driver_seen(driver):
@@ -18,7 +15,26 @@ def _mark_driver_seen(driver):
 
 
 def _resolve_server_mode(server_state):
-    return runtime_config.get_mode_for_state(server_state)
+    mode = runtime_config.get_mode_for_state(server_state)
+    if mode is not None or getattr(server_state, "_mode_lookup_logged", False):
+        return mode
+    server_state._mode_lookup_logged = True
+    if not runtime_config.has_data():
+        log.warning(
+            "[%s] runtime_config empty — no battle/time-attack until ac:config snapshot "
+            "(is ac-data running and REDIS_CONFIG_CONSUMER_ENABLED=true?)",
+            server_state.port,
+        )
+    else:
+        log.warning(
+            "[%s] no mode for folder=%r ini_name=%r ac_name=%r; convex modes=%s",
+            server_state.port,
+            getattr(server_state, "server_folder_id", ""),
+            getattr(server_state, "config_server_name", ""),
+            getattr(server_state, "server_name", ""),
+            runtime_config.snapshot(),
+        )
+    return mode
 
 
 def _drop_stale_drivers_on_new_session(server_state, now_ms):
@@ -32,7 +48,7 @@ def _drop_stale_drivers_on_new_session(server_state, now_ms):
         last_seen = getattr(driver, "last_seen_ms", 0)
         if last_seen <= 0:
             continue
-        if (now_ms - last_seen) <= GHOST_DRIVER_TIMEOUT_MS:
+        if (now_ms - last_seen) <= settings.GHOST_DRIVER_TIMEOUT_MS:
             continue
         if driver.guid in server_state.guid_to_driver:
             del server_state.guid_to_driver[driver.guid]
@@ -40,14 +56,14 @@ def _drop_stale_drivers_on_new_session(server_state, now_ms):
         del server_state.active_drivers[car_id]
         removed += 1
     if removed:
-        print(f"🧹 [{server_state.port}] Limpieza NEW_SESSION: {removed} ghost(s) removidos")
+        log.info("[%s] NEW_SESSION cleanup removed %d ghost(s)", server_state.port, removed)
 
 
 def process_packet(data, server_state, addr):
     # Auto-connect logic: register once per server startup/connection when we see traffic
     server_ip = addr[0]
     if server_state.last_server_addr is None:
-        print(f"🔌 Auto-Connected from server {server_state.server_name} @ {server_ip}")
+        log.info("auto-connected server=%s @ %s", server_state.server_name, server_ip)
         server_state.last_server_addr = (server_ip, server_state.server_cmd_port)
         send_registration(server_state, server_ip)
 
@@ -67,7 +83,7 @@ def process_packet(data, server_state, addr):
         # After AC /restart_session, some servers stop realtime feed subscriptions.
         # Re-register to ensure packet 53 (CAR_UPDATE) resumes.
         last_reg_ms = getattr(server_state, "last_registration_ms", 0)
-        if now_ms - last_reg_ms >= REGISTRATION_REFRESH_MIN_MS:
+        if now_ms - last_reg_ms >= settings.REGISTRATION_REFRESH_MIN_MS:
             send_registration(server_state, addr[0])
             server_state.last_registration_ms = now_ms
 
@@ -108,9 +124,9 @@ def process_packet(data, server_state, addr):
                 if config_m:
                     server_state.config = config_m.group(1).strip()
                 
-                print(f"🔄 [{server_state.port}] Config reloaded from {server_state.cfg_path}")
+                log.info("[%s] config reloaded from %s", server_state.port, server_state.cfg_path)
             except Exception as e:
-                print(f"❌ Error reloading {server_state.cfg_path}: {e}")
+                log.error("[%s] error reloading %s: %s", server_state.port, server_state.cfg_path, e)
 
         server_mode = _resolve_server_mode(server_state)
         is_battle_server = server_mode == "battle"
@@ -121,7 +137,14 @@ def process_packet(data, server_state, addr):
         else:
             event_info = " | ⚠️  Mode unknown (waiting Redis snapshot)"
 
-        print(f"🌍 Session [{server_state.port}]: {server_state.track} ({server_state.config}) | Name: {server_state.server_name}{event_info}")
+        log.info(
+            "[%s] session track=%s config=%s name=%s%s",
+            server_state.port,
+            server_state.track,
+            server_state.config,
+            server_state.server_name,
+            event_info,
+        )
 
     # ─── NEW_CONNECTION (51) ────────────────────────────────
     elif packet_type == ACSP.NEW_CONNECTION:
@@ -147,7 +170,7 @@ def process_packet(data, server_state, addr):
                 "seen_ms": int(time.time() * 1000),
             }
 
-        print(f"🟢 [{server_state.port}] [CONNECTED] CarID {car_id} | {name} | {model} | {guid}")
+        log.info("[%s] connected car=%s name=%s model=%s guid=%s", server_state.port, car_id, name, model, guid)
         server_state.battle_manager.set_driver_name(guid, name)
 
         driver.lap_start_time = time.time() * 1000
@@ -157,13 +180,17 @@ def process_packet(data, server_state, addr):
         if not guid.startswith('unknown_'):
             
             # Node.js General Webhook
-            send_server_event("player_join", server_state.server_name, {
-                "steamId": guid,
-                "name": name,
-                "carModel": model,
-                "trackName": server_state.track,
-                "trackConfig": server_state.config
-            })
+            send_server_event(
+                "player_join",
+                getattr(server_state, "config_server_name", server_state.server_name),
+                {
+                    "steamId": guid,
+                    "name": name,
+                    "carModel": model,
+                    "trackName": server_state.track,
+                    "trackConfig": server_state.config,
+                },
+            )
 
     # ─── CAR_INFO (210) ─────────────────────────────────────
     elif packet_type == ACSP.CAR_INFO:
@@ -191,17 +218,17 @@ def process_packet(data, server_state, addr):
                 if not first_seen:
                     suspects[car_id] = now_ms
                     return
-                if now_ms - first_seen < GHOST_CARINFO_DEBOUNCE_MS:
+                if now_ms - first_seen < settings.GHOST_CARINFO_DEBOUNCE_MS:
                     return
                 suspects.pop(car_id, None)
 
                 # Only purge if the driver is truly stale.
                 # Empty CAR_INFO pulses can happen transiently while the player is still online.
                 last_seen = getattr(driver, "last_seen_ms", 0)
-                if last_seen > 0 and (now_ms - last_seen) <= GHOST_DRIVER_TIMEOUT_MS:
+                if last_seen > 0 and (now_ms - last_seen) <= settings.GHOST_DRIVER_TIMEOUT_MS:
                     return
 
-                print(f"🧹 [{server_state.port}] Cleaning up Ghost Player: {driver.name} (CarID {car_id})")
+                log.info("[%s] ghost cleanup car=%s name=%s", server_state.port, car_id, driver.name)
                 
                 # Node.js Event Leave
                 if not driver.guid.startswith('unknown_'):
@@ -243,7 +270,7 @@ def process_packet(data, server_state, addr):
                 "seen_ms": int(time.time() * 1000),
             }
 
-        print(f"🏎️ [{server_state.port}] [CAR_INFO] CarID {car_id} | {name} | {model} | {guid}")
+        log.debug("[%s] car_info car=%s name=%s model=%s", server_state.port, car_id, name, model)
         server_state.battle_manager.set_driver_name(guid, name)
 
         # If realtime stream (packet 53) drops, recover subscription proactively.
@@ -251,12 +278,12 @@ def process_packet(data, server_state, addr):
         last_car_update_ms = getattr(server_state, "last_car_update_ms", 0)
         last_reg_ms = getattr(server_state, "last_registration_ms", 0)
         if (
-            now_ms - last_car_update_ms >= CAR_UPDATE_WATCHDOG_MS
-            and now_ms - last_reg_ms >= REGISTRATION_REFRESH_MIN_MS
+            now_ms - last_car_update_ms >= settings.CAR_UPDATE_WATCHDOG_MS
+            and now_ms - last_reg_ms >= settings.REGISTRATION_REFRESH_MIN_MS
         ):
             send_registration(server_state, addr[0])
             server_state.last_registration_ms = now_ms
-            print(f"🔁 [{server_state.port}] Re-subscribed realtime feed (no CAR_UPDATE detected)")
+            log.info("[%s] re-subscribed realtime feed (no CAR_UPDATE)", server_state.port)
 
     # ─── CONNECTION_CLOSED (52) ─────────────────────────────
     elif packet_type == ACSP.CONNECTION_CLOSED:
@@ -267,13 +294,17 @@ def process_packet(data, server_state, addr):
 
         driver = server_state.active_drivers.get(car_id)
         if driver:
-            print(f"👋 [{server_state.port}] Disconnected: {driver.name} (CarID {car_id})")
+            log.info("[%s] disconnected car=%s name=%s", server_state.port, car_id, driver.name)
             if not driver.guid.startswith('unknown_'):
-                send_server_event("player_leave", server_state.server_name, {
-                    "steamId": driver.guid,
-                    "trackName": server_state.track,
-                    "trackConfig": server_state.config
-                })
+                send_server_event(
+                    "player_leave",
+                    getattr(server_state, "config_server_name", server_state.server_name),
+                    {
+                        "steamId": driver.guid,
+                        "trackName": server_state.track,
+                        "trackConfig": server_state.config,
+                    },
+                )
 
                 server_state.battle_manager.remove_car(driver.guid)
             if driver.guid in server_state.guid_to_driver:
@@ -302,9 +333,7 @@ def process_packet(data, server_state, addr):
             now = int(time.time() * 1000)
             
             server_mode = _resolve_server_mode(server_state)
-            # Without DB-backed event metadata, the time-attack engine runs
-            # purely on telemetry (no per-event constraint flags).
-            meta: dict = {}
+            meta = runtime_config.get_event_constraints_for_state(server_state)
 
             driver.car_id = car_id
             server_state.event_engine.check_idle(driver, speed_ms, now, meta)
@@ -345,7 +374,8 @@ def process_packet(data, server_state, addr):
                 driver.car_id = car_id
                 server_mode = _resolve_server_mode(server_state)
                 if server_mode in ("event", "time-attack"):
-                    server_state.event_engine.check_collision(driver, {})
+                    meta = runtime_config.get_event_constraints_for_state(server_state)
+                    server_state.event_engine.check_collision(driver, meta)
 
     # ─── LAP_COMPLETED (58) ─────────────────────────────────
     elif packet_type == ACSP.LAP_COMPLETED:
@@ -376,7 +406,7 @@ def process_packet(data, server_state, addr):
                 # Ask AC for fresh CAR_INFO and skip this lap if identity is unknown.
                 if server_state.last_server_addr:
                     server_state.sock.sendto(struct.pack('BB', 201, car_id), server_state.last_server_addr)
-                print(f"⚠️ [{server_state.port}] LAP_COMPLETED without driver identity (CarID {car_id}). Waiting CAR_INFO.")
+                log.warning("[%s] LAP_COMPLETED unknown car=%s, waiting CAR_INFO", server_state.port, car_id)
                 return
         else:
             _mark_driver_seen(driver)
@@ -384,9 +414,12 @@ def process_packet(data, server_state, addr):
         if ac_lap_time <= 0 or ac_lap_time > 36000000:
             return
 
-        if ac_lap_time < MIN_VALID_LAP_MS:
-            print(
-                f"⚠️ [{server_state.port}] Lap ignorada por sospechosa ({ac_lap_time/1000:.3f}s < {MIN_VALID_LAP_MS/1000:.3f}s)"
+        if ac_lap_time < settings.MIN_VALID_LAP_MS:
+            log.warning(
+                "[%s] lap ignored suspicious time %.3fs < %.3fs",
+                server_state.port,
+                ac_lap_time / 1000,
+                settings.MIN_VALID_LAP_MS / 1000,
             )
             return
 
@@ -394,25 +427,36 @@ def process_packet(data, server_state, addr):
         driver.lap_count += 1
         is_valid = (cuts == 0)
 
-        meta: dict = {}
+        meta = runtime_config.get_event_constraints_for_state(server_state)
 
         driver.car_id = car_id
         is_valid, fail_reason = server_state.event_engine.evaluate_lap(driver, ac_lap_time, cuts, meta)
 
         if not is_valid:
-            print(f"🏁 [{server_state.port}] [LAP] ⚠️  INVALID | {driver.name} | {ac_lap_time/1000:.3f}s | Cuts: {cuts} ({fail_reason})")
+            log.info("[%s] lap invalid name=%s time=%.3fs cuts=%s (%s)", server_state.port, driver.name, ac_lap_time / 1000, cuts, fail_reason)
             return
 
         if driver.best_lap == 0 or ac_lap_time < driver.best_lap:
             driver.best_lap = ac_lap_time
 
-        print(f"🏁 [{server_state.port}] [LAP] ✅ | {driver.name} | Lap #{driver.lap_count} | {ac_lap_time/1000:.3f}s | Best: {driver.best_lap/1000:.3f}s")
+        log.info(
+            "[%s] lap valid name=%s #%s time=%.3fs best=%.3fs",
+            server_state.port,
+            driver.name,
+            driver.lap_count,
+            ac_lap_time / 1000,
+            driver.best_lap / 1000,
+        )
 
         if not driver.guid.startswith('unknown_'):
-            send_server_event("lap_completed", server_state.server_name, {
-                "steamId": driver.guid,
-                "carModel": driver.model,
-                "trackName": server_state.track,
-                "trackConfig": server_state.config,
-                "lapTime": ac_lap_time,
-            })
+            send_server_event(
+                "lap_completed",
+                getattr(server_state, "config_server_name", server_state.server_name),
+                {
+                    "steamId": driver.guid,
+                    "carModel": driver.model,
+                    "trackName": server_state.track,
+                    "trackConfig": server_state.config,
+                    "lapTime": ac_lap_time,
+                },
+            )

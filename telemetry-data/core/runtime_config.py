@@ -14,11 +14,16 @@ without touching any database.
 from __future__ import annotations
 
 import threading
-from typing import Iterable, Optional
+from typing import Any, Iterable, Mapping, Optional
+
+from core.logging_config import get_logger
+
+_log = get_logger("runtime_config")
 
 
 _lock = threading.Lock()
 _modes: dict[str, str] = {}
+_event_constraints: dict[str, dict] = {}
 
 
 def _normalize_mode(value: object) -> str:
@@ -27,6 +32,24 @@ def _normalize_mode(value: object) -> str:
     if text in {"battle", "time-attack", "event"}:
         return text
     return ""
+
+
+def _extract_event_constraints(row: dict) -> dict:
+    """Build TimeAttackEngine meta from snapshot row fields."""
+    constraints = row.get("eventConstraints") or row.get("event_constraints") or {}
+    if not isinstance(constraints, dict):
+        constraints = {}
+    meta: dict = {}
+    for key in ("enableCollisions", "detectIdle"):
+        if key in constraints:
+            meta[key] = bool(constraints[key])
+        elif key in row:
+            meta[key] = bool(row[key])
+    if "maxFails" in constraints:
+        meta["maxFails"] = constraints["maxFails"]
+    elif "maxFails" in row:
+        meta["maxFails"] = row["maxFails"]
+    return meta
 
 
 def set_server_modes(rows: Iterable[dict]) -> None:
@@ -38,20 +61,37 @@ def set_server_modes(rows: Iterable[dict]) -> None:
     All keys are lowercased to make lookups case-insensitive.
     """
     new_map: dict[str, str] = {}
+    new_constraints: dict[str, dict] = {}
     for row in rows or []:
         if not isinstance(row, dict):
             continue
         mode = _normalize_mode(row.get("type"))
-        if not mode:
-            continue
+        event_meta = _extract_event_constraints(row)
+        keys_for_row: list[str] = []
         for key in ("serverName", "displayName"):
             value = row.get(key)
             if not value:
                 continue
-            new_map[str(value).strip().lower()] = mode
+            keys_for_row.append(str(value).strip().lower())
+        if mode:
+            for k in keys_for_row:
+                new_map[k] = mode
+        if event_meta:
+            for k in keys_for_row:
+                new_constraints[k] = dict(event_meta)
     with _lock:
         _modes.clear()
         _modes.update(new_map)
+        _event_constraints.clear()
+        _event_constraints.update(new_constraints)
+
+
+def _lookup_keys(state) -> tuple[str, ...]:
+    return (
+        (getattr(state, "server_folder_id", "") or "").strip().lower(),
+        (getattr(state, "config_server_name", "") or "").strip().lower(),
+        (getattr(state, "server_name", "") or "").strip().lower(),
+    )
 
 
 def get_mode_for_state(state) -> Optional[str]:
@@ -60,19 +100,22 @@ def get_mode_for_state(state) -> Optional[str]:
     .ini server name, and the runtime server name reported by Assetto Corsa.
     Returns ``None`` when the snapshot has not yet been received.
     """
-    candidates = (
-        getattr(state, "server_folder_id", "") or "",
-        getattr(state, "config_server_name", "") or "",
-        getattr(state, "server_name", "") or "",
-    )
     with _lock:
         if not _modes:
             return None
-        for candidate in candidates:
-            key = str(candidate).strip().lower()
+        for key in _lookup_keys(state):
             if key and key in _modes:
                 return _modes[key]
     return None
+
+
+def get_event_constraints_for_state(state) -> dict:
+    """Event / time-attack constraint flags from the latest config snapshot."""
+    with _lock:
+        for key in _lookup_keys(state):
+            if key and key in _event_constraints:
+                return dict(_event_constraints[key])
+    return {}
 
 
 def has_data() -> bool:
@@ -85,3 +128,32 @@ def snapshot() -> dict[str, str]:
     """Return a shallow copy of the current mode map (for diagnostics)."""
     with _lock:
         return dict(_modes)
+
+
+def log_listener_modes(servers: Mapping[int, Any]) -> None:
+    """Log port → folder_id → mode for each configured listener (startup diagnostics)."""
+    modes = snapshot()
+    for port in sorted(servers):
+        state = servers[port]
+        folder_id = (getattr(state, "server_folder_id", "") or "").strip() or "?"
+        mode = get_mode_for_state(state)
+        cfg_path = getattr(state, "cfg_path", "") or ""
+        if mode:
+            _log.info(
+                "listener mapping port=%s folder=%s mode=%s display=%s cfg=%s",
+                port,
+                folder_id,
+                mode,
+                getattr(state, "config_server_name", ""),
+                cfg_path,
+            )
+        else:
+            _log.warning(
+                "listener mapping port=%s folder=%s mode=(none) display=%s cfg=%s; "
+                "convex keys=%s",
+                port,
+                folder_id,
+                getattr(state, "config_server_name", ""),
+                cfg_path,
+                sorted(modes.keys()) if modes else [],
+            )

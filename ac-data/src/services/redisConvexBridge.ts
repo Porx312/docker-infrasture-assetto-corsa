@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import { createClient } from 'redis';
 import { ConvexHttpClient } from 'convex/browser';
+import { noteServerStatus } from './serverPool.js';
 
 dotenv.config();
 
@@ -263,6 +264,13 @@ async function runEventsConsumerLoop(client: ReturnType<typeof createClient>): P
             continue;
           }
           try {
+            if (event === 'server_status') {
+              const data = (payload.data ?? {}) as Record<string, unknown>;
+              const players = Array.isArray(data.players) ? data.players : [];
+              const statusName =
+                typeof payload.serverName === 'string' ? payload.serverName : '';
+              noteServerStatus(statusName, players.length);
+            }
             await forwardToConvex(payload);
             await client.xAck(REDIS_STREAM_KEY, GROUP, msg.id);
           } catch (err) {

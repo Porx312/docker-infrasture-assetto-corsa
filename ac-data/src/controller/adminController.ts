@@ -1,15 +1,13 @@
 import type { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
-import { generateToken, getAdminCredentials, verifyToken } from '../middleware/adminAuth.js';
+import {
+    generateToken,
+    getAdminCredentials,
+    verifyToken,
+    ADMIN_TOKEN_COOKIE_OPTIONS,
+} from '../middleware/adminAuth.js';
 import { listContent, deleteContent, uploadSingleFile, extractZip, getContentSummary, type ContentType } from '../services/contentManager.js';
-
-const JWT_COOKIE_OPTIONS = {
-    httpOnly: true,
-    secure: false,
-    sameSite: 'none' as const,
-    maxAge: 24 * 60 * 60 * 1000,
-};
 
 export async function adminLogin(req: Request, res: Response): Promise<void> {
     const { username, password } = req.body;
@@ -27,12 +25,17 @@ export async function adminLogin(req: Request, res: Response): Promise<void> {
     }
 
     const token = generateToken(username);
-    res.cookie('admin_token', token, JWT_COOKIE_OPTIONS);
+    res.cookie('admin_token', token, ADMIN_TOKEN_COOKIE_OPTIONS);
     res.json({ ok: true, message: 'Login successful', token });
 }
 
 export async function adminLogout(req: Request, res: Response): Promise<void> {
-    res.clearCookie('admin_token', { httpOnly: true, secure: false, sameSite: 'none' as const });
+    res.clearCookie('admin_token', {
+        httpOnly: ADMIN_TOKEN_COOKIE_OPTIONS.httpOnly,
+        secure: ADMIN_TOKEN_COOKIE_OPTIONS.secure,
+        sameSite: ADMIN_TOKEN_COOKIE_OPTIONS.sameSite,
+        path: ADMIN_TOKEN_COOKIE_OPTIONS.path,
+    });
     res.json({ ok: true, message: 'Logged out' });
 }
 

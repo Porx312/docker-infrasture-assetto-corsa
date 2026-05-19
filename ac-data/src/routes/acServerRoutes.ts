@@ -14,5 +14,6 @@ router.post('/servers/:serverName/start', startServer);
 router.post('/servers/:serverName/stop', stopServer);
 router.post('/servers/:serverName/restart', restartServer);
 router.post('/servers/:serverName/config', configureServer);
+router.post('/servers/:serverName/activate', startServer);
 
 export default router;

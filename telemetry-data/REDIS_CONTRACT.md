@@ -9,8 +9,11 @@ via direct admin mutations.
 - `ac:events` (configurable via `REDIS_STREAM_KEY`) — runtime telemetry +
   battle results, produced by the Python script and consumed by `ac-data`.
 - `ac:config` (configurable via `REDIS_CONFIG_STREAM_KEY`) — `server_cfg.ini`
-  snapshots produced by `ac-data` (after polling Convex) and consumed by the
-  Python script (`core/redis_config_sync.py`).
+  snapshots produced by `ac-data` (after polling Convex). **ac-data** is the
+  sole writer of local INI files and restarts AC processes
+  (`redisConfigApplier.ts`). **telemetry-data** consumes the same stream only
+  to update in-memory `runtime_config` (server modes + event constraints) via
+  `core/redis_config_sync.py` unless `REDIS_CONFIG_INI_WRITE_ENABLED=true`.
 
 Both streams use `XADD` with approximate `MAXLEN` trim
 (`REDIS_STREAM_MAXLEN`, default `200000`) so they cannot grow unbounded.
@@ -50,8 +53,8 @@ Generic server lifecycle (`network/event_dispatcher.send_server_event`):
 - `player_leave`
 - `lap_completed`
 - `server_status` (heartbeat every ~15 s; intentional, used for liveness)
-- `server_config_applied` (echo when the Python config consumer applies a
-  snapshot to a local `server_cfg.ini` / `entry_list.ini`).
+- `server_config_applied` (only when `REDIS_CONFIG_INI_WRITE_ENABLED=true`
+  and Python writes local cfg files; default is ac-data-only INI writes).
 
 Battle events (`network/event_dispatcher.dispatch_battle_webhook`):
 

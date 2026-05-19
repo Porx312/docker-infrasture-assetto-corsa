@@ -2,6 +2,7 @@ import { spawn, exec, execSync, ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
+import { getServerPorts } from './serverPorts.js';
 
 dotenv.config({ path: '/home/jose/assetto-infra/.env' });
 
@@ -35,24 +36,6 @@ const savePids = () => {
 
 export const activeServers: Record<string, { pid: number; process: ChildProcess } | undefined> = {};
 
-function getServerPorts(serverName: string): { udp: number; tcp: number } | null {
-    const ports: Record<string, { udp: number; tcp: number }> = {
-        'server': { udp: 9600, tcp: 9610 },
-        'server-1': { udp: 9610, tcp: 9620 },
-        'server-2': { udp: 9620, tcp: 9630 },
-        'server-3': { udp: 9630, tcp: 9640 },
-        'server-4': { udp: 9640, tcp: 9650 },
-        'server-5': { udp: 9650, tcp: 9660 },
-        'server-6': { udp: 9660, tcp: 9670 },
-        'server-7': { udp: 9670, tcp: 9680 },
-        'server-8': { udp: 9680, tcp: 9690 },
-        'server-9': { udp: 9690, tcp: 9700 },
-        'server-10': { udp: 9700, tcp: 9710 },
-        'server-11': { udp: 9710, tcp: 9720 },
-    };
-    return ports[serverName] || null;
-}
-
 function isPortInUse(port: number, type: 'tcp' | 'udp'): boolean {
     try {
         const result = execSync(`ss -${type[0]}lnp 2>/dev/null | grep ':${port}'`, { encoding: 'utf-8' });
@@ -71,7 +54,7 @@ export async function cleanupOrphanProcesses(): Promise<void> {
     for (const entry of entries) {
         if (!entry.isDirectory() || !entry.name.startsWith('server')) continue;
 
-        const ports = getServerPorts(entry.name);
+        const ports = getServerPorts(SERVERS_PATH, entry.name);
         if (!ports) continue;
 
         const isUdpInUse = isPortInUse(ports.udp, 'udp');

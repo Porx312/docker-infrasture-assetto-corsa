@@ -3,9 +3,13 @@ import threading
 import time
 import os.path
 from uuid import uuid4
-from core import runtime_config
+from core import runtime_config, settings
+from core.logging_config import get_logger
+from core.server_identity import derive_server_folder_id
 from engines.battlesystem.orchestrator import BattleManager
 from engines.event_engine import TimeAttackEngine
+
+log = get_logger("session_manager")
 
 
 class DriverInfo:
@@ -39,15 +43,7 @@ class ServerState:
         self.config_server_name = server_name
         self.server_name = server_name
         self.cfg_path = cfg_path
-        self.server_folder_id = ""
-        if self.cfg_path:
-            try:
-                # cfg_path -> .../<server-folder>/cfg/server_cfg.ini => take parent of "cfg".
-                cfg_dir = os.path.dirname(self.cfg_path)
-                server_dir = os.path.dirname(cfg_dir)
-                self.server_folder_id = os.path.basename(server_dir).strip()
-            except Exception:
-                self.server_folder_id = ""
+        self.server_folder_id = derive_server_folder_id(cfg_path)
         
         self.active_drivers = {} # car_id -> DriverInfo
         self.guid_to_driver = {} # guid -> DriverInfo
@@ -96,7 +92,7 @@ class ServerState:
         p1_guid = car1_guid
         p2_guid = car2_guid
         if not p1_guid or not p2_guid:
-            print("⚠️ [BATTLE] score update missing pair GUIDs; dispatch skipped")
+            log.warning("battle score update missing pair GUIDs; dispatch skipped")
             return
         p1_driver = self.guid_to_driver.get(p1_guid)
         p2_driver = self.guid_to_driver.get(p2_guid)
@@ -128,7 +124,12 @@ def send_registration(server_state, server_ip):
     """Subscribe to the game server to receive telemetry and request initial slot status."""
     sock = server_state.sock
     target = (server_ip, server_state.server_cmd_port)
-    print(f"✉️ Registering with {server_ip}:{server_state.server_cmd_port} <- listen on {server_state.port}...")
+    log.info(
+        "registering cmd=%s:%s listen=%s",
+        server_ip,
+        server_state.server_cmd_port,
+        server_state.port,
+    )
 
     # Handshake
     sock.sendto(struct.pack('B', 0), target)
@@ -147,20 +148,21 @@ def send_registration(server_state, server_ip):
     threading.Thread(target=_request, daemon=True).start()
 
 def send_chat(server_state, car_id, message):
-    """Sends a private chat message to a player ID."""
-    if not server_state.last_server_addr: return
+    """Sends a private chat message to a player ID (single shot)."""
+    if not server_state.last_server_addr:
+        return
     try:
         sock = server_state.sock
         target = (server_state.last_server_addr[0], server_state.server_cmd_port)
-        
-        # Format: [byte id] [byte car_id] [byte len] [wstring mensaje encoded in utf-32le]
-        msg_bytes = message.encode('utf-32le')
+
+        msg_bytes = message.encode("utf-32le")
         msg_len = len(message)
-        
-        packet = struct.pack(f'<BBB{len(msg_bytes)}s', 202, car_id, msg_len, msg_bytes)
+
+        packet = struct.pack(f"<BBB{len(msg_bytes)}s", 202, car_id, msg_len, msg_bytes)
         sock.sendto(packet, target)
     except Exception as e:
-        print(f"❌ Error sending chat: {e}")
+        log.error("error sending chat: %s", e)
+
 
 def send_admin_command(server_state, command):
     """Executes a command natively via ACSP_ADMIN_COMMAND (208) which server plugins intercept."""
@@ -176,4 +178,4 @@ def send_admin_command(server_state, command):
         packet = struct.pack(f'<BB{len(cmd_bytes)}s', 208, cmd_len, cmd_bytes)
         sock.sendto(packet, target)
     except Exception as e:
-        print(f"❌ Error sending admin command: {e}")
+        log.error("error sending admin command: %s", e)

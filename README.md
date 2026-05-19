@@ -67,6 +67,8 @@ redis-cli xlen ac:events     # Check Redis events
 
 ## Port Assignments
 
+Each folder (`server`, `server-1`, `server-2`, …) should use the **Plugin** UDP port below in `UDP_PLUGIN_ADDRESS` so telemetry binds one listener per instance. Do not point two AC processes at the same plugin port (e.g. legacy `server/server_cfg.ini` and `server-2` both on `12000` — only one wins; battle mode will not apply to the other).
+
 | Instance | UDP/TCP | HTTP | Plugin |
 |----------|---------|------|--------|
 | server | 9600 | 8081 | 12001 |
@@ -122,7 +124,7 @@ tail -f ac-data.log
 
 ## CI/CD
 
-Push to `main` → GitHub Actions deploys telemetry-data via SSH to VPS.
+Push to `main` → GitHub Actions deploys telemetry-data (Docker) via SSH to VPS and verifies the container is running.
 
 Required GitHub Secrets:
 - `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`

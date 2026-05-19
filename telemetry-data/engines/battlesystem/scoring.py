@@ -1,7 +1,10 @@
 import time
 
-from engines.battlesystem.config import DEFAULT_WIN_MIN_POINTS, FINISH_POINT_MIN_GAP_METERS
-from engines.battlesystem.chat import format_point_broadcast
+from core.logging_config import get_logger
+from engines.battlesystem.config import FINISH_POINT_MIN_GAP_METERS, FINISHED_COOLDOWN_SEC
+from engines.battlesystem.chat import format_point_broadcast, notify_touge_chat
+
+log = get_logger("battlesystem.scoring")
 
 
 def score_of(manager, guid):
@@ -14,25 +17,54 @@ def score_of(manager, guid):
     return 0
 
 
+def battle_has_points(manager) -> bool:
+    if not manager.battle:
+        return False
+    return (manager.battle.car1_score + manager.battle.car2_score) > 0
+
+
+def finalize_abandon(manager, winner_guid, reason) -> bool:
+    """
+    End an ACTIVE battle when opponents separate (250 m) or disconnect.
+    If any points were scored, the non-abandoner wins; at 0-0 only cancel.
+    """
+    if manager.state != "ACTIVE" or not manager.battle:
+        return False
+
+    if winner_guid and battle_has_points(manager):
+        return finalize_default_win(manager, winner_guid, reason)
+
+    log.info(
+        "battle cancelled (%s) score=%s-%s winner_candidate=%s",
+        reason,
+        manager.battle.car1_score,
+        manager.battle.car2_score,
+        winner_guid,
+    )
+    manager._notify_battle_cancelled(reason)
+    manager.state = "FINISHED"
+    manager.finished_time = time.time()
+    manager._reset_to_idle(full_reset=True)
+    if getattr(manager, "on_battle_end", None):
+        manager.on_battle_end()
+    return True
+
+
 def finalize_default_win(manager, winner_guid, reason):
     if manager.state != "ACTIVE" or not manager.battle or not winner_guid:
         return False
-    winner_points = score_of(manager, winner_guid)
-    if winner_points < DEFAULT_WIN_MIN_POINTS:
-        print(f"⚠️ [BATTLE] Default win skipped ({winner_points} < {DEFAULT_WIN_MIN_POINTS}) | reason={reason}")
-        manager._reset_to_idle(full_reset=False)
-        return True
 
     manager.battle.winner = winner_guid
     wn = manager._display_name(winner_guid)
-    print(
-        f"🏆 [BATTLE] DEFAULT WIN {winner_guid} | reason={reason} | "
-        f"score={manager.battle.car1_score}-{manager.battle.car2_score}"
+    log.info(
+        "abandon win %s reason=%s score=%s-%s",
+        winner_guid,
+        reason,
+        manager.battle.car1_score,
+        manager.battle.car2_score,
     )
-    if manager.on_chat_message:
-        msg = f"[TOUGE] WIN {wn} DEFAULT ({reason}) | {manager._scoreboard_line()}"
-        manager.on_chat_message(manager.battle.car1_guid, msg)
-        manager.on_chat_message(manager.battle.car2_guid, msg)
+    msg = f"WIN {wn} — opponent abandoned ({reason}) | {manager._scoreboard_line()}"
+    notify_touge_chat(manager, msg)
     if manager.on_score_update:
         manager.on_score_update(
             manager.battle_id,
@@ -44,33 +76,40 @@ def finalize_default_win(manager, winner_guid, reason):
             manager.battle.car2_guid,
         )
     manager.state = "FINISHED"
+    manager.finished_time = time.time()
     return True
 
 
 def finalize_single_session_result(manager, finish_gap_m, is_draw):
     if manager.state != "ACTIVE":
         return
-    if manager.battle.car1_score > manager.battle.car2_score:
-        winner = manager.battle.car1_guid
-    elif manager.battle.car2_score > manager.battle.car1_score:
-        winner = manager.battle.car2_guid
-    else:
+    if is_draw:
         winner = None
+    else:
+        winner = manager.battle.lead_guid
 
     manager.battle.winner = winner
+    rematch_sec = int(FINISHED_COOLDOWN_SEC)
+    board = manager._scoreboard_line()
     if winner:
         wn = manager._display_name(winner)
-        print(f"🏆 [BATTLE] SINGLE SESSION OVER! WINNER: {winner}")
-        msg = f"[TOUGE] WIN {wn} | {manager._scoreboard_line()}"
-    else:
-        print(
-            f"🤝 [BATTLE] SINGLE SESSION OVER! DRAW "
-            f"(finish gap {finish_gap_m:.1f}m < {FINISH_POINT_MIN_GAP_METERS:.1f}m)"
+        log.info(
+            "session over winner=%s (finish gap=%.1fm) rematch_in=%ss",
+            winner,
+            finish_gap_m,
+            rematch_sec,
         )
-        msg = f"[TOUGE] DRAW FINAL | {manager._scoreboard_line()}"
-    if manager.on_chat_message:
-        manager.on_chat_message(manager.battle.car1_guid, msg)
-        manager.on_chat_message(manager.battle.car2_guid, msg)
+        msg = (
+            f"FINISH — WIN {wn} (+1, gap {finish_gap_m:.0f}m) | {board} "
+            f"| Rematch in {rematch_sec}s"
+        )
+    else:
+        log.info("session over DRAW finish_gap=%.1fm rematch_in=%ss", finish_gap_m, rematch_sec)
+        msg = (
+            f"FINISH — DRAW (gap {finish_gap_m:.0f}m) | {board} "
+            f"| Rematch in {rematch_sec}s"
+        )
+    notify_touge_chat(manager, msg)
     if manager.on_score_update:
         manager.on_score_update(
             manager.battle_id,
@@ -82,9 +121,10 @@ def finalize_single_session_result(manager, finish_gap_m, is_draw):
             manager.battle.car2_guid,
         )
     manager.state = "FINISHED"
+    manager.finished_time = time.time()
 
 
-def award_point(manager, winner_guid, reason="outrun"):
+def award_point(manager, winner_guid, reason="outrun", *, skip_chat: bool = False):
     if winner_guid == manager.battle.car1_guid:
         manager.battle.car1_score += 1
         log_msg = f"Point to {manager.battle.car1_guid} ({reason})"
@@ -94,10 +134,17 @@ def award_point(manager, winner_guid, reason="outrun"):
     else:
         log_msg = f"DRAW ({reason})"
 
-    manager.battle.points_log.append({"scorer": winner_guid, "reason": reason, "ts": int(time.time() * 1000)})
-    print(f"🏅 {log_msg}. Score: {manager.battle.car1_score} - {manager.battle.car2_score}")
+    manager.battle.points_log.append(
+        {"scorer": winner_guid, "reason": reason, "ts": int(time.time() * 1000)}
+    )
+    log.info(
+        "%s score=%s-%s",
+        log_msg,
+        manager.battle.car1_score,
+        manager.battle.car2_score,
+    )
 
-    if manager.on_chat_message:
+    if not skip_chat and manager.on_chat_message:
         msg = format_point_broadcast(manager, winner_guid, reason)
         manager.on_chat_message(manager.battle.car1_guid, msg)
         manager.on_chat_message(manager.battle.car2_guid, msg)

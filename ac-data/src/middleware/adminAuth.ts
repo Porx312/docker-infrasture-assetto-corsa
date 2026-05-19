@@ -3,6 +3,23 @@ import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.ADMIN_JWT_SECRET || 'admin-secret-key-change-in-production';
 
+/** SameSite=None requires Secure; for HTTP admin panel use Lax (same origin). */
+const cookieSecure =
+    (process.env.ADMIN_COOKIE_SECURE || '').trim().toLowerCase() === 'true';
+const cookieSameSite =
+    cookieSecure &&
+    (process.env.ADMIN_COOKIE_SAMESITE || '').trim().toLowerCase() === 'none'
+        ? ('none' as const)
+        : ('lax' as const);
+
+export const ADMIN_TOKEN_COOKIE_OPTIONS = {
+    httpOnly: true,
+    secure: cookieSecure,
+    sameSite: cookieSameSite,
+    path: '/',
+    maxAge: 24 * 60 * 60 * 1000,
+};
+
 export interface AuthPayload {
     username: string;
     iat: number;

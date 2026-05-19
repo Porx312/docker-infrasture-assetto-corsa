@@ -1,12 +1,15 @@
-import math
 import time
 
+from core.logging_config import get_logger
 from engines.battlesystem.models import CarState, TougeBattle
 from engines.battlesystem.pair_manager import PairBattleManager
 from engines.battlesystem.config import (
-    PAIR_LOCK_MAX_DISTANCE_METERS,
-    PAIR_LOCK_MIN_SPEED_KMH,
+    BATTLE_ARM_MAX_GAP_METERS,
+    BATTLE_ARM_MIN_SPEED_KMH,
 )
+from engines.battlesystem.rules.proximity import distance_3d, is_within_battle_gap
+
+log = get_logger("battlesystem.orchestrator")
 
 
 class BattleManager:
@@ -31,6 +34,12 @@ class BattleManager:
     def _pair_key(g1, g2):
         return tuple(sorted((g1, g2)))
 
+    def _release_pair(self, key):
+        self.pair_managers.pop(key, None)
+        for g in key:
+            if self.guid_to_pair.get(g) == key:
+                self.guid_to_pair.pop(g, None)
+
     def _build_pair_manager(self, g1, g2):
         mgr = PairBattleManager()
         mgr.set_server_mode(True)
@@ -38,6 +47,8 @@ class BattleManager:
         mgr._reset_to_idle(full_reset=True)
         mgr.player_names[g1] = self.player_names.get(g1, g1)
         mgr.player_names[g2] = self.player_names.get(g2, g2)
+        key = self._pair_key(g1, g2)
+        mgr.on_battle_end = lambda k=key: self._release_pair(k)
         # Callbacks are proxied to server_state handlers.
         mgr.on_battle_start = self.on_battle_start
         mgr.on_score_update = self.on_score_update
@@ -85,15 +96,11 @@ class BattleManager:
                     c2 = self.cars.get(g2)
                     if not c1 or not c2:
                         continue
-                    if c1.speed < PAIR_LOCK_MIN_SPEED_KMH or c2.speed < PAIR_LOCK_MIN_SPEED_KMH:
+                    if c1.speed <= BATTLE_ARM_MIN_SPEED_KMH or c2.speed <= BATTLE_ARM_MIN_SPEED_KMH:
                         continue
-                    dist = math.sqrt(
-                        (c1.pos[0] - c2.pos[0]) ** 2
-                        + (c1.pos[1] - c2.pos[1]) ** 2
-                        + (c1.pos[2] - c2.pos[2]) ** 2
-                    )
-                    if dist > PAIR_LOCK_MAX_DISTANCE_METERS:
+                    if not is_within_battle_gap(c1.pos, c2.pos, BATTLE_ARM_MAX_GAP_METERS):
                         continue
+                    dist = distance_3d(c1.pos, c2.pos)
                     if best_dist is None or dist < best_dist:
                         best_dist = dist
                         best = (g1, g2)
@@ -107,9 +114,11 @@ class BattleManager:
                 self.pair_managers[key] = mgr
                 self.guid_to_pair[g1] = key
                 self.guid_to_pair[g2] = key
-                print(
-                    f"🤝 [BATTLE] Pair locked: {mgr._display_name(g1)} vs {mgr._display_name(g2)} "
-                    f"(active pairs: {len(self.pair_managers)})"
+                log.info(
+                    "pair locked %s vs %s (active pairs: %d)",
+                    mgr._display_name(g1),
+                    mgr._display_name(g2),
+                    len(self.pair_managers),
                 )
             free = [g for g in free if g not in (g1, g2)]
 
@@ -164,7 +173,7 @@ class BattleManager:
         try:
             mgr._process_logic()
         except Exception as e:
-            print(f"[BATTLE] Pair logic error (non-fatal): {e}")
+            log.exception("pair logic error (non-fatal): %s", e)
 
         self._cleanup_pair_if_done(key)
 
@@ -183,12 +192,10 @@ class BattleManager:
     def remove_car(self, driver_guid):
         self.cars.pop(driver_guid, None)
         self.player_names.pop(driver_guid, None)
-        key = self.guid_to_pair.pop(driver_guid, None)
+        key = self.guid_to_pair.get(driver_guid)
         if not key:
             return
-        mgr = self.pair_managers.pop(key, None)
-        if not mgr:
-            return
-        other = key[0] if key[1] == driver_guid else key[1]
-        self.guid_to_pair.pop(other, None)
-        mgr.remove_car(driver_guid)
+        mgr = self.pair_managers.get(key)
+        if mgr:
+            mgr.remove_car(driver_guid)
+        self._release_pair(key)

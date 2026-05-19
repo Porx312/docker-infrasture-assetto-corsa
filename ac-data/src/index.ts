@@ -7,6 +7,7 @@ import acServerRoutes from './routes/acServerRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import { startRedisConvexBridge } from './services/redisConvexBridge.js';
 import { startRedisConfigApplier } from './services/redisConfigApplier.js';
+import { startServerPoolMonitor } from './services/serverPool.js';
 
 dotenv.config();
 
@@ -89,5 +90,6 @@ app.use('/admin', express.static(ADMIN_PUBLIC_PATH, {
 app.listen(PORT, async () => {
   void startRedisConvexBridge();
   void startRedisConfigApplier();
+  startServerPoolMonitor();
   console.log(`API corriendo en http://localhost:${PORT}`);
 });
