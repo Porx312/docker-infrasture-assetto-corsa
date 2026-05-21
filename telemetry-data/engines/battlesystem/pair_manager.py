@@ -1,7 +1,7 @@
 from core.logging_config import get_logger
 from engines.battlesystem.chat import format_point_broadcast, notify_battle_cancelled
 from engines.battlesystem.config import (
-    FINISHED_COOLDOWN_SEC,
+    ARMED_CHAT_COOLDOWN_SEC,
     OVERTAKE_ACTIVE_GRACE_SEC,
     OVERTAKE_MARGIN_SPLINE,
     OVERTAKE_PASS_MARGIN_SPLINE,
@@ -33,7 +33,11 @@ class PairBattleManager:
         self.is_battle_server = False
 
         self.condition_start_time = 0.0
+        self.arm_proximity_since = 0.0
+        self._arming_countdown_announced_sec = -1
         self.launch_trigger_time = 0.0
+        self.last_armed_chat_time = 0.0
+        self.ARMED_CHAT_COOLDOWN = ARMED_CHAT_COOLDOWN_SEC
 
         self.on_battle_start = None
         self.on_score_update = None
@@ -42,7 +46,6 @@ class PairBattleManager:
 
         self.battle_id = None
         self.finished_time = 0.0
-        self.FINISHED_COOLDOWN = FINISHED_COOLDOWN_SEC
         self.overtake_margin_spline = OVERTAKE_MARGIN_SPLINE
         self.overtake_pass_margin_spline = OVERTAKE_PASS_MARGIN_SPLINE
         self._overtake_active_grace_sec = OVERTAKE_ACTIVE_GRACE_SEC
@@ -122,10 +125,26 @@ class PairBattleManager:
                 )
             self._finalize_abandon(remaining, "opponent_disconnected")
 
+    def handle_lap_completed(self, driver_guid: str) -> None:
+        """ACSP lap line crossed — counts as run end for the lead only."""
+        if self.state != "ACTIVE" or not self.battle:
+            return
+        if driver_guid != self.battle.lead_guid:
+            return
+        car = self.cars.get(driver_guid)
+        if car:
+            car.mark_lap_completed()
+            log.info("lead %s lap completed (ACSP)", driver_guid)
+
     def _reset_to_idle(self, full_reset=False):
         self.state = "IDLE"
         self.condition_start_time = 0.0
+        self.arm_proximity_since = 0.0
+        self._arming_countdown_announced_sec = -1
         self.launch_trigger_time = 0.0
+        for car in self.cars.values():
+            car.end_run()
+        # Keep last_armed_chat_time so abort loops do not spam ARMED chat.
         if full_reset:
             self.finished_time = 0.0
             self.battle_id = None
@@ -145,3 +164,5 @@ class PairBattleManager:
     def _abort_run_no_point(self, reason):
         log.info("run aborted (%s), no point", reason)
         self.state = "IDLE"
+        self.arm_proximity_since = 0.0
+        self._arming_countdown_announced_sec = -1

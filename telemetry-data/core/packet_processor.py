@@ -423,6 +423,27 @@ def process_packet(data, server_state, addr):
             )
             return
 
+        server_mode = _resolve_server_mode(server_state)
+        if server_mode == "battle":
+            server_state.battle_manager.set_server_mode(True)
+            server_state.battle_manager.handle_lap_completed(driver.guid)
+            log.info(
+                "[%s] battle lap completed name=%s time=%.3fs",
+                server_state.port,
+                driver.name,
+                ac_lap_time / 1000,
+            )
+            return
+
+        if server_mode != "time-attack":
+            log.debug(
+                "[%s] lap_completed ignored mode=%r name=%s",
+                server_state.port,
+                server_mode,
+                driver.name,
+            )
+            return
+
         driver.last_lap   = ac_lap_time
         driver.lap_count += 1
         is_valid = (cuts == 0)

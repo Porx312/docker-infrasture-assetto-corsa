@@ -48,8 +48,17 @@ if [ ! -f "$ENV_FILE" ]; then
     exit 1
 fi
 
-# Load environment variables
+# Export env for child processes (ac-data, start-telemetry.sh)
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export ASSETTO_ENV_FILE="$ROOT_DIR/$ENV_FILE"
+case "$ENV_MODE" in
+    prod|production) export ASSETTO_ENV=prod ;;
+    *) export ASSETTO_ENV=dev ;;
+esac
+set -a
+# shellcheck disable=SC1090
 source "$ENV_FILE"
+set +a
 
 # Function to check if a process is running
 is_running() {
@@ -104,7 +113,8 @@ else
         echo -e "${YELLOW}Installing dependencies...${NC}"
         npm install 2>&1 | tail -5
     fi
-    nohup ./node_modules/.bin/tsx src/index.ts > ../ac-data.log 2>&1 &
+    nohup env ASSETTO_ENV="$ASSETTO_ENV" ASSETTO_ENV_FILE="$ASSETTO_ENV_FILE" \
+        ./node_modules/.bin/tsx src/index.ts > ../ac-data.log 2>&1 &
     AC_PID=$!
     echo -e "${GREEN}ac-data started (PID: $AC_PID)${NC}"
     cd ..

@@ -60,9 +60,9 @@ This infrastructure manages multiple Assetto Corsa dedicated server instances wi
 ```
 /home/jose/
 ├── assetto-infra/              # Main configuration directory
-│   ├── .env                   # Environment variables
-│   ├── .env.local             # Local dev environment
-│   ├── .env.production        # Production environment
+│   ├── .env.example           # Template (copy to .env.local or .env.production)
+│   ├── .env.local             # Dev secrets (start.sh dev)
+│   ├── .env.production        # Prod secrets (start.sh prod)
 │   ├── config.yml             # Assetto Server Manager config
 │   ├── start.sh               # Main startup script
 │   ├── stop.sh                # Stop script
@@ -157,11 +157,15 @@ This installs:
 
 ### 2. Environment Variables
 
-Edit `.env.local`:
+Copy the template once per environment:
 
 ```bash
+cp .env.example .env.local          # dev
+cp .env.example .env.production     # prod (VPS)
 nano .env.local
 ```
+
+`./start.sh` exports `ASSETTO_ENV` and `ASSETTO_ENV_FILE` so ac-data and telemetry-data load the same file. Do not use a separate root `.env`.
 
 Key variables:
 - `AC_INSTANCE_ID` - Unique VPS identifier
@@ -234,7 +238,9 @@ https://acstuff.club/s/q:race/online/join?ip=YOUR_IP&httpPort=8083
 
 ## Environment Variables Reference
 
-### ac-data (.env)
+All services share the repo-root [`.env.example`](.env.example) template (copied to `.env.local` or `.env.production`).
+
+### ac-data + telemetry-data (shared)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -243,18 +249,13 @@ https://acstuff.club/s/q:race/online/join?ip=YOUR_IP&httpPort=8083
 | `REDIS_STREAM_KEY` | ac:events | Events stream key |
 | `REDIS_CONFIG_STREAM_KEY` | ac:config | Config stream key |
 | `AC_INSTANCE_ID` | - | Unique VPS ID |
-| `REDIS_CONFIG_APPLIER_RESTART_ON_BOOT` | false | Auto-restart servers |
-| `API_KEY` | - | API authentication |
-| `CORS_ORIGIN` | - | CORS allowed origin |
-
-### telemetry-data (.env.local)
-
-| Variable | Description |
-|----------|-------------|
-| `SERVERS_PATH` | Path to AC server configs |
-| `EVENTS_SERVERS_PATH` | Path for event server configs |
-| `SERVER_STATUS_POLL_INTERVAL_SEC` | Local poll cadence |
-| `SERVER_STATUS_PUBLISH_INTERVAL_SEC` | Publish on-change cadence |
+| `SERVERS_PATH` | - | Path to AC server configs |
+| `EVENTS_SERVERS_PATH` | - | Path for event server configs |
+| `REDIS_CONFIG_APPLIER_RESTART_ON_BOOT` | false | Auto-restart servers (ac-data) |
+| `API_KEY` | - | API authentication (ac-data) |
+| `CORS_ORIGIN` | - | CORS allowed origin (ac-data) |
+| `SERVER_STATUS_POLL_INTERVAL_SEC` | 15 | Local poll cadence (telemetry) |
+| `SERVER_STATUS_PUBLISH_INTERVAL_SEC` | 30 | Publish on-change cadence (telemetry) |
 | `SERVER_STATUS_HEARTBEAT_INTERVAL_SEC` | Heartbeat interval |
 
 ---

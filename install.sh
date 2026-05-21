@@ -128,6 +128,9 @@ if [ ! -f .env.local ]; then
     cp .env.example .env.local
     echo -e "${YELLOW}Please edit .env.local with your credentials${NC}"
 fi
+if [ ! -f .env.production ]; then
+    echo -e "${YELLOW}Tip: for production run: cp .env.example .env.production && nano .env.production${NC}"
+fi
 
 # ──────────────────────────────────────────────
 # 7. Server Directory Setup
@@ -172,8 +175,8 @@ echo ""
 echo -e "${GREEN}=== Installation Complete ===${NC}"
 echo ""
 echo "Next steps:"
-echo "  1. Edit .env.local with your credentials"
-echo "  2. Run: ./start.sh dev"
+echo "  1. Edit .env.local (dev) or .env.production (prod) with your credentials"
+echo "  2. Run: ./start.sh dev   or   ./start.sh prod"
 echo "  3. Check: ./start.sh status"
 echo ""
 echo "Ports opened:"

@@ -3,9 +3,7 @@ import path from 'path';
 import { createWriteStream, createReadStream } from 'fs';
 import { pipeline } from 'stream/promises';
 import unzipper from 'unzipper';
-import dotenv from 'dotenv';
-
-dotenv.config({ path: '/home/jose/assetto-infra/.env' });
+import '../config/loadEnv.js';
 
 const CONTENT_BASE_PATH = process.env.CONTENT_PATH || '/home/jose/assetto-install/assetto/content';
 

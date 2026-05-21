@@ -177,6 +177,16 @@ class BattleManager:
 
         self._cleanup_pair_if_done(key)
 
+    def handle_lap_completed(self, driver_guid: str) -> None:
+        if not self.is_battle_server:
+            return
+        key = self.guid_to_pair.get(driver_guid)
+        if not key:
+            return
+        mgr = self.pair_managers.get(key)
+        if mgr:
+            mgr.handle_lap_completed(driver_guid)
+
     def handle_collision(self, car1_guid, car2_guid, impact_speed):
         if not self.is_battle_server:
             return

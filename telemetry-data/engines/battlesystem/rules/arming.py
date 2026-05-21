@@ -18,11 +18,11 @@ from engines.battlesystem.rules.proximity import assign_lead_chase, distance_3d,
 def can_arm(car1, car2) -> bool:
     if not is_within_battle_gap(car1.pos, car2.pos, BATTLE_ARM_MAX_GAP_METERS):
         return False
-    return car1.speed > BATTLE_ARM_MIN_SPEED_KMH and car2.speed > BATTLE_ARM_MIN_SPEED_KMH
+    return car1.speed >= BATTLE_ARM_MIN_SPEED_KMH and car2.speed >= BATTLE_ARM_MIN_SPEED_KMH
 
 
 def can_launch(car1, car2) -> bool:
-    return car1.speed > BATTLE_ARM_MIN_SPEED_KMH and car2.speed > BATTLE_ARM_MIN_SPEED_KMH
+    return car1.speed >= BATTLE_ARM_MIN_SPEED_KMH and car2.speed >= BATTLE_ARM_MIN_SPEED_KMH
 
 
 def should_abort_prestart(distance: float, car1, car2, started_at: float, now: float) -> bool:
@@ -49,15 +49,16 @@ def can_assign_roles(car1, car2, launch_started_at: float, now: float) -> tuple[
         return True, ""
     if (now - launch_started_at) <= ROLE_ASSIGN_WAIT_SEC:
         return False, ""
-    return False, "leader_not_clear"
+    # Parallel start / tight map: assign by spline position instead of aborting.
+    return True, ""
 
 
 def setup_active_run(manager, car1, car2, now: float) -> None:
     lead_guid, chase_guid = assign_lead_chase(car1, car2)
     manager.battle.lead_guid = lead_guid
     manager.battle.chase_guid = chase_guid
-    car1.driven_spline = 0.0
-    car2.driven_spline = 0.0
+    car1.begin_run(car1.spline)
+    car2.begin_run(car2.spline)
     manager.active_start_time = now
     manager._overtake_chase_scored = False
     manager._last_overtake_point_ts = 0.0

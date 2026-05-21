@@ -1,4 +1,6 @@
-from network.event_dispatcher import build_envelope
+from unittest.mock import MagicMock, patch
+
+from network.event_dispatcher import build_envelope, dispatch_battle_webhook
 
 
 def test_build_envelope_shape():
@@ -9,3 +11,61 @@ def test_build_envelope_shape():
     assert "eventId" in envelope
     assert "ts" in envelope
     assert envelope["schemaVersion"]
+
+
+@patch("network.event_dispatcher._enqueue")
+def test_dispatch_battle_webhook_prefers_display_server_name(mock_enqueue):
+    server_state = MagicMock()
+    server_state.server_folder_id = "server-2"
+    server_state.config_server_name = "battle test"
+    server_state.server_name = "AC Server"
+    server_state.track = "tsukuba"
+    server_state.config = "fr"
+
+    dispatch_battle_webhook(
+        server_state,
+        {
+            "battle_id": "battle-abc",
+            "player1_steam_id": "p1",
+            "player2_steam_id": "p2",
+            "metadata": {},
+        },
+        2,
+        1,
+        "p1",
+        [],
+    )
+
+    assert mock_enqueue.call_count == 2
+    assert mock_enqueue.call_args_list[0].args[1] == "battle test"
+
+
+@patch("network.event_dispatcher._enqueue")
+def test_dispatch_battle_webhook_draw_publishes_finished(mock_enqueue):
+    server_state = MagicMock()
+    server_state.server_folder_id = "server"
+    server_state.config_server_name = "pord"
+    server_state.server_name = "pord"
+    server_state.track = "pk_akina"
+    server_state.config = "akina_downhill"
+
+    dispatch_battle_webhook(
+        server_state,
+        {
+            "battle_id": "battle-draw",
+            "player1_steam_id": "p1",
+            "player2_steam_id": "p2",
+            "metadata": {},
+        },
+        1,
+        1,
+        None,
+        [],
+    )
+
+    assert mock_enqueue.call_count == 2
+    assert mock_enqueue.call_args_list[0].args[0] == "battle_update"
+    assert mock_enqueue.call_args_list[1].args[0] == "battle_finished"
+    payload = mock_enqueue.call_args_list[1].args[2]
+    assert payload["status"] == "draw"
+    assert "winnerSteamId" not in payload

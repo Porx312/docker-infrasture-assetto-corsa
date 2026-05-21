@@ -83,10 +83,23 @@ class ServerState:
     ):
         from network.event_dispatcher import dispatch_battle_webhook
 
-        # Only dispatch final results (series winner decided).
-        if not winner_guid:
+        # Dispatch wins and draws; skip only when the session ended without a result.
+        if winner_guid is None and p1_score != p2_score:
+            log.warning(
+                "battle score dispatch skipped: no winner_guid battle_id=%s score=%s-%s",
+                battle_id,
+                p1_score,
+                p2_score,
+            )
             return
-        if self._get_server_mode() != "battle" or not battle_id:
+        mode = self._get_server_mode()
+        if mode != "battle" or not battle_id:
+            log.warning(
+                "battle score dispatch skipped: mode=%s battle_id=%s folder=%s",
+                mode,
+                battle_id,
+                getattr(self, "server_folder_id", ""),
+            )
             return
 
         p1_guid = car1_guid

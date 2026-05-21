@@ -34,7 +34,7 @@ docker compose -f docker-compose.prod.yml up -d telemetry-data
 docker logs -f assetto-telemetry-data
 ```
 
-CI deploy on `main` rebuilds the container via `docker-compose.dev.yml` (host network, same image as local Docker dev).
+CI deploy on `main` rebuilds the container via `docker-compose.prod.yml` using `.env.production` on the VPS.
 
 ## Server folders (`server-1`, `server-2`, …)
 
@@ -74,7 +74,7 @@ Set `SKIP_LEGACY_SERVER_CFG=true` (default) to omit `{SERVERS_PATH}/server_cfg.i
 | `REDIS_CONFIG_CONSUMER_ENABLED` | Consume `ac:config` for modes | `true` |
 | `REDIS_CONFIG_INI_WRITE_ENABLED` | Python writes INI (legacy) | `false` |
 | `LOG_LEVEL` | Logging level | `INFO` |
-| `SERVER_STATUS_*` | Status poll / publish / heartbeat | see `.env.example` |
+| `SERVER_STATUS_*` | Status poll / publish / heartbeat | see repo root [`.env.example`](../.env.example) |
 
 ## Tests
 
@@ -88,7 +88,7 @@ pytest -q
 
 Full documentation (architecture, state machine, scoring, Redis events): **[docs/BATTLE_MODE.md](docs/BATTLE_MODE.md)**.
 
-Summary: 1v1 touge pairs matched automatically when close and fast; states `IDLE` → `ARMED` → `LAUNCHING` → `ACTIVE` → `FINISHED`; run ends when the lead completes the lap; **20 s** rematch cooldown (`BATTLE_FINISHED_COOLDOWN_SEC`).
+Summary: 1v1 touge pairs matched automatically when close and fast; states `IDLE` → `ARMED` → `LAUNCHING` → `ACTIVE` → `FINISHED`; run ends when the lead completes the lap; **5 s** sustained proximity before ARMED with `BATTLE ARM` countdown chat (`BATTLE_ARM_SUSTAINED_PROXIMITY_SEC`); no post-finish rematch cooldown.
 
 ## Event Types Published
 

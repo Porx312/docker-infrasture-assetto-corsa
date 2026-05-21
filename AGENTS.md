@@ -32,6 +32,24 @@ tail -f telemetry-data.log
 redis-cli xlen ac:events
 ```
 
+## Environment files
+
+| File | Purpose |
+|------|---------|
+| `.env.example` | Template (committed); copy to `.env.local` or `.env.production` |
+| `.env.local` | Dev: `./start.sh dev`, `docker-compose.dev.yml` |
+| `.env.production` | Prod: `./start.sh prod`, `docker-compose.prod.yml` |
+
+`start.sh` sets `ASSETTO_ENV` (`dev`/`prod`) and `ASSETTO_ENV_FILE` (absolute path). ac-data and telemetry-data load that file via `loadEnv` / `env_loader` — no per-service symlinks.
+
+| Service | Dev | Prod |
+|---------|-----|------|
+| `start.sh` | sources `.env.local` | sources `.env.production` |
+| `telemetry-data` | host (`start-telemetry.sh`) | Docker (`env_file` in compose) |
+| `ac-data` | host (`ASSETTO_ENV_FILE`) | host (`ASSETTO_ENV_FILE`) |
+
+Do not maintain a separate root `.env`; use `.env.local` or `.env.production` only.
+
 ## Critical Paths
 
 - AC server binary: `/home/jose/assetto-install/assetto/server/acServer`

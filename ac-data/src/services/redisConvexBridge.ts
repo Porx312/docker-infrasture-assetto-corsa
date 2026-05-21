@@ -1,9 +1,7 @@
-import dotenv from 'dotenv';
+import '../config/loadEnv.js';
 import { createClient } from 'redis';
 import { ConvexHttpClient } from 'convex/browser';
 import { noteServerStatus } from './serverPool.js';
-
-dotenv.config();
 
 const REDIS_HOST = process.env.REDIS_HOST || '';
 const REDIS_PORT = Number(process.env.REDIS_PORT || 6379);
@@ -75,6 +73,34 @@ const CONFIG_ONLY_EVENTS = new Set<string>([
   'server_config_applied',
 ]);
 
+type IngestEventResult = {
+  ok?: boolean;
+  error?: string;
+  eventType?: string;
+  index?: number;
+};
+
+type IngestBatchResult = {
+  ok?: boolean;
+  failed?: number;
+  processed?: number;
+  results?: IngestEventResult[];
+};
+
+function parseIngestBatchResult(raw: unknown): IngestBatchResult {
+  if (!raw || typeof raw !== 'object') return {};
+  return raw as IngestBatchResult;
+}
+
+/** True when every event in the batch succeeded (or the batch is empty). */
+export function ingestBatchSucceeded(result: IngestBatchResult): boolean {
+  const results = result.results ?? [];
+  if (results.length === 0) {
+    return result.ok !== false && (result.failed ?? 0) === 0;
+  }
+  return results.every((r) => r.ok === true);
+}
+
 function parsePayload(message: StreamMessage): Record<string, unknown> | null {
   const raw = message.fields?.payload ?? message.message?.payload;
   if (!raw) return null;
@@ -102,7 +128,7 @@ function ensureConvexClient(): {
   return { mutation: anyClient.mutation.bind(anyClient), query: anyClient.query.bind(anyClient) };
 }
 
-async function forwardToConvex(payload: Record<string, unknown>): Promise<void> {
+async function forwardToConvex(payload: Record<string, unknown>): Promise<IngestBatchResult> {
   if (!CONVEX_INGEST_SECRET) {
     throw new Error('CONVEX_INGEST_SECRET missing for direct mode');
   }
@@ -131,7 +157,8 @@ async function forwardToConvex(payload: Record<string, unknown>): Promise<void> 
     ],
   };
 
-  await mutation(CONVEX_MUTATION_BATCH, mutationArgs);
+  const raw = await mutation(CONVEX_MUTATION_BATCH, mutationArgs);
+  return parseIngestBatchResult(raw);
 }
 
 async function publishConfigSnapshotToRedis(
@@ -271,7 +298,17 @@ async function runEventsConsumerLoop(client: ReturnType<typeof createClient>): P
                 typeof payload.serverName === 'string' ? payload.serverName : '';
               noteServerStatus(statusName, players.length);
             }
-            await forwardToConvex(payload);
+            const ingestResult = await forwardToConvex(payload);
+            if (!ingestBatchSucceeded(ingestResult)) {
+              const failed = ingestResult.results?.find((r) => r.ok !== true);
+              console.error(
+                '[redis-bridge] convex ingest failed (no ack):',
+                event,
+                payload.eventId,
+                failed?.error ?? ingestResult,
+              );
+              continue;
+            }
             await client.xAck(REDIS_STREAM_KEY, GROUP, msg.id);
           } catch (err) {
             console.error('[redis-bridge] process error:', err);

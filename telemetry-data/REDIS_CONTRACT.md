@@ -51,17 +51,19 @@ Generic server lifecycle (`network/event_dispatcher.send_server_event`):
 
 - `player_join`
 - `player_leave`
-- `lap_completed`
+- `lap_completed` — **only** when Convex server `type` is `time-attack` (not battle)
 - `server_status` (heartbeat every ~15 s; intentional, used for liveness)
 - `server_config_applied` (only when `REDIS_CONFIG_INI_WRITE_ENABLED=true`
   and Python writes local cfg files; default is ac-data-only INI writes).
 
 Battle events (`network/event_dispatcher.dispatch_battle_webhook`):
 
-- `battle_update` — produced once when the touge series finishes.
-- `battle_finished` — same payload as the closing `battle_update`, emitted
-  only when `winnerSteamId` is present so consumers can act on the cleanup
-  without ambiguity.
+- `battle_update` — produced once when the touge series finishes (win or draw).
+- `battle_finished` — same payload as the closing `battle_update`, emitted when
+  the session ends with a winner (`winnerSteamId`) or a draw (`status: "draw"`,
+  no `winnerSteamId`).
+- Stream `serverName` uses the AC display name (`config_server_name`), not the
+  folder slug; `data.serverName` matches that display name.
 
 ## Events published into `ac:config`
 

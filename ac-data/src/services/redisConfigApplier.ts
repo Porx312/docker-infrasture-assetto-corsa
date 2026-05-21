@@ -1,4 +1,4 @@
-import dotenv from 'dotenv';
+import '../config/loadEnv.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,8 +13,6 @@ import {
   ServerConfigPayload,
 } from '../controller/controller.js';
 import { shouldStartFromConfig } from './serverPool.js';
-
-dotenv.config();
 
 const REDIS_HOST = process.env.REDIS_HOST || '';
 const REDIS_PORT = Number(process.env.REDIS_PORT || 6379);

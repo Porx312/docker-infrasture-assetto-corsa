@@ -5,7 +5,7 @@
 #   ./scripts/load-test-ac-servers.sh --count 12 [--hold 60] [--api http://127.0.0.1:3000]
 #   ./scripts/load-test-ac-servers.sh --dry-run   # list servers only
 #
-# Requires: API_KEY in .env or environment, ac-data running.
+# Requires: API_KEY in .env.local (or ASSETTO_ENV_FILE), ac-data running.
 
 set -euo pipefail
 
@@ -33,21 +33,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -f "$ROOT/.env" ]]; then
+ENV_FILE="${ASSETTO_ENV_FILE:-$ROOT/.env.local}"
+if [[ -f "$ENV_FILE" ]]; then
   set -a
   # shellcheck disable=SC1091
-  source "$ROOT/.env"
-  set +a
-elif [[ -f "$ROOT/.env.local" ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source "$ROOT/.env.local"
+  source "$ENV_FILE"
   set +a
 fi
 
 API_KEY="${API_KEY:-}"
 if [[ -z "$API_KEY" && "$DRY_RUN" == false ]]; then
-  echo "Error: set API_KEY in .env or environment"
+  echo "Error: set API_KEY in .env.local (or ASSETTO_ENV_FILE) or environment"
   exit 1
 fi
 

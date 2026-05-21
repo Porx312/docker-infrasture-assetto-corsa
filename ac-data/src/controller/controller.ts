@@ -1,13 +1,11 @@
 import { spawn, exec, execSync, ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs';
-import dotenv from 'dotenv';
+import { resolveEnvFilePath } from '../config/loadEnv.js';
 import { getServerPorts } from './serverPorts.js';
 
-dotenv.config({ path: '/home/jose/assetto-infra/.env' });
-
 const _serversPath = process.env.SERVERS_PATH;
-if (!_serversPath) throw new Error('SERVERS_PATH no definido en .env');
+if (!_serversPath) throw new Error(`SERVERS_PATH no definido en ${resolveEnvFilePath()}`);
 const SERVERS_PATH: string = _serversPath;
 
 const PIDS_FILE = path.join(process.cwd(), 'server_pids.json');

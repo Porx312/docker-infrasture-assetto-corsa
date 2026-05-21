@@ -134,7 +134,7 @@ def dispatch_battle_webhook(
         "player1Name": meta.get("player1Name", ""),
         "player2Name": meta.get("player2Name", ""),
         "pointsLog": points_log or [],
-        "status": "finished" if winner_guid else "active",
+        "status": "finished" if winner_guid is not None else "draw",
         "serverName": getattr(server_state, "server_name", ""),
         "track": meta.get("track", ""),
         "trackConfig": meta.get("trackConfig", ""),
@@ -142,8 +142,11 @@ def dispatch_battle_webhook(
     if winner_guid:
         payload["winnerSteamId"] = winner_guid
 
-    server_name = getattr(server_state, "config_server_name", None) or getattr(
-        server_state, "server_name", ""
+    server_name = (
+        getattr(server_state, "config_server_name", None)
+        or getattr(server_state, "server_name", "")
+        or getattr(server_state, "server_folder_id", None)
+        or ""
     )
     _enqueue("battle_update", server_name, payload)
     log.info(
@@ -153,9 +156,14 @@ def dispatch_battle_webhook(
         payload.get("player1Score"),
         payload.get("player2Score"),
     )
-    if winner_guid:
+    if winner_guid is not None or payload.get("status") == "draw":
         _enqueue("battle_finished", server_name, payload)
-        log.info("battle_finished battleId=%s winner=%s", payload.get("battleId"), winner_guid)
+        log.info(
+            "battle_finished battleId=%s winner=%s status=%s",
+            payload.get("battleId"),
+            winner_guid,
+            payload.get("status"),
+        )
 
 
 def shutdown_publish_workers() -> None:

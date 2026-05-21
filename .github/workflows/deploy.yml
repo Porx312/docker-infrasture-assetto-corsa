@@ -23,8 +23,8 @@ jobs:
           script: |
             cd /home/jose/assetto-infra
             git pull origin main
-            docker compose -f docker-compose.dev.yml build telemetry-data
-            docker compose -f docker-compose.dev.yml up -d telemetry-data
+            docker compose -f docker-compose.prod.yml build telemetry-data redis
+            docker compose -f docker-compose.prod.yml up -d telemetry-data redis
 
       - name: Health check
         run: |

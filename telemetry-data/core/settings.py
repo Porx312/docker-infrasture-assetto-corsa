@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import os
 
-from dotenv import load_dotenv
-
-load_dotenv()
+from core import env_loader  # noqa: F401 — loads ASSETTO_ENV_FILE / .env.local|.production
 
 
 def _env_bool(name: str, default: str = "false") -> bool:

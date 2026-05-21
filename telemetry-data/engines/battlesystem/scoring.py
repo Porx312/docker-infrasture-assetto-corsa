@@ -1,7 +1,10 @@
 import time
 
 from core.logging_config import get_logger
-from engines.battlesystem.config import FINISH_POINT_MIN_GAP_METERS, FINISHED_COOLDOWN_SEC
+from engines.battlesystem.config import (
+    ABANDON_MIN_PROGRESS_FOR_WIN,
+    FINISH_POINT_MIN_GAP_METERS,
+)
 from engines.battlesystem.chat import format_point_broadcast, notify_touge_chat
 
 log = get_logger("battlesystem.scoring")
@@ -23,15 +26,35 @@ def battle_has_points(manager) -> bool:
     return (manager.battle.car1_score + manager.battle.car2_score) > 0
 
 
+def battle_run_progress(manager) -> float:
+    """Max lap fraction driven since GO across both drivers (0–1)."""
+    if not manager.battle:
+        return 0.0
+    progress = 0.0
+    for guid in (manager.battle.car1_guid, manager.battle.car2_guid):
+        car = manager.cars.get(guid)
+        if car:
+            progress = max(progress, car.driven_spline)
+    return progress
+
+
+def abandon_should_award_win(manager) -> bool:
+    """True when abandon should produce a winner (points on board or enough run progress)."""
+    if battle_has_points(manager):
+        return True
+    return battle_run_progress(manager) >= ABANDON_MIN_PROGRESS_FOR_WIN
+
+
 def finalize_abandon(manager, winner_guid, reason) -> bool:
     """
     End an ACTIVE battle when opponents separate (250 m) or disconnect.
-    If any points were scored, the non-abandoner wins; at 0-0 only cancel.
+    Winner if points were scored, or at 0-0 when the pair ran >= ABANDON_MIN_PROGRESS_FOR_WIN;
+    otherwise cancel (instant separation at start).
     """
     if manager.state != "ACTIVE" or not manager.battle:
         return False
 
-    if winner_guid and battle_has_points(manager):
+    if winner_guid and abandon_should_award_win(manager):
         return finalize_default_win(manager, winner_guid, reason)
 
     log.info(
@@ -83,32 +106,26 @@ def finalize_default_win(manager, winner_guid, reason):
 def finalize_single_session_result(manager, finish_gap_m, is_draw):
     if manager.state != "ACTIVE":
         return
-    if is_draw:
-        winner = None
+    if manager.battle.car1_score > manager.battle.car2_score:
+        winner = manager.battle.car1_guid
+    elif manager.battle.car2_score > manager.battle.car1_score:
+        winner = manager.battle.car2_guid
     else:
-        winner = manager.battle.lead_guid
+        winner = None
 
     manager.battle.winner = winner
-    rematch_sec = int(FINISHED_COOLDOWN_SEC)
     board = manager._scoreboard_line()
     if winner:
         wn = manager._display_name(winner)
         log.info(
-            "session over winner=%s (finish gap=%.1fm) rematch_in=%ss",
+            "session over winner=%s (finish gap=%.1fm)",
             winner,
             finish_gap_m,
-            rematch_sec,
         )
-        msg = (
-            f"FINISH — WIN {wn} (+1, gap {finish_gap_m:.0f}m) | {board} "
-            f"| Rematch in {rematch_sec}s"
-        )
+        msg = f"FINISH — WIN {wn} (+1, gap {finish_gap_m:.0f}m) | {board}"
     else:
-        log.info("session over DRAW finish_gap=%.1fm rematch_in=%ss", finish_gap_m, rematch_sec)
-        msg = (
-            f"FINISH — DRAW (gap {finish_gap_m:.0f}m) | {board} "
-            f"| Rematch in {rematch_sec}s"
-        )
+        log.info("session over DRAW finish_gap=%.1fm", finish_gap_m)
+        msg = f"FINISH — DRAW (gap {finish_gap_m:.0f}m) | {board}"
     notify_touge_chat(manager, msg)
     if manager.on_score_update:
         manager.on_score_update(

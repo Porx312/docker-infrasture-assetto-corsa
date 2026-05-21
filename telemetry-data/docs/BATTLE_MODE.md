@@ -52,13 +52,15 @@ Estados: `IDLE` → `ARMED` → `LAUNCHING` → `ACTIVE` → `FINISHED` (`engine
 
 | Estado | Qué ocurre |
 |--------|------------|
-| **IDLE** | Tras cooldown post-partida (20 s). Si `can_arm` (≤15 m, ambos >40 km/h) → **ARMED** + chat "X vs Y — ARMED" |
-| **ARMED** | Si se separan >45 m con ambos ≥20 km/h tras 2 s de gracia → abort sin punto. Si ambos >40 km/h → **LAUNCHING** + "GO — both over 40 km/h". Se crea `battle_id` vía `on_battle_start` |
-| **LAUNCHING** | Espera roles lead/chase claros en spline (gap ≥0.0006 en pista, ~6 s máx). Si no → abort `leader_not_clear`. OK → **ACTIVE** + "You are LEAD/CHASE" |
+| **IDLE** | Tras fin de sesión, vuelta a IDLE al siguiente tick. Si `can_arm` (≤15 m, ambos >40 km/h) de forma **continua durante 5 s** → chat `BATTLE ARM 5…1 (brake: cancel \| continue: 15m / 40km/h)` → **ARMED** + "X vs Y — ARMED". Frenar o separarse → `BATTLE CANCELLED` |
+| **ARMED** | Si se separan >80 m con ambos ≥20 km/h tras 2 s de gracia → abort sin punto. Si ambos ≥40 km/h → **LAUNCHING** + "GO — both over 40 km/h". Mensaje ARMED con cooldown 15 s para evitar spam. Se crea `battle_id` vía `on_battle_start` |
+| **LAUNCHING** | Espera roles lead/chase en spline (hasta 6 s); si no hay gap claro, asigna por posición igualmente. No aborta por abrir gap tras el GO. Timeout 8 s si bajan de 40 km/h → **ACTIVE** + "You are LEAD/CHASE" |
 | **ACTIVE** | Puntuación en vivo (overtake, finish, abandon). Roles: **lead** adelante en spline, **chase** detrás |
-| **FINISHED** | Cooldown 20 s, marcador se conserva, luego reset a IDLE para rematch con la misma pareja |
+| **FINISHED** | Un tick de telemetría, luego reset a IDLE (marcador reiniciado) para nueva batalla con la misma pareja |
 
 Constantes tunables en `engines/battlesystem/config.py` (variables de entorno con prefijo `BATTLE_` / `OVERTAKE_`).
+
+**Anti-spam / camping:** la proximidad sostenida antes de ARMED evita batallas por rozar a otro piloto en una zona. Complementa el abandono a 0-0 con progreso &lt; 10 % (`BATTLE_ABANDON_MIN_PROGRESS_FOR_WIN`), que cancela la sesión si alguien se aleja sin haber corrido de verdad.
 
 ## Cómo se puntúa
 
@@ -73,17 +75,23 @@ Constantes tunables en `engines/battlesystem/config.py` (variables de entorno co
 2. **Position recovery (+1 al lead)** — tras un overtake del chase, si el lead recupera posición adelante
 
 3. **Abandon por separación (≥250 m)** — `engines/battlesystem/rules/finish.py` (`check_abandon_by_gap`)
-   - Parado / muy lento → abandona ese piloto
-   - Lead mucho más rápido y adelante en pista → lead se fue, gana chase
-   - Si ya hubo puntos en el marcador → victoria al no-abandonador; si **0-0** → cancelación sin ganador
+   - Parado / muy lento → abandona ese piloto; gana quien sigue en pista
+   - Si ambos en movimiento → gana quien va **adelante en pista** (el de atrás “desapareció” del duelo); empate en spline → más `driven_spline`
+   - Si ya hubo puntos en el marcador → victoria al no-abandonador
+   - Si **0-0** y la pareja recorrió al menos **10 %** de vuelta desde el GO (`max(driven_spline)` ≥ `BATTLE_ABANDON_MIN_PROGRESS_FOR_WIN`) → victoria al ganador candidato (quien iba adelante / más progreso)
+   - Si **0-0** y progreso &lt; 10 % (separación casi al instante) → cancelación sin ganador
 
-### Fin de vuelta (lead completa el tramo)
+### Fin de vuelta (lead completa una vuelta)
 
-- Lead debe recorrer **~100% del spline** (`RUN_END_SPLINE_FRACTION=1.0`, umbral efectivo 0.995) usando `driven_spline` acumulado
-- Al cruzar meta:
-  - Gap final **≥ 100 m** → **+1 finish** al lead (`finish_outrun`) y gana la sesión
-  - Gap **< 100 m** → **empate**, sin punto de finish
-- Chat: `FINISH — WIN …` o `FINISH — DRAW … | Rematch in 20s`
+- La batalla puede empezar **en cualquier punto** del circuito; el fin no es “100 % del mapa desde el spline 0”
+- Cuenta cuando el **lead cruza la línea de meta**:
+  - evento ACSP `LAP_COMPLETED`, o
+  - cruce de spline (≥0.90 → ≤0.10) tras haber recorrido al menos **30 %** del trazado desde el GO (`BATTLE_MIN_LAP_PROGRESS_BEFORE_FINISH`)
+- Al completar la vuelta:
+  - Gap final **≥ 20 m** y claramente adelante en pista → **+1 finish** (`finish_outrun`) al que va adelante
+  - Gap **< 20 m** o empate en pista → **empate**, sin punto de finish
+- Ganador de sesión / Convex: mayor marcador tras el finish (no el rol lead fijo)
+- Chat: `FINISH — WIN …` o `FINISH — DRAW …` (marcador en el mensaje)
 
 ### Desconexión / inactividad
 
@@ -106,6 +114,8 @@ Ver también [REDIS_CONTRACT.md](../REDIS_CONTRACT.md) para el esquema de evento
 
 ## Qué NO hace el modo batalla
 
+- No publica `lap_completed` / `lapTime` a Redis ni Convex (solo time-attack)
+- El paquete ACSP `LAP_COMPLETED` solo marca fin de run touge vía `BattleManager.handle_lap_completed`
 - No usa vueltas cronometradas del modo time-attack
 - No puntúa colisiones coches-coches
 - No escribe `server_cfg.ini` (lo hace `ac-data` desde Convex)
@@ -126,8 +136,9 @@ Ver también [REDIS_CONTRACT.md](../REDIS_CONTRACT.md) para el esquema de evento
 | Regla | Umbral (default) | Variable de entorno |
 |-------|------------------|---------------------|
 | Arm / pair lock | ≤ 15 m, ambos > 40 km/h | `BATTLE_ARM_MAX_GAP_METERS`, `BATTLE_ARM_MIN_SPEED_KMH` |
-| Abort prestart | > 45 m, ambos ≥ 20 km/h tras 2 s | `MAX_BATTLE_GAP_METERS`, `BATTLE_PRESTART_GAP_ABORT_GRACE_SEC` |
+| Arm (IDLE → ARMED) | condiciones sostenidas 5 s | `BATTLE_ARM_SUSTAINED_PROXIMITY_SEC` |
+| Abort prestart (solo ARMED) | > 80 m, ambos ≥ 20 km/h tras 2 s | `MAX_BATTLE_GAP_METERS`, `BATTLE_PRESTART_GAP_ABORT_GRACE_SEC` |
 | Overtake / recovery | gap 10–15 m | `OVERTAKE_MIN_GAP_METERS`, `OVERTAKE_MAX_GAP_METERS` |
-| Finish | lead completa vuelta + gap ≥ 100 m | `RUN_END_SPLINE_FRACTION`, `BATTLE_FINISH_POINT_MIN_GAP_METERS` |
+| Finish | lead completa vuelta (meta) + gap ≥ 20 m | `BATTLE_FINISH_LINE_*`, `BATTLE_MIN_LAP_PROGRESS_BEFORE_FINISH`, `BATTLE_FINISH_POINT_MIN_GAP_METERS` |
 | Abandon | gap ≥ 250 m | `BATTLE_DISAPPEAR_GAP_METERS` |
-| Rematch cooldown | 20 s | `BATTLE_FINISHED_COOLDOWN_SEC` |
+| Abandon win at 0-0 | max `driven_spline` ≥ 10 % vuelta | `BATTLE_ABANDON_MIN_PROGRESS_FOR_WIN` |

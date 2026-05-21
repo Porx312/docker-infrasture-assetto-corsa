@@ -33,9 +33,10 @@ Python (Host/Dev, Docker/Prod) ──writes──> Redis (Local) ──reads─�
 # 1. Install all dependencies
 ./install.sh
 
-# 2. Configure environment
+# 2. Configure environment (dev)
 cp .env.example .env.local
 nano .env.local
+# Production: cp .env.example .env.production && nano .env.production
 
 # 3. Start services (dev mode)
 ./start.sh dev
@@ -84,7 +85,15 @@ Each folder (`server`, `server-1`, `server-2`, …) should use the **Plugin** UD
 | server-10 | 9700 | 8091 | 12111 |
 | server-11 | 9710 | 8092 | 12121 |
 
-## Environment Variables
+## Environment files
+
+| File | When |
+|------|------|
+| `.env.example` | Template (copy, do not edit secrets here) |
+| `.env.local` | `./start.sh dev` — local Redis, telemetry on host |
+| `.env.production` | `./start.sh prod` — Redis in Docker, telemetry in Docker |
+
+`./start.sh` exports `ASSETTO_ENV` and `ASSETTO_ENV_FILE` so **ac-data** and **telemetry-data** use the same file for the chosen mode. See [`.env.example`](.env.example) for all variables.
 
 | Variable | Description |
 |----------|-------------|
@@ -124,7 +133,7 @@ tail -f ac-data.log
 
 ## CI/CD
 
-Push to `main` → GitHub Actions deploys telemetry-data (Docker) via SSH to VPS and verifies the container is running.
+Push to `main` → GitHub Actions deploys telemetry-data (`docker-compose.prod.yml`, `.env.production` on VPS) via SSH and verifies the container is running.
 
 Required GitHub Secrets:
 - `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`

@@ -5,12 +5,10 @@ import sys
 import threading
 import time
 import struct
-from dotenv import load_dotenv
-
 os.environ["PYTHONUNBUFFERED"] = "1"
 
-# Load .env BEFORE importing modules that read env via core.settings on import.
-load_dotenv()
+# Load repo env before modules that read core.settings on import.
+from core import env_loader  # noqa: F401, E402
 
 from core import runtime_config, settings  # noqa: E402
 from core.config_loader import load_server_configs  # noqa: E402

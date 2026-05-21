@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import math
 import time
 
 from core.logging_config import get_logger
 from engines.battlesystem.config import (
+    ARM_SUSTAINED_PROXIMITY_SEC,
     BATTLE_ARM_MIN_SPEED_KMH,
-    FINISHED_COOLDOWN_SEC,
     LAUNCH_TIMEOUT_SEC,
     PAIR_STICKY_TIMEOUT_SEC,
 )
+from engines.battlesystem.chat import notify_arming_cancelled, notify_arming_countdown
 from engines.battlesystem.models import TougeBattle
 from engines.battlesystem.rules import arming, finish, overtake
 from engines.battlesystem.rules.proximity import distance_3d
@@ -92,15 +94,7 @@ def process_pair_logic(manager):
 
 
 def _handle_finished_cooldown(manager, car1, car2, now: float) -> None:
-    if manager.finished_time == 0.0:
-        manager.finished_time = now
-        return
-
-    elapsed = now - manager.finished_time
-    if elapsed < FINISHED_COOLDOWN_SEC:
-        return
-
-    log.info("rematch cooldown over (%.0fs), ready for new battle", elapsed)
+    log.info("session ended, ready for new battle")
     if manager.battle:
         manager.battle = TougeBattle(manager.battle.car1_guid, manager.battle.car2_guid)
     manager._reset_to_idle(full_reset=True)
@@ -108,18 +102,56 @@ def _handle_finished_cooldown(manager, car1, car2, now: float) -> None:
         manager.on_battle_end()
 
 
+def _arming_seconds_remaining(manager, now: float) -> int:
+    elapsed = now - manager.arm_proximity_since
+    remaining = ARM_SUSTAINED_PROXIMITY_SEC - elapsed
+    if remaining <= 0:
+        return 0
+    return max(1, int(math.ceil(remaining)))
+
+
+def _maybe_notify_arming_countdown(manager, now: float) -> None:
+    sec = _arming_seconds_remaining(manager, now)
+    if sec <= 0:
+        return
+    announced = getattr(manager, "_arming_countdown_announced_sec", -1)
+    if sec == announced:
+        return
+    manager._arming_countdown_announced_sec = sec
+    notify_arming_countdown(manager, sec)
+
+
+def _clear_arming_countdown(manager, *, notify_cancel: bool = False) -> None:
+    was_arming = manager.arm_proximity_since > 0.0
+    had_announced = getattr(manager, "_arming_countdown_announced_sec", -1) >= 0
+    manager.arm_proximity_since = 0.0
+    manager._arming_countdown_announced_sec = -1
+    if notify_cancel and was_arming and had_announced:
+        notify_arming_cancelled(manager)
+
+
 def _handle_idle(manager, car1, car2, distance: float, now: float) -> None:
-    if manager.finished_time > 0 and (now - manager.finished_time) < FINISHED_COOLDOWN_SEC:
-        return
     if not arming.can_arm(car1, car2):
+        _clear_arming_countdown(manager, notify_cancel=True)
         return
+    if manager.arm_proximity_since == 0.0:
+        manager.arm_proximity_since = now
+        manager._arming_countdown_announced_sec = -1
+        _maybe_notify_arming_countdown(manager, now)
+        return
+    if (now - manager.arm_proximity_since) < ARM_SUSTAINED_PROXIMITY_SEC:
+        _maybe_notify_arming_countdown(manager, now)
+        return
+    _clear_arming_countdown(manager, notify_cancel=False)
     manager.state = "ARMED"
     manager.condition_start_time = now
     log.info("ARMED %s vs %s gap=%.1fm", car1.guid, car2.guid, distance)
-    if manager.on_chat_message:
+    cooldown = getattr(manager, "ARMED_CHAT_COOLDOWN", 15.0)
+    if manager.on_chat_message and (now - manager.last_armed_chat_time) >= cooldown:
         msg = f"{manager._display_name(car1.guid)} vs {manager._display_name(car2.guid)} — ARMED"
         manager.on_chat_message(car1.guid, msg)
         manager.on_chat_message(car2.guid, msg)
+        manager.last_armed_chat_time = now
 
 
 def _handle_armed(manager, car1, car2, distance: float, now: float) -> None:
@@ -144,9 +176,7 @@ def _handle_armed(manager, car1, car2, distance: float, now: float) -> None:
 
 
 def _handle_launching(manager, car1, car2, distance: float, now: float) -> None:
-    if arming.should_abort_prestart(distance, car1, car2, manager.launch_trigger_time, now):
-        manager._abort_run_no_point(f"launch_gap_{distance:.1f}m")
-        return
+    # Once GO was sent, do not abort for opening gap (normal on long straights).
 
     if not arming.can_launch(car1, car2):
         if (now - manager.launch_trigger_time) > LAUNCH_TIMEOUT_SEC:
@@ -154,10 +184,8 @@ def _handle_launching(manager, car1, car2, distance: float, now: float) -> None:
             manager._reset_to_idle()
         return
 
-    ok, abort_reason = arming.can_assign_roles(car1, car2, manager.launch_trigger_time, now)
+    ok, _abort_reason = arming.can_assign_roles(car1, car2, manager.launch_trigger_time, now)
     if not ok:
-        if abort_reason:
-            manager._abort_run_no_point(abort_reason)
         return
 
     arming.setup_active_run(manager, car1, car2, now)

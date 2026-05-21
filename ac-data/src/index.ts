@@ -1,6 +1,6 @@
+import './config/loadEnv.js';
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import path from 'path';
 import acServerRoutes from './routes/acServerRoutes.js';
@@ -8,12 +8,11 @@ import adminRoutes from './routes/adminRoutes.js';
 import { startRedisConvexBridge } from './services/redisConvexBridge.js';
 import { startRedisConfigApplier } from './services/redisConfigApplier.js';
 import { startServerPoolMonitor } from './services/serverPool.js';
-
-dotenv.config();
+import { resolveEnvFilePath } from './config/loadEnv.js';
 
 const SERVERS_PATH = process.env.SERVERS_PATH;
 if (!SERVERS_PATH) {
-    console.error('❌ SERVERS_PATH no está definido en el archivo .env');
+    console.error(`❌ SERVERS_PATH no está definido en ${resolveEnvFilePath()}`);
     process.exit(1);
 }
 
@@ -51,7 +50,7 @@ const apiKeyMiddleware = (req: express.Request, res: express.Response, next: exp
   const validKey = process.env.API_KEY;
 
   if (!validKey) {
-    console.warn("⚠️ API_KEY no está definida en el archivo .env. Todas las peticiones serán bloqueadas.");
+    console.warn(`⚠️ API_KEY no está definida en ${resolveEnvFilePath()}. Todas las peticiones serán bloqueadas.`);
     return res.status(500).json({ error: "Server Configuration Error: API_KEY missing" });
   }
 
