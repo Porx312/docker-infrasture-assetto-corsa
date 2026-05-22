@@ -12,6 +12,7 @@ import {
   stopServerCore,
   ServerConfigPayload,
 } from '../controller/controller.js';
+import { normalizeTrackConfigForIni } from '../controller/trackConfig.js';
 import { shouldStartFromConfig } from './serverPool.js';
 
 const REDIS_HOST = process.env.REDIS_HOST || '';
@@ -80,7 +81,7 @@ function buildSignature(row: ServerRow): string {
     displayName: row.displayName ?? '',
     password: row.password ?? '',
     track: row.track ?? '',
-    trackConfig: row.trackConfig ?? '',
+    trackConfig: normalizeTrackConfigForIni(row.trackConfig) ?? '',
     maxClients: row.maxClients ?? 0,
     isActive: !!row.isActive,
     entries: (row.entries ?? []).map((e) => ({
@@ -97,7 +98,9 @@ function rowToConfigPayload(row: ServerRow): ServerConfigPayload {
   if (row.displayName !== undefined) payload.displayName = row.displayName;
   if (row.password !== undefined) payload.password = row.password;
   if (row.track !== undefined) payload.track = row.track;
-  if (row.trackConfig !== undefined) payload.configTrack = row.trackConfig;
+  if (row.trackConfig !== undefined) {
+    payload.configTrack = normalizeTrackConfigForIni(row.trackConfig);
+  }
   if (row.maxClients !== undefined) payload.maxClients = row.maxClients;
   if (row.entries !== undefined) payload.entries = row.entries;
   return payload;

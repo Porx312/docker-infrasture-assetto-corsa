@@ -53,6 +53,7 @@ class PairBattleManager:
         self.player_names = {}
         self._overtake_chase_scored = False
         self._last_overtake_point_ts = 0.0
+        self._position_fallback = False
         self._chase_was_ahead_on_track = False
         self._lead_was_ahead_on_track = False
 
@@ -100,12 +101,19 @@ class PairBattleManager:
     def get_distance(self, pos1, pos2):
         return distance_3d(pos1, pos2)
 
-    def update(self, driver_guid, spline, speed, world_position):
+    def update(
+        self,
+        driver_guid,
+        spline,
+        speed,
+        world_position,
+        vel=None,
+    ):
         if not self.is_battle_server:
             return
         if driver_guid not in self.cars:
             self.cars[driver_guid] = CarState(driver_guid)
-        self.cars[driver_guid].update(spline, speed, world_position)
+        self.cars[driver_guid].update(spline, speed, world_position, vel=vel)
         try:
             self._process_logic()
         except Exception as e:

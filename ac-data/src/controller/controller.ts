@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { resolveEnvFilePath } from '../config/loadEnv.js';
 import { getServerPorts } from './serverPorts.js';
+import { normalizeTrackConfigForIni } from './trackConfig.js';
 
 const _serversPath = process.env.SERVERS_PATH;
 if (!_serversPath) throw new Error(`SERVERS_PATH no definido en ${resolveEnvFilePath()}`);
@@ -135,7 +136,7 @@ export function applyServerConfiguration(
         }
 
         if (configTrack !== undefined) {
-            const value = configTrack ?? '';
+            const value = normalizeTrackConfigForIni(configTrack) ?? '';
             if (/^CONFIG_TRACK=.*/m.test(content)) {
                 content = content.replace(/^CONFIG_TRACK=.*/m, `CONFIG_TRACK=${value}`);
             } else {

@@ -9,10 +9,15 @@ from core.logging_config import get_logger
 from engines.battlesystem.config import (
     ARM_SUSTAINED_PROXIMITY_SEC,
     BATTLE_ARM_MIN_SPEED_KMH,
+    FINISHED_COOLDOWN_SEC,
     LAUNCH_TIMEOUT_SEC,
     PAIR_STICKY_TIMEOUT_SEC,
 )
-from engines.battlesystem.chat import notify_arming_cancelled, notify_arming_countdown
+from engines.battlesystem.chat import (
+    notify_arming_cancelled,
+    notify_arming_countdown,
+    notify_position_fallback_mode,
+)
 from engines.battlesystem.models import TougeBattle
 from engines.battlesystem.rules import arming, finish, overtake
 from engines.battlesystem.rules.proximity import distance_3d
@@ -93,8 +98,22 @@ def process_pair_logic(manager):
         _handle_active(manager, car1, car2, distance, now)
 
 
+def _in_rematch_cooldown(manager, now: float) -> bool:
+    if manager.finished_time <= 0.0:
+        return False
+    return (now - manager.finished_time) < FINISHED_COOLDOWN_SEC
+
+
 def _handle_finished_cooldown(manager, car1, car2, now: float) -> None:
-    log.info("session ended, ready for new battle")
+    if manager.finished_time == 0.0:
+        manager.finished_time = now
+        return
+
+    elapsed = now - manager.finished_time
+    if elapsed < FINISHED_COOLDOWN_SEC:
+        return
+
+    log.info("rematch cooldown over (%.0fs), ready for new battle", elapsed)
     if manager.battle:
         manager.battle = TougeBattle(manager.battle.car1_guid, manager.battle.car2_guid)
     manager._reset_to_idle(full_reset=True)
@@ -131,6 +150,8 @@ def _clear_arming_countdown(manager, *, notify_cancel: bool = False) -> None:
 
 
 def _handle_idle(manager, car1, car2, distance: float, now: float) -> None:
+    if _in_rematch_cooldown(manager, now):
+        return
     if not arming.can_arm(car1, car2):
         _clear_arming_countdown(manager, notify_cancel=True)
         return
@@ -167,7 +188,8 @@ def _handle_armed(manager, car1, car2, distance: float, now: float) -> None:
         manager.launch_trigger_time = now
         log.info("LAUNCHING gap=%.1fm both > %.0f km/h", distance, BATTLE_ARM_MIN_SPEED_KMH)
         if manager.on_chat_message:
-            msg = "GO — both over 40 km/h"
+            speed = int(BATTLE_ARM_MIN_SPEED_KMH)
+            msg = f"GO — both over {speed} km/h"
             manager.on_chat_message(car1.guid, msg)
             manager.on_chat_message(car2.guid, msg)
     elif manager.launch_trigger_time and (now - manager.launch_trigger_time) > LAUNCH_TIMEOUT_SEC:
@@ -176,26 +198,36 @@ def _handle_armed(manager, car1, car2, distance: float, now: float) -> None:
 
 
 def _handle_launching(manager, car1, car2, distance: float, now: float) -> None:
-    # Once GO was sent, do not abort for opening gap (normal on long straights).
-
-    if not arming.can_launch(car1, car2):
-        if (now - manager.launch_trigger_time) > LAUNCH_TIMEOUT_SEC:
-            log.info("launch timeout, resetting")
-            manager._reset_to_idle()
-        return
+    # Once GO was sent, do not abort for opening gap or brief speed dips.
 
     ok, _abort_reason = arming.can_assign_roles(car1, car2, manager.launch_trigger_time, now)
     if not ok:
+        if (now - manager.launch_trigger_time) > LAUNCH_TIMEOUT_SEC:
+            log.info("launch role assign timeout, resetting")
+            manager._reset_to_idle()
         return
 
     arming.setup_active_run(manager, car1, car2, now)
     manager.state = "ACTIVE"
+    lead_car = manager.cars[manager.battle.lead_guid]
+    chase_car = manager.cars[manager.battle.chase_guid]
+    gap_m = distance_3d(lead_car.pos, chase_car.pos)
     log.info(
-        "ACTIVE lead=%s chase=%s initial_gap=%.4f",
+        "ACTIVE lead=%s chase=%s initial_gap_spline=%.4f gap3d=%.1fm "
+        "lead_spline=%.4f chase_spline=%.4f lead_reliable=%s chase_reliable=%s "
+        "position_fallback=%s",
         manager.battle.lead_guid,
         manager.battle.chase_guid,
         manager.battle.initial_gap_spline,
+        gap_m,
+        lead_car.spline,
+        chase_car.spline,
+        lead_car.spline_reliable,
+        chase_car.spline_reliable,
+        getattr(manager, "_position_fallback", False),
     )
+    if getattr(manager, "_position_fallback", False):
+        notify_position_fallback_mode(manager)
     if manager.on_chat_message:
         manager.on_chat_message(manager.battle.lead_guid, "You are LEAD")
         manager.on_chat_message(manager.battle.chase_guid, "You are CHASE")
@@ -204,6 +236,10 @@ def _handle_launching(manager, car1, car2, distance: float, now: float) -> None:
 def _handle_active(manager, car1, car2, distance: float, now: float) -> None:
     lead_car = manager.cars[manager.battle.lead_guid]
     chase_car = manager.cars[manager.battle.chase_guid]
+
+    stall_winner = finish.check_abandon_by_stall(manager, lead_car, chase_car, now)
+    if stall_winner and manager._finalize_abandon(stall_winner, "opponent_stalled"):
+        return
 
     abandon_winner = finish.check_abandon_by_gap(manager, lead_car, chase_car, distance)
     if abandon_winner and manager._finalize_abandon(abandon_winner, "gap_disappeared"):

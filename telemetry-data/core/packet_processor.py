@@ -344,7 +344,11 @@ def process_packet(data, server_state, addr):
             # Feed BattleManager only on battle servers.
             if is_battle_server:
                 server_state.battle_manager.update(
-                    driver.guid, spline, speed_ms * 3.6, (pos_x, pos_y, pos_z)
+                    driver.guid,
+                    spline,
+                    speed_ms * 3.6,
+                    (pos_x, pos_y, pos_z),
+                    vel=(v_x or 0.0, v_y or 0.0, v_z or 0.0),
                 )
 
     # ─── CLIENT_EVENT (130) ─────────────────────────────────

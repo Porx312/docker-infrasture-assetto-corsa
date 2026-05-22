@@ -3,8 +3,10 @@ import time
 from core.logging_config import get_logger
 from engines.battlesystem.config import (
     ABANDON_MIN_PROGRESS_FOR_WIN,
+    ABANDON_MIN_PROGRESS_METERS,
     FINISH_POINT_MIN_GAP_METERS,
 )
+from engines.battlesystem.rules.proximity import pair_uses_position_fallback_from_manager
 from engines.battlesystem.chat import format_point_broadcast, notify_touge_chat
 
 log = get_logger("battlesystem.scoring")
@@ -38,10 +40,24 @@ def battle_run_progress(manager) -> float:
     return progress
 
 
+def battle_run_distance_m(manager) -> float:
+    """Max 3D distance driven since GO when spline is unavailable."""
+    if not manager.battle:
+        return 0.0
+    distance = 0.0
+    for guid in (manager.battle.car1_guid, manager.battle.car2_guid):
+        car = manager.cars.get(guid)
+        if car:
+            distance = max(distance, car.driven_distance_m)
+    return distance
+
+
 def abandon_should_award_win(manager) -> bool:
     """True when abandon should produce a winner (points on board or enough run progress)."""
     if battle_has_points(manager):
         return True
+    if pair_uses_position_fallback_from_manager(manager):
+        return battle_run_distance_m(manager) >= ABANDON_MIN_PROGRESS_METERS
     return battle_run_progress(manager) >= ABANDON_MIN_PROGRESS_FOR_WIN
 
 
@@ -67,9 +83,6 @@ def finalize_abandon(manager, winner_guid, reason) -> bool:
     manager._notify_battle_cancelled(reason)
     manager.state = "FINISHED"
     manager.finished_time = time.time()
-    manager._reset_to_idle(full_reset=True)
-    if getattr(manager, "on_battle_end", None):
-        manager.on_battle_end()
     return True
 
 

@@ -4,8 +4,14 @@ from __future__ import annotations
 
 from typing import Optional, Tuple
 
-from engines.battlesystem.config import OVERTAKE_POINT_COOLDOWN_SEC
-from engines.battlesystem.rules.proximity import is_ahead_on_track, is_overtake_scoring_gap
+from engines.battlesystem.config import (
+    OVERTAKE_POINT_COOLDOWN_SEC,
+    POSITION_AHEAD_MIN_METERS,
+)
+from engines.battlesystem.rules.proximity import (
+    is_ahead_with_fallback,
+    is_overtake_scoring_gap_for_pair,
+)
 
 
 def reset_overtake_tracking(manager) -> None:
@@ -29,18 +35,39 @@ def try_score_active_points(
         return None
     if (now - manager._last_overtake_point_ts) < OVERTAKE_POINT_COOLDOWN_SEC:
         return None
-    if not is_overtake_scoring_gap(distance):
-        manager._chase_was_ahead_on_track = is_ahead_on_track(
-            chase_car.spline, lead_car.spline, manager.overtake_pass_margin_spline
+    if not is_overtake_scoring_gap_for_pair(
+        distance, lead_car, chase_car, manager=manager
+    ):
+        manager._chase_was_ahead_on_track = is_ahead_with_fallback(
+            chase_car,
+            lead_car,
+            manager.overtake_pass_margin_spline,
+            position_min_m=POSITION_AHEAD_MIN_METERS,
+            manager=manager,
         )
-        manager._lead_was_ahead_on_track = is_ahead_on_track(
-            lead_car.spline, chase_car.spline, manager.overtake_pass_margin_spline
+        manager._lead_was_ahead_on_track = is_ahead_with_fallback(
+            lead_car,
+            chase_car,
+            manager.overtake_pass_margin_spline,
+            position_min_m=POSITION_AHEAD_MIN_METERS,
+            manager=manager,
         )
         return None
 
-    pass_margin = manager.overtake_pass_margin_spline
-    chase_ahead = is_ahead_on_track(chase_car.spline, lead_car.spline, pass_margin)
-    lead_ahead = is_ahead_on_track(lead_car.spline, chase_car.spline, pass_margin)
+    chase_ahead = is_ahead_with_fallback(
+        chase_car,
+        lead_car,
+        manager.overtake_pass_margin_spline,
+        position_min_m=POSITION_AHEAD_MIN_METERS,
+        manager=manager,
+    )
+    lead_ahead = is_ahead_with_fallback(
+        lead_car,
+        chase_car,
+        manager.overtake_pass_margin_spline,
+        position_min_m=POSITION_AHEAD_MIN_METERS,
+        manager=manager,
+    )
 
     if not manager._overtake_chase_scored:
         crossed = chase_ahead and not manager._chase_was_ahead_on_track

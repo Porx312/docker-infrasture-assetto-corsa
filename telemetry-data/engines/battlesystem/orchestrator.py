@@ -6,6 +6,8 @@ from engines.battlesystem.pair_manager import PairBattleManager
 from engines.battlesystem.config import (
     BATTLE_ARM_MAX_GAP_METERS,
     BATTLE_ARM_MIN_SPEED_KMH,
+    LAUNCH_TIMEOUT_SEC,
+    SPLINE_STUCK_MIN_SPEED_KMH,
 )
 from engines.battlesystem.rules.proximity import distance_3d, is_within_battle_gap
 
@@ -130,6 +132,15 @@ class BattleManager:
         if not self.is_battle_server:
             self.pair_managers.clear()
             self.guid_to_pair.clear()
+            return
+        log.info(
+            "battle config arm_gap=%.0fm arm_speed=%.0f km/h launch_timeout=%.0fs "
+            "spline_stuck_min_speed=%.0f km/h",
+            BATTLE_ARM_MAX_GAP_METERS,
+            BATTLE_ARM_MIN_SPEED_KMH,
+            LAUNCH_TIMEOUT_SEC,
+            SPLINE_STUCK_MIN_SPEED_KMH,
+        )
 
     def set_driver_name(self, guid, name):
         if not guid or not name or str(guid).startswith("unknown"):
@@ -139,12 +150,12 @@ class BattleManager:
         if key and key in self.pair_managers:
             self.pair_managers[key].set_driver_name(guid, name)
 
-    def update(self, driver_guid, spline, speed, world_position):
+    def update(self, driver_guid, spline, speed, world_position, vel=None):
         if not self.is_battle_server:
             return
         if driver_guid not in self.cars:
             self.cars[driver_guid] = CarState(driver_guid)
-        self.cars[driver_guid].update(spline, speed, world_position)
+        self.cars[driver_guid].update(spline, speed, world_position, vel=vel)
 
         self._try_matchmake()
         key = self.guid_to_pair.get(driver_guid)
@@ -165,7 +176,7 @@ class BattleManager:
                 continue
             if guid not in mgr.cars:
                 mgr.cars[guid] = CarState(guid)
-            mgr.cars[guid].update(c.spline, c.speed, c.pos)
+            mgr.cars[guid].update(c.spline, c.speed, c.pos, vel=c.vel)
             n = self.player_names.get(guid)
             if n:
                 mgr.player_names[guid] = n

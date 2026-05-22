@@ -55,3 +55,25 @@ def test_write_server_cfg_updates_track():
         content = open(cfg_path, encoding="utf-8").read()
         assert "TRACK=new_track" in content
         assert "NAME=NewName" in content
+
+
+def test_write_server_cfg_config_track_default_becomes_empty():
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg_path = os.path.join(tmp, "server_cfg.ini")
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            f.write("[SERVER]\nCONFIG_TRACK=default\n")
+        changed = _write_server_cfg(cfg_path, {"trackConfig": "default"})
+        assert "CONFIG_TRACK" in changed
+        content = open(cfg_path, encoding="utf-8").read()
+        assert "CONFIG_TRACK=\n" in content or content.rstrip().endswith("CONFIG_TRACK=")
+        assert "CONFIG_TRACK=default" not in content
+
+
+def test_write_server_cfg_config_track_layout_preserved():
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg_path = os.path.join(tmp, "server_cfg.ini")
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            f.write("[SERVER]\nCONFIG_TRACK=\n")
+        _write_server_cfg(cfg_path, {"trackConfig": "  akina_downhill  "})
+        content = open(cfg_path, encoding="utf-8").read()
+        assert "CONFIG_TRACK=akina_downhill" in content

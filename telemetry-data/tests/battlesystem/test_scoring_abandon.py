@@ -4,6 +4,23 @@ from engines.battlesystem.scoring import finalize_abandon
 from tests.battlesystem.conftest import seed_car
 
 
+def test_stall_abandon_cancels_at_zero_zero_without_200m(pair_manager):
+    pair_manager.state = "ACTIVE"
+    pair_manager.active_start_time = time.time()
+    pair_manager.battle.car1_score = 0
+    pair_manager.battle.car2_score = 0
+    seed_car(pair_manager, "guid_a", driven=0.02)
+    seed_car(pair_manager, "guid_b", driven=0.01)
+    messages = []
+    pair_manager.on_chat_message = lambda _g, msg, **_: messages.append(msg)
+
+    assert finalize_abandon(pair_manager, "guid_a", "opponent_stalled") is True
+    assert pair_manager.state == "FINISHED"
+    assert pair_manager.finished_time > 0
+    assert pair_manager.battle.winner is None
+    assert any("opponent stopped" in m for m in messages)
+
+
 def test_gap_abandon_cancels_at_zero_zero(pair_manager):
     pair_manager.state = "ACTIVE"
     pair_manager.active_start_time = time.time()
@@ -18,8 +35,9 @@ def test_gap_abandon_cancels_at_zero_zero(pair_manager):
     pair_manager.on_chat_message = lambda _g, msg, **_: messages.append(msg)
 
     assert finalize_abandon(pair_manager, "guid_a", "gap_disappeared") is True
-    assert pair_manager.state == "IDLE"
-    assert ended == [True]
+    assert pair_manager.state == "FINISHED"
+    assert pair_manager.finished_time > 0
+    assert ended == []
     assert any("CANCELLED" in m for m in messages)
     assert pair_manager.battle.winner is None
 

@@ -1,4 +1,6 @@
-from engines.battlesystem.config import FINISH_POINT_MIN_GAP_METERS
+import time
+
+from engines.battlesystem.config import ABANDON_STALL_SEC, FINISH_POINT_MIN_GAP_METERS
 from engines.battlesystem.rules import finish
 from tests.battlesystem.conftest import seed_car
 
@@ -48,6 +50,35 @@ def test_finish_not_triggered_without_lap_complete(pair_manager):
     lead.run_lap_completed = False
 
     assert finish.check_run_finish(pair_manager, lead, chase) is None
+
+
+def test_abandon_by_stall_at_short_gap_when_opponent_in_pits(pair_manager):
+    now = time.time()
+    lead = seed_car(pair_manager, "guid_a", spline=0.5, speed=50.0)
+    chase = seed_car(pair_manager, "guid_b", spline=0.45, speed=0.0)
+    chase.stall_since = now - (ABANDON_STALL_SEC + 0.5)
+
+    winner = finish.check_abandon_by_stall(pair_manager, lead, chase, now)
+    assert winner == "guid_a"
+    assert finish.check_abandon_by_gap(pair_manager, lead, chase, 100.0) is None
+
+
+def test_abandon_by_stall_not_before_duration(pair_manager):
+    now = time.time()
+    lead = seed_car(pair_manager, "guid_a", speed=50.0)
+    chase = seed_car(pair_manager, "guid_b", speed=0.0)
+    chase.stall_since = now - (ABANDON_STALL_SEC - 1.0)
+
+    assert finish.check_abandon_by_stall(pair_manager, lead, chase, now) is None
+
+
+def test_abandon_by_stall_ignored_when_both_moving(pair_manager):
+    now = time.time()
+    lead = seed_car(pair_manager, "guid_a", speed=50.0)
+    chase = seed_car(pair_manager, "guid_b", speed=45.0)
+
+    assert finish.check_abandon_by_stall(pair_manager, lead, chase, now) is None
+    assert finish.check_abandon_by_gap(pair_manager, lead, chase, 100.0) is None
 
 
 def test_abandon_chase_stalled_lead_wins(pair_manager):

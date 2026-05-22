@@ -52,15 +52,29 @@ Estados: `IDLE` → `ARMED` → `LAUNCHING` → `ACTIVE` → `FINISHED` (`engine
 
 | Estado | Qué ocurre |
 |--------|------------|
-| **IDLE** | Tras fin de sesión, vuelta a IDLE al siguiente tick. Si `can_arm` (≤15 m, ambos >40 km/h) de forma **continua durante 5 s** → chat `BATTLE ARM 5…1 (brake: cancel \| continue: 15m / 40km/h)` → **ARMED** + "X vs Y — ARMED". Frenar o separarse → `BATTLE CANCELLED` |
-| **ARMED** | Si se separan >80 m con ambos ≥20 km/h tras 2 s de gracia → abort sin punto. Si ambos ≥40 km/h → **LAUNCHING** + "GO — both over 40 km/h". Mensaje ARMED con cooldown 15 s para evitar spam. Se crea `battle_id` vía `on_battle_start` |
-| **LAUNCHING** | Espera roles lead/chase en spline (hasta 6 s); si no hay gap claro, asigna por posición igualmente. No aborta por abrir gap tras el GO. Timeout 8 s si bajan de 40 km/h → **ACTIVE** + "You are LEAD/CHASE" |
+| **IDLE** | Tras fin de sesión, vuelta a IDLE al siguiente tick. Si `can_arm` (≤`BATTLE_ARM_MAX_GAP_METERS`, ambos ≥`BATTLE_ARM_MIN_SPEED_KMH`) de forma **continua durante 5 s** → chat `BATTLE ARM 5…1 (brake: cancel \| continue: {gap}m / {speed}km/h)` → **ARMED** + "X vs Y — ARMED". Frenar o separarse → `BATTLE CANCELLED` |
+| **ARMED** | Si se separan >80 m con ambos ≥20 km/h tras 2 s de gracia → abort sin punto. Si ambos ≥ umbral de armado → **LAUNCHING** + `GO — both over {speed} km/h`. Mensaje ARMED con cooldown 15 s para evitar spam. Se crea `battle_id` vía `on_battle_start` |
+| **LAUNCHING** | Asigna lead/chase (spline o position fallback). **No** vuelve a exigir velocidad tras el GO. En position mode asigna en ~0.5 s; en spline espera hasta 6 s si no hay gap claro. Timeout 8 s solo si roles no se asignan → **ACTIVE** + "You are LEAD/CHASE" |
 | **ACTIVE** | Puntuación en vivo (overtake, finish, abandon). Roles: **lead** adelante en spline, **chase** detrás |
-| **FINISHED** | Un tick de telemetría, luego reset a IDLE (marcador reiniciado) para nueva batalla con la misma pareja |
+| **FINISHED** | Espera **`BATTLE_FINISHED_COOLDOWN_SEC`** (default 20 s) antes de volver a IDLE y permitir otra batalla con la misma pareja; luego marcador reiniciado |
 
 Constantes tunables en `engines/battlesystem/config.py` (variables de entorno con prefijo `BATTLE_` / `OVERTAKE_`).
 
 **Anti-spam / camping:** la proximidad sostenida antes de ARMED evita batallas por rozar a otro piloto en una zona. Complementa el abandono a 0-0 con progreso &lt; 10 % (`BATTLE_ABANDON_MIN_PROGRESS_FOR_WIN`), que cancela la sesión si alguien se aleja sin haber corrido de verdad.
+
+### Mapas sin spline (touge sin `fast_lane.ai`)
+
+Si el servidor AC no reporta `NormalizedPosition` válido (spline ≈ 0 o congelado), el armado por gap 3D sigue funcionando, pero overtake/roles/progreso por spline fallan. En ese caso:
+
+- Se activa **position mode** (chat: `BATTLE — position mode (track spline unavailable)`).
+- Si `NormalizedPosition` es 0 o no fiable al pasar a ACTIVE, se fuerza position mode aunque el flag aún diga `spline_reliable=True`.
+- Lead/chase, overtake y abandon usan **posición 3D + velocidad** (o delta de posición si AC no manda velocidad) en lugar de spline.
+- Overtake en fallback: gap **10 m – max(20 m, BATTLE_ARM_MAX_GAP_METERS)**; delante/atras con `BATTLE_POSITION_AHEAD_MIN_METERS` (no el margen spline 0.0003).
+- Progreso de abandono 0-0 usa **metros recorridos** (`BATTLE_ABANDON_MIN_PROGRESS_METERS`, default 200 m).
+- Overtake en fallback permite gap hasta **20 m** (`BATTLE_OVERTAKE_MAX_GAP_FALLBACK_METERS`).
+- Fin de vuelta depende de **ACSP `LAP_COMPLETED`** (no del cruce spline 0.90→0.10).
+
+Recomendación: instalar `content/tracks/&lt;track&gt;/ai/fast_lane.ai` en el servidor para spline nativo.
 
 ## Cómo se puntúa
 
@@ -69,17 +83,21 @@ Constantes tunables en `engines/battlesystem/config.py` (variables de entorno co
 1. **Overtake (+1 al chase)** — `engines/battlesystem/rules/overtake.py`
    - Tras **2 s** de gracia al entrar en ACTIVE
    - Cooldown **2 s** entre puntos de adelantamiento
-   - Solo si distancia **10–15 m** (paso claro, misma batalla)
-   - Chase pasa al lead en spline (margen `0.0003` en loop de pista)
+   - Solo si distancia **10–15 m** (o hasta **20 m** en position mode)
+   - Chase adelanta al lead en spline o, en position mode, por proyección 3D
 
 2. **Position recovery (+1 al lead)** — tras un overtake del chase, si el lead recupera posición adelante
 
-3. **Abandon por separación (≥250 m)** — `engines/battlesystem/rules/finish.py` (`check_abandon_by_gap`)
-   - Parado / muy lento → abandona ese piloto; gana quien sigue en pista
-   - Si ambos en movimiento → gana quien va **adelante en pista** (el de atrás “desapareció” del duelo); empate en spline → más `driven_spline`
-   - Si ya hubo puntos en el marcador → victoria al no-abandonador
-   - Si **0-0** y la pareja recorrió al menos **10 %** de vuelta desde el GO (`max(driven_spline)` ≥ `BATTLE_ABANDON_MIN_PROGRESS_FOR_WIN`) → victoria al ganador candidato (quien iba adelante / más progreso)
-   - Si **0-0** y progreso &lt; 10 % (separación casi al instante) → cancelación sin ganador
+3. **Abandon por parada / pits (cualquier distancia)** — `check_abandon_by_stall` (antes del gap check)
+   - Rival &lt; `BATTLE_GAP_ABORT_MIN_BOTH_SPEED_KMH` durante **`BATTLE_ABANDON_STALL_SEC`** (default 5 s) y tú sigues en movimiento → fin inmediato (`opponent_stalled`)
+   - No hace falta alejarse 200 m si el otro entra a boxes al inicio
+   - **0-0** con poco progreso → `CANCELLED (opponent stopped)`; con puntos → victoria
+
+4. **Abandon por separación en pista (≥ `BATTLE_DISAPPEAR_GAP_METERS`)** — `check_abandon_by_gap`
+   - Solo cuando el gap 3D ya es grande (ej. 200 m en tu `.env.local`)
+   - Ambos en movimiento → gana quien va **adelante en pista**; empate en spline → más progreso
+   - Parado a 200 m+ sigue resolviendo igual que antes
+   - **0-0** con progreso ≥ 10 % vuelta → victoria; sin progreso → cancelación
 
 ### Fin de vuelta (lead completa una vuelta)
 
@@ -137,8 +155,14 @@ Ver también [REDIS_CONTRACT.md](../REDIS_CONTRACT.md) para el esquema de evento
 |-------|------------------|---------------------|
 | Arm / pair lock | ≤ 15 m, ambos > 40 km/h | `BATTLE_ARM_MAX_GAP_METERS`, `BATTLE_ARM_MIN_SPEED_KMH` |
 | Arm (IDLE → ARMED) | condiciones sostenidas 5 s | `BATTLE_ARM_SUSTAINED_PROXIMITY_SEC` |
+| Rematch tras fin/cancel | 20 s en FINISHED | `BATTLE_FINISHED_COOLDOWN_SEC` |
 | Abort prestart (solo ARMED) | > 80 m, ambos ≥ 20 km/h tras 2 s | `MAX_BATTLE_GAP_METERS`, `BATTLE_PRESTART_GAP_ABORT_GRACE_SEC` |
 | Overtake / recovery | gap 10–15 m | `OVERTAKE_MIN_GAP_METERS`, `OVERTAKE_MAX_GAP_METERS` |
 | Finish | lead completa vuelta (meta) + gap ≥ 20 m | `BATTLE_FINISH_LINE_*`, `BATTLE_MIN_LAP_PROGRESS_BEFORE_FINISH`, `BATTLE_FINISH_POINT_MIN_GAP_METERS` |
-| Abandon | gap ≥ 250 m | `BATTLE_DISAPPEAR_GAP_METERS` |
+| Abandon (pits / parado) | &lt; 20 km/h durante 5 s, sin mínimo de metros | `BATTLE_ABANDON_STALL_SEC`, `BATTLE_GAP_ABORT_MIN_BOTH_SPEED_KMH` |
+| Abandon (separación en pista) | gap ≥ 200 m (tu env) | `BATTLE_DISAPPEAR_GAP_METERS` |
 | Abandon win at 0-0 | max `driven_spline` ≥ 10 % vuelta | `BATTLE_ABANDON_MIN_PROGRESS_FOR_WIN` |
+| Abandon win at 0-0 (position mode) | max `driven_distance_m` ≥ 200 m | `BATTLE_ABANDON_MIN_PROGRESS_METERS` |
+| Spline stuck detection | 2 s moviendo sin Δspline, velocidad ≥ min(25, arm speed) | `BATTLE_SPLINE_STUCK_*` |
+| Launch roles (position mode) | asigna en ~0.5 s | `BATTLE_POSITION_ROLE_ASSIGN_WAIT_SEC` |
+| Overtake fallback max gap | 20 m | `BATTLE_OVERTAKE_MAX_GAP_FALLBACK_METERS` |

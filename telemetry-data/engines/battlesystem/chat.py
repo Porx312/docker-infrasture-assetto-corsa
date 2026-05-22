@@ -46,6 +46,15 @@ def notify_arming_cancelled(manager) -> None:
     notify_touge_chat(manager, "BATTLE CANCELLED")
 
 
+def notify_position_fallback_mode(manager) -> None:
+    notify_touge_chat(manager, "BATTLE — position mode (track spline unavailable)")
+
+
 def notify_battle_cancelled(manager, reason=None):
-    msg = f"CANCELLED ({reason})" if reason else "CANCELLED"
+    if reason == "opponent_stalled":
+        msg = "CANCELLED (opponent stopped)"
+    elif reason:
+        msg = f"CANCELLED ({reason})"
+    else:
+        msg = "CANCELLED"
     notify_touge_chat(manager, msg)

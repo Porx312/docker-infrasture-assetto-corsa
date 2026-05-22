@@ -1,3 +1,4 @@
+from engines.battlesystem.config import BATTLE_ARM_MAX_GAP_METERS, BATTLE_ARM_MIN_SPEED_KMH
 from engines.battlesystem.rules import arming
 from engines.battlesystem.rules.proximity import (
     is_ahead_on_track,
@@ -29,13 +30,14 @@ def test_is_overtake_scoring_gap():
     assert is_overtake_scoring_gap(16.0) is False
 
 
-def test_can_arm_requires_15m_40kmh(pair_manager):
+def test_can_arm_requires_gap_and_speed(pair_manager):
     a = seed_car(pair_manager, "guid_a", pos=(0, 0, 0), speed=50)
     b = seed_car(pair_manager, "guid_b", pos=(10, 0, 0), speed=50)
     assert arming.can_arm(a, b) is True
 
-    seed_car(pair_manager, "guid_b", pos=(20, 0, 0), speed=50)
+    too_far = BATTLE_ARM_MAX_GAP_METERS + 5.0
+    seed_car(pair_manager, "guid_b", pos=(too_far, 0, 0), speed=50)
     assert arming.can_arm(pair_manager.cars["guid_a"], pair_manager.cars["guid_b"]) is False
 
-    seed_car(pair_manager, "guid_b", pos=(10, 0, 0), speed=30)
+    seed_car(pair_manager, "guid_b", pos=(10, 0, 0), speed=max(0.0, BATTLE_ARM_MIN_SPEED_KMH - 10.0))
     assert arming.can_arm(pair_manager.cars["guid_a"], pair_manager.cars["guid_b"]) is False

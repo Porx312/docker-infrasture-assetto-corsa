@@ -38,6 +38,16 @@ def _save_versions(data: Dict[str, str]) -> None:
         log.warning("could not save versions file: %s", e)
 
 
+def _normalize_track_config_for_ini(value: Any) -> Optional[str]:
+    """Empty CONFIG_TRACK means the track's built-in default layout; never write literal 'default'."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if text == "" or text.lower() == "default":
+        return ""
+    return text
+
+
 def _replace_or_append(content: str, key: str, value: str) -> str:
     line = f"{key}={value}"
     pattern = rf"(?m)^{re.escape(key)}=.*$"
@@ -59,7 +69,7 @@ def _write_server_cfg(cfg_path: str, cfg: Dict[str, Any]) -> list[str]:
         ("NAME", cfg.get("displayName")),
         ("PASSWORD", cfg.get("password")),
         ("TRACK", cfg.get("track")),
-        ("CONFIG_TRACK", cfg.get("trackConfig")),
+        ("CONFIG_TRACK", _normalize_track_config_for_ini(cfg.get("trackConfig"))),
         ("MAX_CLIENTS", cfg.get("maxClients")),
     ]
     for key, value in mappings:

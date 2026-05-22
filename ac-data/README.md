@@ -133,7 +133,7 @@ When ac-data receives a config update from Convex:
    - PASSWORD
    - CARS (car models)
    - TRACK (track ID)
-   - CONFIG_TRACK (track variant)
+   - CONFIG_TRACK (track layout/variant). Leave empty for the track's built-in default layout (`CONFIG_TRACK=`). Values like `"default"` from Convex are normalized to empty — do not persist the literal string `default`.
    - MAX_CLIENTS
 4. **Regenerate** entry_list.ini with car/skin configurations
 5. **Start** the AC server process with new configuration

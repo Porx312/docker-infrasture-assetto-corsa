@@ -5,11 +5,40 @@ from __future__ import annotations
 from typing import Optional, Tuple
 
 from engines.battlesystem.config import (
+    ABANDON_STALL_SEC,
     DISAPPEAR_GAP_METERS,
     FINISH_POINT_MIN_GAP_METERS,
     GAP_ABORT_MIN_BOTH_SPEED_KMH,
 )
-from engines.battlesystem.rules.proximity import distance_3d, is_ahead_on_track
+from engines.battlesystem.rules.proximity import (
+    distance_3d,
+    is_ahead_with_fallback,
+    pair_uses_position_fallback_from_manager,
+)
+
+
+def check_abandon_by_stall(
+    manager,
+    lead_car,
+    chase_car,
+    now: float,
+) -> Optional[str]:
+    """
+    Opponent stopped / in pits: no minimum 3D gap required.
+    Winner is the driver still moving after ABANDON_STALL_SEC below speed threshold.
+    """
+    min_speed = GAP_ABORT_MIN_BOTH_SPEED_KMH
+    lead_guid = manager.battle.lead_guid
+    chase_guid = manager.battle.chase_guid
+
+    lead_stalled = lead_car.stall_duration_sec(now) >= ABANDON_STALL_SEC
+    chase_stalled = chase_car.stall_duration_sec(now) >= ABANDON_STALL_SEC
+
+    if lead_stalled and chase_car.speed >= min_speed:
+        return chase_guid
+    if chase_stalled and lead_car.speed >= min_speed:
+        return lead_guid
+    return None
 
 
 def check_abandon_by_gap(
@@ -37,14 +66,19 @@ def check_abandon_by_gap(
     if chase_car.speed < stall and lead_car.speed >= stall:
         return lead_guid
 
-    if is_ahead_on_track(lead_car.spline, chase_car.spline):
+    if is_ahead_with_fallback(lead_car, chase_car, manager=manager):
         return lead_guid
-    if is_ahead_on_track(chase_car.spline, lead_car.spline):
+    if is_ahead_with_fallback(chase_car, lead_car, manager=manager):
         return chase_guid
 
-    if lead_car.driven_spline > chase_car.driven_spline:
+    if pair_uses_position_fallback_from_manager(manager):
+        if lead_car.driven_distance_m > chase_car.driven_distance_m:
+            return lead_guid
+        if chase_car.driven_distance_m > lead_car.driven_distance_m:
+            return chase_guid
+    elif lead_car.driven_spline > chase_car.driven_spline:
         return lead_guid
-    if chase_car.driven_spline > lead_car.driven_spline:
+    elif chase_car.driven_spline > lead_car.driven_spline:
         return chase_guid
     return lead_guid
 
@@ -77,9 +111,9 @@ def check_run_finish(
     if finish_gap_m < FINISH_POINT_MIN_GAP_METERS:
         return finish_gap_m, True, None
 
-    if is_ahead_on_track(lead_car.spline, chase_car.spline):
+    if is_ahead_with_fallback(lead_car, chase_car, manager=manager):
         return finish_gap_m, False, lead_guid
-    if is_ahead_on_track(chase_car.spline, lead_car.spline):
+    if is_ahead_with_fallback(chase_car, lead_car, manager=manager):
         return finish_gap_m, False, chase_guid
 
     return finish_gap_m, True, None
