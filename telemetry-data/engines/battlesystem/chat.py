@@ -25,6 +25,13 @@ def notify_touge_chat(manager, message: str) -> None:
     manager.on_chat_message(manager.battle.car2_guid, message)
 
 
+def format_matchup(manager) -> str:
+    if not manager.battle:
+        return "? vs ?"
+    g1, g2 = manager.battle.car1_guid, manager.battle.car2_guid
+    return f"{manager._display_name(g1)} vs {manager._display_name(g2)}"
+
+
 def _arming_conditions_hint() -> str:
     from engines.battlesystem.config import BATTLE_ARM_MAX_GAP_METERS, BATTLE_ARM_MIN_SPEED_KMH
 
@@ -33,17 +40,20 @@ def _arming_conditions_hint() -> str:
     return f"brake: cancel | continue: {gap_m}m / {speed}km/h"
 
 
-def format_arming_countdown(seconds_remaining: int) -> str:
+def format_arming_countdown(manager, seconds_remaining: int) -> str:
     """Countdown while IDLE waits for sustained proximity before ARMED."""
-    return f"BATTLE ARM {seconds_remaining} ({_arming_conditions_hint()})"
+    return (
+        f"{format_matchup(manager)} — BATTLE ARM {seconds_remaining} "
+        f"({_arming_conditions_hint()})"
+    )
 
 
 def notify_arming_countdown(manager, seconds_remaining: int) -> None:
-    notify_touge_chat(manager, format_arming_countdown(seconds_remaining))
+    notify_touge_chat(manager, format_arming_countdown(manager, seconds_remaining))
 
 
 def notify_arming_cancelled(manager) -> None:
-    notify_touge_chat(manager, "BATTLE CANCELLED")
+    notify_touge_chat(manager, f"{format_matchup(manager)} — BATTLE CANCELLED")
 
 
 def notify_position_fallback_mode(manager) -> None:

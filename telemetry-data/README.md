@@ -88,7 +88,7 @@ pytest -q
 
 Full documentation (architecture, state machine, scoring, Redis events): **[docs/BATTLE_MODE.md](docs/BATTLE_MODE.md)**.
 
-Summary: 1v1 touge pairs matched automatically when close and fast; states `IDLE` → `ARMED` → `LAUNCHING` → `ACTIVE` → `FINISHED`; run ends when the lead completes the lap; **5 s** sustained proximity before ARMED with `BATTLE ARM` countdown chat (`BATTLE_ARM_SUSTAINED_PROXIMITY_SEC`); **20 s** post-finish rematch cooldown (`BATTLE_FINISHED_COOLDOWN_SEC`).
+Summary: 1v1 touge pairs matched automatically when close and fast; states `IDLE` → `ARMED` → `LAUNCHING` → `ACTIVE` → `FINISHED`; run ends when the lead completes the lap; **5 s** sustained proximity before ARMED with `X vs Y — BATTLE ARM` countdown chat (`BATTLE_ARM_SUSTAINED_PROXIMITY_SEC`); ARMED/GO messages also show the matchup; **20 s** post-finish rematch cooldown (`BATTLE_FINISHED_COOLDOWN_SEC`).
 
 ## Event Types Published
 

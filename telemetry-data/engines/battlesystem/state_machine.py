@@ -14,6 +14,7 @@ from engines.battlesystem.config import (
     PAIR_STICKY_TIMEOUT_SEC,
 )
 from engines.battlesystem.chat import (
+    format_matchup,
     notify_arming_cancelled,
     notify_arming_countdown,
     notify_position_fallback_mode,
@@ -169,7 +170,7 @@ def _handle_idle(manager, car1, car2, distance: float, now: float) -> None:
     log.info("ARMED %s vs %s gap=%.1fm", car1.guid, car2.guid, distance)
     cooldown = getattr(manager, "ARMED_CHAT_COOLDOWN", 15.0)
     if manager.on_chat_message and (now - manager.last_armed_chat_time) >= cooldown:
-        msg = f"{manager._display_name(car1.guid)} vs {manager._display_name(car2.guid)} — ARMED"
+        msg = f"{format_matchup(manager)} — ARMED"
         manager.on_chat_message(car1.guid, msg)
         manager.on_chat_message(car2.guid, msg)
         manager.last_armed_chat_time = now
@@ -189,7 +190,7 @@ def _handle_armed(manager, car1, car2, distance: float, now: float) -> None:
         log.info("LAUNCHING gap=%.1fm both > %.0f km/h", distance, BATTLE_ARM_MIN_SPEED_KMH)
         if manager.on_chat_message:
             speed = int(BATTLE_ARM_MIN_SPEED_KMH)
-            msg = f"GO — both over {speed} km/h"
+            msg = f"{format_matchup(manager)} — GO — both over {speed} km/h"
             manager.on_chat_message(car1.guid, msg)
             manager.on_chat_message(car2.guid, msg)
     elif manager.launch_trigger_time and (now - manager.launch_trigger_time) > LAUNCH_TIMEOUT_SEC:

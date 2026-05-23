@@ -32,6 +32,8 @@ def test_idle_starts_proximity_timer_without_armed(pair_manager):
     pair_manager.state = "IDLE"
     messages = []
     pair_manager.on_chat_message = lambda _g, msg, **_: messages.append(msg)
+    pair_manager.set_driver_name("guid_a", "Alice")
+    pair_manager.set_driver_name("guid_b", "Bob")
     seed_car(pair_manager, "guid_a", pos=(0, 0, 0), speed=50.0)
     seed_car(pair_manager, "guid_b", pos=(10, 0, 0), speed=50.0)
 
@@ -41,7 +43,11 @@ def test_idle_starts_proximity_timer_without_armed(pair_manager):
     assert pair_manager.arm_proximity_since > 0.0
     gap_hint = f"{int(BATTLE_ARM_MAX_GAP_METERS)}m"
     assert any(
-        "BATTLE ARM 5" in m and "brake: cancel" in m and gap_hint in m for m in messages
+        "Alice vs Bob" in m
+        and "BATTLE ARM 5" in m
+        and "brake: cancel" in m
+        and gap_hint in m
+        for m in messages
     )
 
 
@@ -64,6 +70,8 @@ def test_idle_resets_proximity_timer_when_cars_separate(pair_manager):
     pair_manager.state = "IDLE"
     messages = []
     pair_manager.on_chat_message = lambda _g, msg, **_: messages.append(msg)
+    pair_manager.set_driver_name("guid_a", "Alice")
+    pair_manager.set_driver_name("guid_b", "Bob")
     seed_car(pair_manager, "guid_a", pos=(0, 0, 0), speed=50.0)
     seed_car(pair_manager, "guid_b", pos=(10, 0, 0), speed=50.0)
 
@@ -75,7 +83,7 @@ def test_idle_resets_proximity_timer_when_cars_separate(pair_manager):
 
     assert pair_manager.state == "IDLE"
     assert pair_manager.arm_proximity_since == 0.0
-    assert any("BATTLE CANCELLED" in m for m in messages)
+    assert any("Alice vs Bob" in m and "BATTLE CANCELLED" in m for m in messages)
 
 
 def test_can_assign_roles_position_fallback_after_short_wait(pair_manager):
@@ -117,6 +125,8 @@ def test_go_message_uses_config_speed(pair_manager):
     pair_manager.condition_start_time = time.time()
     messages = []
     pair_manager.on_chat_message = lambda _g, msg, **_: messages.append(msg)
+    pair_manager.set_driver_name("guid_a", "Alice")
+    pair_manager.set_driver_name("guid_b", "Bob")
     seed_car(pair_manager, "guid_a", pos=(0, 0, 0), speed=50.0)
     seed_car(pair_manager, "guid_b", pos=(10, 0, 0), speed=50.0)
 
@@ -127,4 +137,6 @@ def test_go_message_uses_config_speed(pair_manager):
         process_pair_logic(pair_manager)
 
     assert pair_manager.state == "LAUNCHING"
-    assert any("GO — both over 22 km/h" in m for m in messages)
+    assert any(
+        "Alice vs Bob" in m and "GO — both over 22 km/h" in m for m in messages
+    )

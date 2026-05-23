@@ -52,8 +52,8 @@ Estados: `IDLE` → `ARMED` → `LAUNCHING` → `ACTIVE` → `FINISHED` (`engine
 
 | Estado | Qué ocurre |
 |--------|------------|
-| **IDLE** | Tras fin de sesión, vuelta a IDLE al siguiente tick. Si `can_arm` (≤`BATTLE_ARM_MAX_GAP_METERS`, ambos ≥`BATTLE_ARM_MIN_SPEED_KMH`) de forma **continua durante 5 s** → chat `BATTLE ARM 5…1 (brake: cancel \| continue: {gap}m / {speed}km/h)` → **ARMED** + "X vs Y — ARMED". Frenar o separarse → `BATTLE CANCELLED` |
-| **ARMED** | Si se separan >80 m con ambos ≥20 km/h tras 2 s de gracia → abort sin punto. Si ambos ≥ umbral de armado → **LAUNCHING** + `GO — both over {speed} km/h`. Mensaje ARMED con cooldown 15 s para evitar spam. Se crea `battle_id` vía `on_battle_start` |
+| **IDLE** | Tras fin de sesión, vuelta a IDLE al siguiente tick. Si `can_arm` (≤`BATTLE_ARM_MAX_GAP_METERS`, ambos ≥`BATTLE_ARM_MIN_SPEED_KMH`) de forma **continua durante 5 s** → chat `X vs Y — BATTLE ARM 5…1 (brake: cancel \| continue: {gap}m / {speed}km/h)` → **ARMED** + "X vs Y — ARMED". Frenar o separarse → `X vs Y — BATTLE CANCELLED` |
+| **ARMED** | Si se separan >80 m con ambos ≥20 km/h tras 2 s de gracia → abort sin punto. Si ambos ≥ umbral de armado → **LAUNCHING** + `X vs Y — GO — both over {speed} km/h`. Mensaje ARMED con cooldown 15 s para evitar spam. Se crea `battle_id` vía `on_battle_start` |
 | **LAUNCHING** | Asigna lead/chase (spline o position fallback). **No** vuelve a exigir velocidad tras el GO. En position mode asigna en ~0.5 s; en spline espera hasta 6 s si no hay gap claro. Timeout 8 s solo si roles no se asignan → **ACTIVE** + "You are LEAD/CHASE" |
 | **ACTIVE** | Puntuación en vivo (overtake, finish, abandon). Roles: **lead** adelante en spline, **chase** detrás |
 | **FINISHED** | Espera **`BATTLE_FINISHED_COOLDOWN_SEC`** (default 20 s) antes de volver a IDLE y permitir otra batalla con la misma pareja; luego marcador reiniciado |
