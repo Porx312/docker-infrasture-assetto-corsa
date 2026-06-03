@@ -80,16 +80,21 @@ class ServerState:
         points_log,
         car1_guid=None,
         car2_guid=None,
+        status=None,
     ):
         from network.event_dispatcher import dispatch_battle_webhook
 
-        # Dispatch wins and draws; skip only when the session ended without a result.
-        if winner_guid is None and p1_score != p2_score:
+        if status is None:
+            status = "finished" if winner_guid is not None else "draw"
+
+        # Dispatch wins and draws; skip cancelled sessions and inconsistent outcomes.
+        if status not in ("draw",) and winner_guid is None and p1_score != p2_score:
             log.warning(
-                "battle score dispatch skipped: no winner_guid battle_id=%s score=%s-%s",
+                "battle score dispatch skipped: no winner_guid battle_id=%s score=%s-%s status=%s",
                 battle_id,
                 p1_score,
                 p2_score,
+                status,
             )
             return
         mode = self._get_server_mode()
@@ -123,7 +128,15 @@ class ServerState:
                 "trackConfig": self.config,
             },
         }
-        dispatch_battle_webhook(self, battle_config, p1_score, p2_score, winner_guid, points_log)
+        dispatch_battle_webhook(
+            self,
+            battle_config,
+            p1_score,
+            p2_score,
+            winner_guid,
+            points_log,
+            status=status,
+        )
 
     def handle_chat_message(self, guid, message):
         driver = self.guid_to_driver.get(guid)

@@ -6,6 +6,7 @@ from engines.battlesystem.pair_manager import PairBattleManager
 from engines.battlesystem.config import (
     BATTLE_ARM_MAX_GAP_METERS,
     BATTLE_ARM_MIN_SPEED_KMH,
+    FINISHED_COOLDOWN_SEC,
     LAUNCH_TIMEOUT_SEC,
     SPLINE_STUCK_MIN_SPEED_KMH,
 )
@@ -26,6 +27,7 @@ class BattleManager:
         self.player_names = {}
         self.pair_managers = {}  # (guid_a, guid_b) sorted -> PairBattleManager
         self.guid_to_pair = {}  # guid -> pair key
+        self.recent_pair_cooldowns = {}  # (guid_a, guid_b) sorted -> expires_at
 
         # External callbacks (same contract as legacy manager).
         self.on_battle_start = None
@@ -36,11 +38,19 @@ class BattleManager:
     def _pair_key(g1, g2):
         return tuple(sorted((g1, g2)))
 
-    def _release_pair(self, key):
+    def _make_on_battle_end(self, key):
+        def on_battle_end(*, rematch_cooldown: bool = False):
+            self._release_pair(key, apply_rematch_cooldown=rematch_cooldown)
+
+        return on_battle_end
+
+    def _release_pair(self, key, *, apply_rematch_cooldown: bool = False):
         self.pair_managers.pop(key, None)
         for g in key:
             if self.guid_to_pair.get(g) == key:
                 self.guid_to_pair.pop(g, None)
+        if apply_rematch_cooldown:
+            self.recent_pair_cooldowns[key] = time.time() + FINISHED_COOLDOWN_SEC
 
     def _build_pair_manager(self, g1, g2):
         mgr = PairBattleManager()
@@ -50,7 +60,8 @@ class BattleManager:
         mgr.player_names[g1] = self.player_names.get(g1, g1)
         mgr.player_names[g2] = self.player_names.get(g2, g2)
         key = self._pair_key(g1, g2)
-        mgr.on_battle_end = lambda k=key: self._release_pair(k)
+        mgr.on_battle_end = self._make_on_battle_end(key)
+        mgr.pair_locked_at = time.time()
         # Callbacks are proxied to server_state handlers.
         mgr.on_battle_start = self.on_battle_start
         mgr.on_score_update = self.on_score_update
@@ -75,6 +86,9 @@ class BattleManager:
 
     def _try_matchmake(self):
         now = time.time()
+        self.recent_pair_cooldowns = {
+            k: expires_at for k, expires_at in self.recent_pair_cooldowns.items() if expires_at > now
+        }
         # Candidates not currently locked to any pair and recently active.
         free = []
         for g, c in self.cars.items():
@@ -101,6 +115,9 @@ class BattleManager:
                     if c1.speed <= BATTLE_ARM_MIN_SPEED_KMH or c2.speed <= BATTLE_ARM_MIN_SPEED_KMH:
                         continue
                     if not is_within_battle_gap(c1.pos, c2.pos, BATTLE_ARM_MAX_GAP_METERS):
+                        continue
+                    key = self._pair_key(g1, g2)
+                    if self.recent_pair_cooldowns.get(key, 0.0) > now:
                         continue
                     dist = distance_3d(c1.pos, c2.pos)
                     if best_dist is None or dist < best_dist:
@@ -132,6 +149,7 @@ class BattleManager:
         if not self.is_battle_server:
             self.pair_managers.clear()
             self.guid_to_pair.clear()
+            self.recent_pair_cooldowns.clear()
             return
         log.info(
             "battle config arm_gap=%.0fm arm_speed=%.0f km/h launch_timeout=%.0fs "

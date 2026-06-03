@@ -44,7 +44,7 @@ En cada `update()` de telemetría (`orchestrator._try_matchmake`):
 1. Candidatos: activos en los últimos **3 s**, sin pareja asignada
 2. Se emparejan si están a **≤ 15 m** (`BATTLE_ARM_MAX_GAP_METERS`) y ambos van a **> 40 km/h** (`BATTLE_ARM_MIN_SPEED_KMH`)
 3. Algoritmo **greedy nearest-neighbor**: el par más cercano que cumple condiciones se bloquea primero; se repite hasta agotar candidatos
-4. Un jugador solo puede estar en **una** batalla a la vez (`guid_to_pair`)
+4. Un jugador solo puede estar en **una** batalla a la vez (`guid_to_pair`). Si la pareja queda separada en IDLE **10 s** (`BATTLE_PAIR_IDLE_SEPARATED_RELEASE_SEC`) o sin llegar a ACTIVE en **120 s** (`BATTLE_PAIR_MAX_PREACTIVE_LOCK_SEC`), el lock se disuelve y pueden emparejarse con otros
 
 ## Máquina de estados por pareja
 
@@ -56,7 +56,7 @@ Estados: `IDLE` → `ARMED` → `LAUNCHING` → `ACTIVE` → `FINISHED` (`engine
 | **ARMED** | Si se separan >80 m con ambos ≥20 km/h tras 2 s de gracia → abort sin punto. Si ambos ≥ umbral de armado → **LAUNCHING** + `X vs Y — GO — both over {speed} km/h`. Mensaje ARMED con cooldown 15 s para evitar spam. Se crea `battle_id` vía `on_battle_start` |
 | **LAUNCHING** | Asigna lead/chase (spline o position fallback). **No** vuelve a exigir velocidad tras el GO. En position mode asigna en ~0.5 s; en spline espera hasta 6 s si no hay gap claro. Timeout 8 s solo si roles no se asignan → **ACTIVE** + "You are LEAD/CHASE" |
 | **ACTIVE** | Puntuación en vivo (overtake, finish, abandon). Roles: **lead** adelante en spline, **chase** detrás |
-| **FINISHED** | Espera **`BATTLE_FINISHED_COOLDOWN_SEC`** (default 20 s) antes de volver a IDLE y permitir otra batalla con la misma pareja; luego marcador reiniciado |
+| **FINISHED** | Cierra la sesión, libera la pareja y permite buscar rival nuevo inmediatamente. El rematch contra la misma pareja queda bloqueado por **`BATTLE_FINISHED_COOLDOWN_SEC`** (default 20 s) |
 
 Constantes tunables en `engines/battlesystem/config.py` (variables de entorno con prefijo `BATTLE_` / `OVERTAKE_`).
 
@@ -124,8 +124,8 @@ Recomendación: instalar `content/tracks/&lt;track&gt;/ai/fast_lane.ai` en el se
 ## Persistencia / backend
 
 - Al pasar a **ARMED**, se genera `battle-{uuid12}` (`handle_battle_start` en `session_manager.py`)
-- **Solo al terminar** una sesión con `winner_guid` definido se publica Redis:
-  - `battle_update` + `battle_finished` con scores, `pointsLog`, track, coches (`network/event_dispatcher.py`)
+- **Solo al terminar** una sesión con ganador o empate se publica Redis:
+  - `battle_update` + `battle_finished` con scores, `pointsLog`, track, coches (`network/event_dispatcher.py`). `status`: `finished` (ganador) o `draw` (empate). Cancelaciones 0-0 no publican evento
 - No hay updates intermedios por cada punto; el webhook es al cierre de la serie/sesión
 
 Ver también [REDIS_CONTRACT.md](../REDIS_CONTRACT.md) para el esquema de eventos.
@@ -155,7 +155,7 @@ Ver también [REDIS_CONTRACT.md](../REDIS_CONTRACT.md) para el esquema de evento
 |-------|------------------|---------------------|
 | Arm / pair lock | ≤ 15 m, ambos > 40 km/h | `BATTLE_ARM_MAX_GAP_METERS`, `BATTLE_ARM_MIN_SPEED_KMH` |
 | Arm (IDLE → ARMED) | condiciones sostenidas 5 s | `BATTLE_ARM_SUSTAINED_PROXIMITY_SEC` |
-| Rematch tras fin/cancel | 20 s en FINISHED | `BATTLE_FINISHED_COOLDOWN_SEC` |
+| Rematch tras fin/cancel | cooldown 20 s solo para la misma pareja | `BATTLE_FINISHED_COOLDOWN_SEC` |
 | Abort prestart (solo ARMED) | > 80 m, ambos ≥ 20 km/h tras 2 s | `MAX_BATTLE_GAP_METERS`, `BATTLE_PRESTART_GAP_ABORT_GRACE_SEC` |
 | Overtake / recovery | gap 10–15 m | `OVERTAKE_MIN_GAP_METERS`, `OVERTAKE_MAX_GAP_METERS` |
 | Finish | lead completa vuelta (meta) + gap ≥ 20 m | `BATTLE_FINISH_LINE_*`, `BATTLE_MIN_LAP_PROGRESS_BEFORE_FINISH`, `BATTLE_FINISH_POINT_MIN_GAP_METERS` |

@@ -80,3 +80,9 @@ ROLE_ASSIGN_WAIT_SEC = float(os.getenv("BATTLE_ROLE_ASSIGN_WAIT_SEC", "6.0"))
 
 # ── Pair lifecycle ──
 PAIR_STICKY_TIMEOUT_SEC = float(os.getenv("BATTLE_PAIR_STICKY_TIMEOUT_SEC", "20.0"))
+# Release matchmaking lock when paired drivers stay too far apart to arm (IDLE).
+PAIR_IDLE_SEPARATED_RELEASE_SEC = float(
+    os.getenv("BATTLE_PAIR_IDLE_SEPARATED_RELEASE_SEC", "10.0")
+)
+# Safety: dissolve pre-ACTIVE pair lock if no battle starts within this window.
+PAIR_MAX_PREACTIVE_LOCK_SEC = float(os.getenv("BATTLE_PAIR_MAX_PREACTIVE_LOCK_SEC", "120.0"))

@@ -9,8 +9,9 @@ from core.logging_config import get_logger
 from engines.battlesystem.config import (
     ARM_SUSTAINED_PROXIMITY_SEC,
     BATTLE_ARM_MIN_SPEED_KMH,
-    FINISHED_COOLDOWN_SEC,
     LAUNCH_TIMEOUT_SEC,
+    PAIR_IDLE_SEPARATED_RELEASE_SEC,
+    PAIR_MAX_PREACTIVE_LOCK_SEC,
     PAIR_STICKY_TIMEOUT_SEC,
 )
 from engines.battlesystem.chat import (
@@ -19,7 +20,6 @@ from engines.battlesystem.chat import (
     notify_arming_countdown,
     notify_position_fallback_mode,
 )
-from engines.battlesystem.models import TougeBattle
 from engines.battlesystem.rules import arming, finish, overtake
 from engines.battlesystem.rules.proximity import distance_3d
 
@@ -67,10 +67,7 @@ def process_pair_logic(manager):
         if manager.state not in ("IDLE", "FINISHED"):
             manager._notify_battle_cancelled("pair stale")
             log.info("pair stale timeout, resetting")
-        manager._reset_to_idle(full_reset=True)
-        manager.battle = None
-        if getattr(manager, "on_battle_end", None):
-            manager.on_battle_end()
+        _dissolve_pair(manager, reason="pair stale")
         return
 
     if manager.battle.car1_guid not in active_guids or manager.battle.car2_guid not in active_guids:
@@ -83,11 +80,23 @@ def process_pair_logic(manager):
         return
 
     if manager.state == "FINISHED":
-        _handle_finished_cooldown(manager, p1, p2, now)
+        _handle_finished_state(manager)
         return
 
     car1, car2 = p1, p2
     distance = distance_3d(car1.pos, car2.pos)
+
+    if manager.state in ("IDLE", "ARMED", "LAUNCHING"):
+        locked_at = getattr(manager, "pair_locked_at", 0.0)
+        if locked_at > 0.0 and (now - locked_at) >= PAIR_MAX_PREACTIVE_LOCK_SEC:
+            log.info(
+                "pair dissolved (pre-active lock %.0fs) %s vs %s",
+                now - locked_at,
+                manager.battle.car1_guid,
+                manager.battle.car2_guid,
+            )
+            _dissolve_pair(manager, reason="pre_active_timeout")
+            return
 
     if manager.state == "IDLE":
         _handle_idle(manager, car1, car2, distance, now)
@@ -99,27 +108,34 @@ def process_pair_logic(manager):
         _handle_active(manager, car1, car2, distance, now)
 
 
-def _in_rematch_cooldown(manager, now: float) -> bool:
-    if manager.finished_time <= 0.0:
-        return False
-    return (now - manager.finished_time) < FINISHED_COOLDOWN_SEC
-
-
-def _handle_finished_cooldown(manager, car1, car2, now: float) -> None:
-    if manager.finished_time == 0.0:
-        manager.finished_time = now
-        return
-
-    elapsed = now - manager.finished_time
-    if elapsed < FINISHED_COOLDOWN_SEC:
-        return
-
-    log.info("rematch cooldown over (%.0fs), ready for new battle", elapsed)
+def _dissolve_pair(manager, *, reason: str, rematch_cooldown: bool = False) -> None:
     if manager.battle:
-        manager.battle = TougeBattle(manager.battle.car1_guid, manager.battle.car2_guid)
+        log.info(
+            "pair dissolved (%s) %s vs %s rematch_cooldown=%s",
+            reason,
+            manager.battle.car1_guid,
+            manager.battle.car2_guid,
+            rematch_cooldown,
+        )
     manager._reset_to_idle(full_reset=True)
+    manager.battle = None
+    manager._separated_since = 0.0
     if getattr(manager, "on_battle_end", None):
-        manager.on_battle_end()
+        manager.on_battle_end(rematch_cooldown=rematch_cooldown)
+
+
+def _handle_finished_state(manager) -> None:
+    if manager.battle:
+        log.info(
+            "battle finished %s vs %s, releasing pair for new opponents",
+            manager.battle.car1_guid,
+            manager.battle.car2_guid,
+        )
+    manager._reset_to_idle(full_reset=True)
+    manager.battle = None
+    manager._separated_since = 0.0
+    if getattr(manager, "on_battle_end", None):
+        manager.on_battle_end(rematch_cooldown=True)
 
 
 def _arming_seconds_remaining(manager, now: float) -> int:
@@ -151,11 +167,22 @@ def _clear_arming_countdown(manager, *, notify_cancel: bool = False) -> None:
 
 
 def _handle_idle(manager, car1, car2, distance: float, now: float) -> None:
-    if _in_rematch_cooldown(manager, now):
-        return
     if not arming.can_arm(car1, car2):
         _clear_arming_countdown(manager, notify_cancel=True)
+        separated_since = getattr(manager, "_separated_since", 0.0)
+        if separated_since <= 0.0:
+            manager._separated_since = now
+        elif (now - separated_since) >= PAIR_IDLE_SEPARATED_RELEASE_SEC:
+            log.info(
+                "pair dissolved (separated idle %.0fs) %s vs %s gap=%.1fm",
+                now - separated_since,
+                car1.guid,
+                car2.guid,
+                distance,
+            )
+            _dissolve_pair(manager, reason="separated_idle")
         return
+    manager._separated_since = 0.0
     if manager.arm_proximity_since == 0.0:
         manager.arm_proximity_since = now
         manager._arming_countdown_announced_sec = -1

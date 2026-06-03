@@ -60,8 +60,8 @@ Battle events (`network/event_dispatcher.dispatch_battle_webhook`):
 
 - `battle_update` — produced once when the touge series finishes (win or draw).
 - `battle_finished` — same payload as the closing `battle_update`, emitted when
-  the session ends with a winner (`winnerSteamId`) or a draw (`status: "draw"`,
-  no `winnerSteamId`).
+  the session ends with `status` `finished` (`winnerSteamId` set) or `draw` (tie,
+  no `winnerSteamId`). Cancelled 0-0 sessions are not published.
 - Stream `serverName` uses the AC display name (`config_server_name`), not the
   folder slug; `data.serverName` matches that display name.
 

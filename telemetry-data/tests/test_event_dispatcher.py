@@ -69,3 +69,29 @@ def test_dispatch_battle_webhook_draw_publishes_finished(mock_enqueue):
     payload = mock_enqueue.call_args_list[1].args[2]
     assert payload["status"] == "draw"
     assert "winnerSteamId" not in payload
+
+
+@patch("network.event_dispatcher._enqueue")
+def test_dispatch_battle_webhook_cancelled_does_not_publish_finished(mock_enqueue):
+    server_state = MagicMock()
+    server_state.config_server_name = "pord"
+    server_state.track = "pk_akina"
+    server_state.config = "akina_downhill"
+
+    dispatch_battle_webhook(
+        server_state,
+        {
+            "battle_id": "battle-cancel",
+            "player1_steam_id": "p1",
+            "player2_steam_id": "p2",
+            "metadata": {},
+        },
+        0,
+        0,
+        None,
+        [],
+        status="cancelled",
+    )
+
+    assert mock_enqueue.call_count == 1
+    assert mock_enqueue.call_args_list[0].args[0] == "battle_update"

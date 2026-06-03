@@ -43,6 +43,8 @@ class PairBattleManager:
         self.on_score_update = None
         self.on_chat_message = None
         self.on_battle_end = None
+        self.pair_locked_at = 0.0
+        self._separated_since = 0.0
 
         self.battle_id = None
         self.finished_time = 0.0

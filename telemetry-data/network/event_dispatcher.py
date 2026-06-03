@@ -120,9 +120,13 @@ def dispatch_battle_webhook(
     p2_score: int,
     winner_guid: str | None,
     points_log,
+    *,
+    status: str | None = None,
 ) -> None:
     """Publish battle_update / battle_finished events."""
     meta = battle_config.get("metadata", {}) or {}
+    if status is None:
+        status = "finished" if winner_guid is not None else "draw"
     payload = {
         "battleId": battle_config.get("battle_id"),
         "player1SteamId": battle_config.get("player1_steam_id"),
@@ -134,7 +138,7 @@ def dispatch_battle_webhook(
         "player1Name": meta.get("player1Name", ""),
         "player2Name": meta.get("player2Name", ""),
         "pointsLog": points_log or [],
-        "status": "finished" if winner_guid is not None else "draw",
+        "status": status,
         "serverName": getattr(server_state, "server_name", ""),
         "track": meta.get("track", ""),
         "trackConfig": meta.get("trackConfig", ""),
@@ -156,7 +160,7 @@ def dispatch_battle_webhook(
         payload.get("player1Score"),
         payload.get("player2Score"),
     )
-    if winner_guid is not None or payload.get("status") == "draw":
+    if payload.get("status") in ("finished", "draw"):
         _enqueue("battle_finished", server_name, payload)
         log.info(
             "battle_finished battleId=%s winner=%s status=%s",

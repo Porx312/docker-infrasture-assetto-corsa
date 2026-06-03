@@ -12,6 +12,35 @@ from engines.battlesystem.chat import format_point_broadcast, notify_touge_chat
 log = get_logger("battlesystem.scoring")
 
 
+def append_points_log_entry(manager, reason: str, scorer=None, **extra) -> None:
+    """Append a scoring event to pointsLog (live points only)."""
+    if not manager.battle:
+        return
+    entry = {
+        "scorer": scorer,
+        "reason": reason,
+        "ts": int(time.time() * 1000),
+    }
+    if extra:
+        entry.update(extra)
+    manager.battle.points_log.append(entry)
+
+
+def _dispatch_session_outcome(manager, *, status: str) -> None:
+    if not manager.on_score_update or not manager.battle:
+        return
+    manager.on_score_update(
+        manager.battle_id,
+        manager.battle.car1_score,
+        manager.battle.car2_score,
+        manager.battle.winner,
+        manager.battle.points_log,
+        manager.battle.car1_guid,
+        manager.battle.car2_guid,
+        status,
+    )
+
+
 def score_of(manager, guid):
     if not manager.battle:
         return 0
@@ -81,6 +110,7 @@ def finalize_abandon(manager, winner_guid, reason) -> bool:
         winner_guid,
     )
     manager._notify_battle_cancelled(reason)
+    manager.battle.winner = None
     manager.state = "FINISHED"
     manager.finished_time = time.time()
     return True
@@ -101,16 +131,7 @@ def finalize_default_win(manager, winner_guid, reason):
     )
     msg = f"WIN {wn} — opponent abandoned ({reason}) | {manager._scoreboard_line()}"
     notify_touge_chat(manager, msg)
-    if manager.on_score_update:
-        manager.on_score_update(
-            manager.battle_id,
-            manager.battle.car1_score,
-            manager.battle.car2_score,
-            manager.battle.winner,
-            manager.battle.points_log,
-            manager.battle.car1_guid,
-            manager.battle.car2_guid,
-        )
+    _dispatch_session_outcome(manager, status="finished")
     manager.state = "FINISHED"
     manager.finished_time = time.time()
     return True
@@ -140,16 +161,8 @@ def finalize_single_session_result(manager, finish_gap_m, is_draw):
         log.info("session over DRAW finish_gap=%.1fm", finish_gap_m)
         msg = f"FINISH — DRAW (gap {finish_gap_m:.0f}m) | {board}"
     notify_touge_chat(manager, msg)
-    if manager.on_score_update:
-        manager.on_score_update(
-            manager.battle_id,
-            manager.battle.car1_score,
-            manager.battle.car2_score,
-            manager.battle.winner,
-            manager.battle.points_log,
-            manager.battle.car1_guid,
-            manager.battle.car2_guid,
-        )
+    session_status = "draw" if winner is None else "finished"
+    _dispatch_session_outcome(manager, status=session_status)
     manager.state = "FINISHED"
     manager.finished_time = time.time()
 
@@ -164,9 +177,7 @@ def award_point(manager, winner_guid, reason="outrun", *, skip_chat: bool = Fals
     else:
         log_msg = f"DRAW ({reason})"
 
-    manager.battle.points_log.append(
-        {"scorer": winner_guid, "reason": reason, "ts": int(time.time() * 1000)}
-    )
+    append_points_log_entry(manager, reason, scorer=winner_guid)
     log.info(
         "%s score=%s-%s",
         log_msg,
