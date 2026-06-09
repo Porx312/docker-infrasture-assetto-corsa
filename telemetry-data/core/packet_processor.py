@@ -5,6 +5,7 @@ from network.ac_packet import ACSP, PacketParser
 from core.session_manager import DriverInfo, send_registration, send_chat, send_admin_command
 from core import runtime_config, settings
 from core.logging_config import get_logger
+from core.cm_name import display_server_name, strip_cm_name_suffix
 from network.event_dispatcher import send_server_event
 
 log = get_logger("packet_processor")
@@ -30,8 +31,8 @@ def _resolve_server_mode(server_state):
             "[%s] no mode for folder=%r ini_name=%r ac_name=%r; convex modes=%s",
             server_state.port,
             getattr(server_state, "server_folder_id", ""),
-            getattr(server_state, "config_server_name", ""),
-            getattr(server_state, "server_name", ""),
+            strip_cm_name_suffix(getattr(server_state, "config_server_name", "") or ""),
+            strip_cm_name_suffix(getattr(server_state, "server_name", "") or ""),
             runtime_config.snapshot(),
         )
     return mode
@@ -114,7 +115,9 @@ def process_packet(data, server_state, addr):
                 if not server_name_m:
                     server_name_m = re.search(r'^NAME=(.+)', content, re.MULTILINE)
                 if server_name_m:
-                    server_state.config_server_name = server_name_m.group(1).strip()
+                    server_state.config_server_name = strip_cm_name_suffix(
+                        server_name_m.group(1).strip()
+                    )
 
                 # Robustly update track/config from INI if packet data looks weird or we want disk priority
                 track_m  = re.search(r'^TRACK=(.+)', content, re.MULTILINE)
@@ -182,7 +185,7 @@ def process_packet(data, server_state, addr):
             # Node.js General Webhook
             send_server_event(
                 "player_join",
-                getattr(server_state, "config_server_name", server_state.server_name),
+                display_server_name(server_state),
                 {
                     "steamId": guid,
                     "name": name,
@@ -232,7 +235,7 @@ def process_packet(data, server_state, addr):
                 
                 # Node.js Event Leave
                 if not driver.guid.startswith('unknown_'):
-                    send_server_event("player_leave", getattr(server_state, 'config_server_name', server_state.server_name), {
+                    send_server_event("player_leave", display_server_name(server_state), {
                         "steamId": driver.guid,
                         "trackName": server_state.track,
                         "trackConfig": server_state.config
@@ -298,7 +301,7 @@ def process_packet(data, server_state, addr):
             if not driver.guid.startswith('unknown_'):
                 send_server_event(
                     "player_leave",
-                    getattr(server_state, "config_server_name", server_state.server_name),
+                    display_server_name(server_state),
                     {
                         "steamId": driver.guid,
                         "trackName": server_state.track,
@@ -476,7 +479,7 @@ def process_packet(data, server_state, addr):
         if not driver.guid.startswith('unknown_'):
             send_server_event(
                 "lap_completed",
-                getattr(server_state, "config_server_name", server_state.server_name),
+                display_server_name(server_state),
                 {
                     "steamId": driver.guid,
                     "carModel": driver.model,

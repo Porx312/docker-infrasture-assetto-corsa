@@ -13,6 +13,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 FORCE="${1:-}"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo -e "${YELLOW}=== Stopping Assetto Corsa Services ===${NC}"
 
@@ -41,6 +42,10 @@ fi
 
 # Remove stale PID file
 rm -f /home/jose/assetto-infra/server_pids.json
+
+# Stop CM details proxies
+echo -e "${YELLOW}Stopping CM details proxies...${NC}"
+"$ROOT_DIR/scripts/stop-cm-proxies.sh" 2>/dev/null || true
 
 # Stop AC servers
 echo -e "${YELLOW}Stopping AC servers...${NC}"

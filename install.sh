@@ -82,15 +82,20 @@ sudo iptables -A INPUT -p tcp --dport 9610 -j ACCEPT
 sudo iptables -A INPUT -p udp --dport 9620 -j ACCEPT
 sudo iptables -A INPUT -p tcp --dport 9620 -j ACCEPT
 
-# AC Server ports (server 3-11)
-for port in 9630 9640 9650 9660 9670 9680 9690 9700 9710; do
+# AC Server ports (server 3-19)
+for port in 9630 9640 9650 9660 9670 9680 9690 9700 9710 9720 9730 9740 9750 9760 9770 9780 9790; do
     sudo iptables -A INPUT -p udp --dport $port -j ACCEPT
     sudo iptables -A INPUT -p tcp --dport $port -j ACCEPT
 done
 
-# HTTP Admin ports (8081-8092)
-for port in 8081 8082 8083 8084 8085 8086 8087 8088 8089 8090 8091 8092; do
+# HTTP Admin ports (8081-8100)
+for port in $(seq 8081 8100); do
     sudo iptables -A INPUT -p tcp --dport $port -j ACCEPT
+done
+
+# Content Manager details proxy ports (HTTP_PORT + 10000 → 18081-18100)
+for port in $(seq 18081 18100); do
+    sudo iptables -A INPUT -p tcp --dport $port -j ACCEPT 2>/dev/null || true
 done
 
 # ac-data API
@@ -99,8 +104,8 @@ sudo iptables -A INPUT -p tcp --dport 3000 -j ACCEPT
 # Assetto Manager (optional)
 sudo iptables -A INPUT -p tcp --dport 8772 -j ACCEPT
 
-# Plugin ports (UDP) - servers 0-11
-for port in 12001 12011 12021 12041 12051 12061 12071 12081 12091 12101 12111 12121; do
+# Plugin ports (UDP) - servers 0-19
+for port in 12001 12011 12021 12041 12051 12061 12071 12081 12091 12101 12111 12121 12131 12141 12151 12161 12171 12181 12191 12201; do
     sudo iptables -A INPUT -p udp --dport $port -j ACCEPT
 done
 
@@ -140,7 +145,7 @@ CONTENT_SOURCE="/home/assetto/server-manager/assetto/content"
 
 if [ -d "$SERVER_DIR" ] && [ ! -L "$SERVER_DIR/server/content/cars" ]; then
     echo -e "${YELLOW}Creating content symlinks...${NC}"
-    for instance in server server-1 server-2 server-3 server-4 server-5 server-6 server-7 server-8 server-9 server-10 server-11; do
+    for instance in server server-1 server-2 server-3 server-4 server-5 server-6 server-7 server-8 server-9 server-10 server-11 server-12 server-13 server-14 server-15 server-16 server-17 server-18 server-19; do
         if [ -d "$SERVER_DIR/$instance" ]; then
             mkdir -p "$SERVER_DIR/$instance/content"
             ln -sf "$CONTENT_SOURCE/cars" "$SERVER_DIR/$instance/content/cars"
@@ -180,8 +185,8 @@ echo "  2. Run: ./start.sh dev   or   ./start.sh prod"
 echo "  3. Check: ./start.sh status"
 echo ""
 echo "Ports opened:"
-echo "  - AC Servers UDP/TCP: 9600-9620, 9630, 9640, 9650, 9660, 9670, 9680, 9690, 9700, 9710"
-echo "  - HTTP Admin: 8081-8092"
-echo "  - Plugin UDP: 12001, 12011, 12021, 12041, 12051, 12061, 12071, 12081, 12091, 12101, 12111, 12121"
+echo "  - AC Servers UDP/TCP: 9600-9790 (step 10)"
+echo "  - HTTP Admin: 8081-8100"
+echo "  - Plugin UDP: 12001-12201 (step 10)"
 echo "  - Telemetry: 9000-9020"
 echo "  - API: 3000, Manager: 8772"

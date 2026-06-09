@@ -87,10 +87,14 @@ def set_server_modes(rows: Iterable[dict]) -> None:
 
 
 def _lookup_keys(state) -> tuple[str, ...]:
+    from core.cm_name import strip_cm_name_suffix
+
     return (
         (getattr(state, "server_folder_id", "") or "").strip().lower(),
-        (getattr(state, "config_server_name", "") or "").strip().lower(),
-        (getattr(state, "server_name", "") or "").strip().lower(),
+        strip_cm_name_suffix(
+            (getattr(state, "config_server_name", "") or "").strip()
+        ).lower(),
+        strip_cm_name_suffix((getattr(state, "server_name", "") or "").strip()).lower(),
     )
 
 

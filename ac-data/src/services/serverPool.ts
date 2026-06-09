@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { stripCmNameSuffix } from '../controller/cmWrapper.js';
 import { activeServers, stopServerCore } from '../controller/controller.js';
 
 const SERVERS_PATH = process.env.SERVERS_PATH || '';
@@ -43,7 +44,7 @@ function rebuildNameMap(): void {
       const content = fs.readFileSync(cfg, 'utf-8');
       const nameM = /^NAME=(.+)/m.exec(content) || /^SERVER_NAME=(.+)/m.exec(content);
       if (nameM) {
-        const display = nameM[1].trim();
+        const display = stripCmNameSuffix(nameM[1].trim());
         if (display) map.set(display.toLowerCase(), folder);
       }
     } catch {
@@ -55,7 +56,8 @@ function rebuildNameMap(): void {
 
 export function resolveServerFolder(statusServerName: string): string | null {
   rebuildNameMap();
-  const key = statusServerName.trim().toLowerCase();
+  const cleaned = stripCmNameSuffix(statusServerName.trim());
+  const key = cleaned.toLowerCase();
   if (!key) return null;
   return nameToFolder.get(key) ?? (nameToFolder.has(statusServerName) ? statusServerName : null);
 }

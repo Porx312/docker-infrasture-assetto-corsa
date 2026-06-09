@@ -120,6 +120,11 @@ else
     cd ..
 fi
 
+# Start Content Manager details proxies (sidecar HTTP for /api/details)
+echo -e "${YELLOW}Starting CM details proxies...${NC}"
+chmod +x "$ROOT_DIR/scripts/start-cm-proxies.sh" 2>/dev/null || true
+"$ROOT_DIR/scripts/start-cm-proxies.sh" || echo -e "${YELLOW}CM proxies not started (see server/shared/cm-proxy-logs)${NC}"
+
 echo -e "${GREEN}=== All services started ===${NC}"
 echo ""
 echo "Services:"

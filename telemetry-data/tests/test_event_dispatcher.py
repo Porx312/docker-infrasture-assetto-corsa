@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
-from network.event_dispatcher import build_envelope, dispatch_battle_webhook
+from core.cm_name import CM_SUFFIX_SEP
+from network.event_dispatcher import build_envelope, dispatch_battle_webhook, send_server_event
 
 
 def test_build_envelope_shape():
@@ -95,3 +96,36 @@ def test_dispatch_battle_webhook_cancelled_does_not_publish_finished(mock_enqueu
 
     assert mock_enqueue.call_count == 1
     assert mock_enqueue.call_args_list[0].args[0] == "battle_update"
+
+
+@patch("network.event_dispatcher._enqueue")
+def test_send_server_event_strips_cm_suffix(mock_enqueue):
+    send_server_event("player_join", f"projectd {CM_SUFFIX_SEP}18081", {"steamId": "x"})
+    mock_enqueue.assert_called_once_with(
+        "player_join", "projectd", {"steamId": "x"}
+    )
+
+
+@patch("network.event_dispatcher._enqueue")
+def test_dispatch_battle_webhook_strips_suffix_in_stream_and_payload(mock_enqueue):
+    server_state = MagicMock()
+    server_state.config_server_name = f"projectd {CM_SUFFIX_SEP}18081"
+    server_state.server_name = f"projectd {CM_SUFFIX_SEP}18081"
+
+    dispatch_battle_webhook(
+        server_state,
+        {
+            "battle_id": "b1",
+            "player1_steam_id": "p1",
+            "player2_steam_id": "p2",
+            "metadata": {},
+        },
+        0,
+        0,
+        None,
+        [],
+        status="cancelled",
+    )
+
+    assert mock_enqueue.call_args_list[0].args[1] == "projectd"
+    assert mock_enqueue.call_args_list[0].args[2]["serverName"] == "projectd"

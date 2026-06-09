@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import fs from 'fs';
 import multer from 'multer';
 import path from 'path';
 import { adminAuth } from '../middleware/adminAuth.js';
@@ -15,7 +16,9 @@ import {
 
 const router = Router();
 
-const uploadDir = '/tmp/ac-admin-uploads';
+const uploadDir = process.env.ADMIN_UPLOAD_DIR || '/tmp/ac-admin-uploads';
+fs.mkdirSync(uploadDir, { recursive: true });
+
 const storage = multer.diskStorage({
     destination: (_req, _file, cb) => {
         cb(null, uploadDir);
@@ -50,7 +53,32 @@ router.get('/check', adminCheck);
 router.get('/content', adminAuth, getContent);
 router.get('/content/:type', adminAuth, getContentItems);
 router.delete('/content/:type/:name', adminAuth, deleteContentItem);
-router.post('/upload/:type', adminAuth, upload.single('file'), uploadContent);
-router.post('/upload-multiple/:type', adminAuth, upload.array('files', 20), uploadMultipleContent);
+function handleMulterUpload(
+    uploadMiddleware: ReturnType<typeof upload.single> | ReturnType<typeof upload.array>,
+) {
+    return (req: import('express').Request, res: import('express').Response, next: import('express').NextFunction) => {
+        uploadMiddleware(req, res, (err: unknown) => {
+            if (!err) {
+                next();
+                return;
+            }
+            const message =
+                err instanceof multer.MulterError
+                    ? `Upload rejected: ${err.code}${err.field ? ` (${err.field})` : ''}`
+                    : err instanceof Error
+                      ? err.message
+                      : 'Upload failed';
+            res.status(400).json({ ok: false, message });
+        });
+    };
+}
+
+router.post('/upload/:type', adminAuth, handleMulterUpload(upload.single('file')), uploadContent);
+router.post(
+    '/upload-multiple/:type',
+    adminAuth,
+    handleMulterUpload(upload.array('files', 20)),
+    uploadMultipleContent,
+);
 
 export default router;

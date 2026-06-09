@@ -205,18 +205,25 @@ async function uploadFiles(files, type) {
                 credentials: 'include'
             });
 
-            const data = await res.json();
+            let data;
+            try {
+                data = await res.json();
+            } catch {
+                errorMessages.push(`${file.name}: Invalid server response (${res.status})`);
+                continue;
+            }
 
-            if (data.ok) {
+            if (res.ok && data.ok !== false) {
                 successCount++;
                 if (data.extracted && data.extracted.length > 1) {
                     showAlert(`Extracted ${data.extracted.length} files from ${file.name}`);
                 }
             } else {
-                errorMessages.push(`${file.name}: ${data.message}`);
+                errorMessages.push(`${file.name}: ${data.message || data.error || `HTTP ${res.status}`}`);
             }
         } catch (err) {
-            errorMessages.push(`${file.name}: Connection error`);
+            const hint = err instanceof Error ? err.message : 'network error';
+            errorMessages.push(`${file.name}: Connection error (${hint})`);
         }
 
         progressFill.style.width = `${((i + 1) / files.length) * 100}%`;

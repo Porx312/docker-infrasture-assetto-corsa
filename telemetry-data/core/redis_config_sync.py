@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional
 from core import runtime_config, settings
 from core.logging_config import get_logger
 from core.redis_client import get_redis_client
+from core.cm_name import display_server_name, strip_cm_name_suffix
 from network.event_dispatcher import send_server_event
 
 log = get_logger("config_sync")
@@ -146,7 +147,7 @@ def _find_state_by_server_name(
 ) -> Optional[Any]:
     targets = []
     for value in (server_name, display_name):
-        text = (value or "").strip().lower()
+        text = strip_cm_name_suffix((value or "").strip()).lower()
         if text and text not in targets:
             targets.append(text)
     if not targets:
@@ -154,8 +155,12 @@ def _find_state_by_server_name(
     for state in servers.values():
         candidates = [
             (getattr(state, "server_folder_id", "") or "").strip().lower(),
-            (getattr(state, "config_server_name", "") or "").strip().lower(),
-            (getattr(state, "server_name", "") or "").strip().lower(),
+            strip_cm_name_suffix(
+                (getattr(state, "config_server_name", "") or "").strip()
+            ).lower(),
+            strip_cm_name_suffix(
+                (getattr(state, "server_name", "") or "").strip()
+            ).lower(),
         ]
         for target in targets:
             if target in candidates:
@@ -219,7 +224,7 @@ def apply_snapshot(servers: Dict[int, Any], payload: Dict[str, Any]) -> tuple[in
         )
         if not state or not getattr(state, "cfg_path", None):
             continue
-        server_label = getattr(state, "config_server_name", getattr(state, "server_name", "unknown"))
+        server_label = display_server_name(state) or "unknown"
         try:
             changed = _write_server_cfg(state.cfg_path, row)
             entry_written = _write_entry_list(state.cfg_path, row)

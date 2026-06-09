@@ -15,6 +15,7 @@ from core.config_loader import load_server_configs  # noqa: E402
 from core.logging_config import get_logger, setup_logging  # noqa: E402
 from core.session_manager import ServerState, send_registration  # noqa: E402
 from core.packet_processor import process_packet  # noqa: E402
+from core.cm_name import display_server_name  # noqa: E402
 from network.event_dispatcher import send_server_event  # noqa: E402
 from core.redis_config_sync import (  # noqa: E402
     bootstrap_runtime_config_from_stream,
@@ -102,7 +103,7 @@ def server_status_loop(servers):
                         {"steamId": d.guid, "name": d.name, "carModel": d.model}
                     )
 
-            server_label = getattr(state, "config_server_name", state.server_name)
+            server_label = display_server_name(state)
             for car_id in stale_car_ids:
                 d = state.active_drivers.get(car_id)
                 if not d:

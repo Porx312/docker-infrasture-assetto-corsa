@@ -1,0 +1,9 @@
+{
+  "description": "[img=https://res.cloudinary.com/dq0pfesxe/image/upload/v1780485935/Frame_16_1_ykkgoh.png]ProjectD[/img]\n\nProjectD is a touge-focused racing platform featuring team events, battles, and time attack competitions.\n\nJoin the community at [url=https://projectd.space]projectd.space[/url] | [url=https://discord.gg/3Fqbg8a6qf]Discord[/url]",
+  "port": 18083,
+  "verboseLog": false,
+  "downloadSpeedLimit": 0,
+  "downloadPasswordOnly": false,
+  "publishPasswordChecksum": true,
+  "loadingImageUrl": "https://res.cloudinary.com/dq0pfesxe/image/upload/v1780485935/Frame_16_1_ykkgoh.png"
+}

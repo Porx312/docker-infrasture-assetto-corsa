@@ -15,6 +15,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from core import settings
 from core.logging_config import get_logger
+from core.cm_name import display_server_name, strip_cm_name_suffix
 from core.redis_client import get_redis_client
 
 log = get_logger("event_dispatcher")
@@ -110,7 +111,7 @@ def _enqueue(event_type: str, server_name: str, data: dict) -> None:
 
 def send_server_event(event_type: str, server_name: str, data: dict) -> None:
     """Publish a generic server event into the Redis stream (non-blocking)."""
-    _enqueue(event_type, server_name, data)
+    _enqueue(event_type, strip_cm_name_suffix(server_name), data)
 
 
 def dispatch_battle_webhook(
@@ -139,19 +140,14 @@ def dispatch_battle_webhook(
         "player2Name": meta.get("player2Name", ""),
         "pointsLog": points_log or [],
         "status": status,
-        "serverName": getattr(server_state, "server_name", ""),
+        "serverName": display_server_name(server_state),
         "track": meta.get("track", ""),
         "trackConfig": meta.get("trackConfig", ""),
     }
     if winner_guid:
         payload["winnerSteamId"] = winner_guid
 
-    server_name = (
-        getattr(server_state, "config_server_name", None)
-        or getattr(server_state, "server_name", "")
-        or getattr(server_state, "server_folder_id", None)
-        or ""
-    )
+    server_name = display_server_name(server_state)
     _enqueue("battle_update", server_name, payload)
     log.info(
         "battle_update battleId=%s status=%s score=%s-%s",

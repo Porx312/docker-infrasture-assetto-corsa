@@ -84,6 +84,14 @@ Each folder (`server`, `server-1`, `server-2`, …) should use the **Plugin** UD
 | server-9 | 9690 | 8090 | 12101 |
 | server-10 | 9700 | 8091 | 12111 |
 | server-11 | 9710 | 8092 | 12121 |
+| server-12 | 9720 | 8093 | 12131 |
+| server-13 | 9730 | 8094 | 12141 |
+| server-14 | 9740 | 8095 | 12151 |
+| server-15 | 9750 | 8096 | 12161 |
+| server-16 | 9760 | 8097 | 12171 |
+| server-17 | 9770 | 8098 | 12181 |
+| server-18 | 9780 | 8099 | 12191 |
+| server-19 | 9790 | 8100 | 12201 |
 
 ## Environment files
 

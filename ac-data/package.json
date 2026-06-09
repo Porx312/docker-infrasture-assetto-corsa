@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "rimraf ./dist && tsc",
     "start": "node dist/index.js",
-    "test": "tsx --test src/controller/trackConfig.test.ts"
+    "test": "tsx --test src/controller/trackConfig.test.ts src/controller/cmWrapper.test.ts"
   },
   "keywords": [],
   "author": "",

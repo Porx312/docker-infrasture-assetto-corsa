@@ -4,6 +4,7 @@ import fs from 'fs';
 import { resolveEnvFilePath } from '../config/loadEnv.js';
 import { getServerPorts } from './serverPorts.js';
 import { normalizeTrackConfigForIni } from './trackConfig.js';
+import { applyCmNameSuffix, readCmWrapperPort } from './cmWrapper.js';
 
 const _serversPath = process.env.SERVERS_PATH;
 if (!_serversPath) throw new Error(`SERVERS_PATH no definido en ${resolveEnvFilePath()}`);
@@ -109,10 +110,12 @@ export function applyServerConfiguration(
         let content = fs.readFileSync(cfgPath, 'utf-8');
 
         if (displayName !== undefined) {
+            const wrapperPort = readCmWrapperPort(SERVERS_PATH, serverName);
+            const nameValue = applyCmNameSuffix(displayName, wrapperPort);
             if (/^NAME=.*/m.test(content)) {
-                content = content.replace(/^NAME=.*/m, `NAME=${displayName}`);
+                content = content.replace(/^NAME=.*/m, `NAME=${nameValue}`);
             } else {
-                content += `\nNAME=${displayName}`;
+                content += `\nNAME=${nameValue}`;
             }
             modifications.push('displayName (NAME)');
         }

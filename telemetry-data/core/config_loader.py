@@ -93,7 +93,9 @@ def load_server_configs(ServerStateClass):
 
                 name = "Events Server"
                 if server_name_m:
-                    name = server_name_m.group(1).strip()
+                    from core.cm_name import strip_cm_name_suffix
+
+                    name = strip_cm_name_suffix(server_name_m.group(1).strip())
 
                 track = track_m.group(1).strip() if track_m else "Unknown"
                 config_track = config_m.group(1).strip() if config_m else ""
