@@ -5,6 +5,9 @@ import cookieParser from 'cookie-parser';
 import path from 'path';
 import acServerRoutes from './routes/acServerRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
+import hudRoutes from './routes/hudRoutes.js';
+import { hudMiddleware } from './middleware/hudMiddleware.js';
+import { startHudCacheSync } from './services/hud/hudCacheSync.js';
 import { startRedisConvexBridge } from './services/redisConvexBridge.js';
 import { startRedisConfigApplier } from './services/redisConfigApplier.js';
 import { startServerPoolMonitor } from './services/serverPool.js';
@@ -65,6 +68,7 @@ const ADMIN_VIEWS_PATH = '/home/jose/assetto-infra/ac-data/views';
 const ADMIN_PUBLIC_PATH = '/home/jose/assetto-infra/ac-data/public';
 
 app.use('/ac-server', apiKeyMiddleware, acServerRoutes);
+app.use('/hud', ...hudMiddleware, hudRoutes);
 app.use('/admin', adminRoutes);
 
 app.use('/admin', (req, res, next) => {
@@ -88,6 +92,7 @@ app.use('/admin', express.static(ADMIN_PUBLIC_PATH, {
 // ------------------------ START SERVER ------------------------
 app.listen(PORT, async () => {
   void startRedisConvexBridge();
+  void startHudCacheSync();
   void startRedisConfigApplier();
   startServerPoolMonitor();
   console.log(`API corriendo en http://localhost:${PORT}`);

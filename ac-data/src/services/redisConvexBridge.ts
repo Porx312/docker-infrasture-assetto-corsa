@@ -1,6 +1,7 @@
 import '../config/loadEnv.js';
 import { createClient } from 'redis';
-import { ConvexHttpClient } from 'convex/browser';
+import { ensureConvexClient, isConvexConfigured } from './convexClient.js';
+import { refreshHudAfterLapCompleted } from './hud/lapCompletedHudRefresh.js';
 import { noteServerStatus } from './serverPool.js';
 
 const REDIS_HOST = process.env.REDIS_HOST || '';
@@ -19,9 +20,6 @@ const AC_INSTANCE_ID = process.env.AC_INSTANCE_ID || 'default';
 const GROUP = process.env.REDIS_CONSUMER_GROUP || 'ac-data-consumers';
 const CONSUMER =
   process.env.REDIS_CONSUMER_NAME || `ac-data-${AC_INSTANCE_ID}`;
-
-const CONVEX_DEPLOYMENT_URL = process.env.CONVEX_DEPLOYMENT_URL || '';
-const CONVEX_PRODUCT_KEY = process.env.CONVEX_PRODUCT_KEY || '';
 
 const CONVEX_MUTATION_BATCH =
   process.env.CONVEX_MUTATION_BATCH || 'serverEvents:ingestWorkerEventsBatch';
@@ -111,23 +109,6 @@ function parsePayload(message: StreamMessage): Record<string, unknown> | null {
   }
 }
 
-function ensureConvexClient(): {
-  mutation: (name: string, args: Record<string, unknown>) => Promise<unknown>;
-  query: (name: string, args: Record<string, unknown>) => Promise<unknown>;
-} {
-  if (!CONVEX_DEPLOYMENT_URL || !CONVEX_PRODUCT_KEY) {
-    throw new Error('CONVEX_DEPLOYMENT_URL / CONVEX_PRODUCT_KEY must be set');
-  }
-  const client = new ConvexHttpClient(CONVEX_DEPLOYMENT_URL);
-  const anyClient = client as unknown as {
-    setAdminAuth: (token: string) => void;
-    mutation: (name: string, args: Record<string, unknown>) => Promise<unknown>;
-    query: (name: string, args: Record<string, unknown>) => Promise<unknown>;
-  };
-  anyClient.setAdminAuth(CONVEX_PRODUCT_KEY);
-  return { mutation: anyClient.mutation.bind(anyClient), query: anyClient.query.bind(anyClient) };
-}
-
 async function forwardToConvex(payload: Record<string, unknown>): Promise<IngestBatchResult> {
   if (!CONVEX_INGEST_SECRET) {
     throw new Error('CONVEX_INGEST_SECRET missing for direct mode');
@@ -209,7 +190,7 @@ async function startConvexConfigPublisher(client: ReturnType<typeof createClient
     console.log('[redis-config-sync] disabled');
     return;
   }
-  if (!CONVEX_DEPLOYMENT_URL || !CONVEX_PRODUCT_KEY || !CONVEX_WORKER_SECRET) {
+  if (!isConvexConfigured() || !CONVEX_WORKER_SECRET) {
     console.log('[redis-config-sync] missing convex env, disabled');
     return;
   }
@@ -308,6 +289,9 @@ async function runEventsConsumerLoop(client: ReturnType<typeof createClient>): P
                 failed?.error ?? ingestResult,
               );
               continue;
+            }
+            if (event === 'lap_completed') {
+              void refreshHudAfterLapCompleted(payload);
             }
             await client.xAck(REDIS_STREAM_KEY, GROUP, msg.id);
           } catch (err) {

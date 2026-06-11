@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "rimraf ./dist && tsc",
     "start": "node dist/index.js",
-    "test": "tsx --test src/controller/trackConfig.test.ts src/controller/cmWrapper.test.ts"
+    "test": "tsx --test src/controller/trackConfig.test.ts src/controller/cmWrapper.test.ts src/services/hud/hudCacheKeys.test.ts"
   },
   "keywords": [],
   "author": "",
@@ -20,6 +20,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.2.4",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.5.2",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",
     "redis": "^5.10.0",
