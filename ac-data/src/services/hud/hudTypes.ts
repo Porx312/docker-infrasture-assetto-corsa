@@ -112,6 +112,34 @@ export type HudSessionErr = {
 
 export type HudSessionResult = HudSessionOk | HudSessionErr;
 
+export type HudLeaderboard = {
+  title: string;
+  map: string;
+  layout: string;
+  filters: HudFilter[];
+  entries: HudEntry[];
+};
+
+/** One player slot in GET /hud/session (VPS wrapper around Convex getHudSession). */
+export type HudSessionPlayer = {
+  steamId: string;
+  ok: true;
+  context: HudContext | null;
+  profile: HudProfile | null;
+};
+
+export type HudSessionVpsResponse = {
+  ok: true;
+  version: string;
+  leaderboard: HudLeaderboard;
+  players: HudSessionPlayer[];
+};
+
+export type HudSessionVpsErr = {
+  ok: false;
+  reason: HudSessionErr['reason'] | HudTop10Err['reason'];
+};
+
 export type HudSnapshotVersionResult = {
   instanceId: string;
   serverCount: number;

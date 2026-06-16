@@ -1,7 +1,14 @@
 import '../config/loadEnv.js';
 import { createClient } from 'redis';
+import {
+  coalesceIngestBatch,
+  shouldFlushIngestBuffer,
+  WORKER_INGEST_FLUSH_INTERVAL_MS,
+  WORKER_INGEST_MAX_BATCH_SIZE,
+  type PendingIngestMessage,
+} from './coalesceIngestBatch.js';
 import { ensureConvexClient, isConvexConfigured } from './convexClient.js';
-import { refreshHudAfterLapCompleted } from './hud/lapCompletedHudRefresh.js';
+import { scheduleHudRefreshAfterLap } from './hud/hudRefreshScheduler.js';
 import { noteServerStatus } from './serverPool.js';
 
 const REDIS_HOST = process.env.REDIS_HOST || '';
@@ -31,12 +38,19 @@ const CONVEX_CONFIG_SNAPSHOT_QUERY =
   process.env.CONVEX_CONFIG_SNAPSHOT_QUERY || 'timeAttackServers:getWorkerInstanceServerConfigs';
 const REDIS_CONFIG_SYNC_ENABLED =
   (process.env.REDIS_CONFIG_SYNC_ENABLED || 'true').trim().toLowerCase() === 'true';
-const REDIS_CONFIG_SYNC_INTERVAL_MS = Number(process.env.REDIS_CONFIG_SYNC_INTERVAL_MS || 5000);
+const REDIS_CONFIG_SYNC_INTERVAL_MS = Number(process.env.REDIS_CONFIG_SYNC_INTERVAL_MS || 30_000);
 // Recommended: keep enabled on every VPS sharing the same REDIS_CONSUMER_GROUP.
 // Redis load-balances events across consumers (no duplicates, no SPOF).
 // Set to false on a node only if you want a single-primary topology.
 const REDIS_EVENTS_BRIDGE_ENABLED =
   (process.env.REDIS_EVENTS_BRIDGE_ENABLED || 'true').trim().toLowerCase() === 'true';
+const INGEST_MAX_BATCH_SIZE = Number(
+  process.env.WORKER_INGEST_MAX_BATCH_SIZE || WORKER_INGEST_MAX_BATCH_SIZE,
+);
+const INGEST_FLUSH_INTERVAL_MS = Number(
+  process.env.WORKER_INGEST_FLUSH_INTERVAL_MS || WORKER_INGEST_FLUSH_INTERVAL_MS,
+);
+const REDIS_INGEST_READ_COUNT = Number(process.env.REDIS_INGEST_READ_COUNT || INGEST_MAX_BATCH_SIZE);
 
 type StreamMessage = {
   id: string;
@@ -109,33 +123,40 @@ function parsePayload(message: StreamMessage): Record<string, unknown> | null {
   }
 }
 
-async function forwardToConvex(payload: Record<string, unknown>): Promise<IngestBatchResult> {
+function buildIngestEvent(payload: Record<string, unknown>) {
+  const event = String(payload.event || '');
+  const data = payload.data as Record<string, unknown> | undefined;
+  return {
+    eventType: event,
+    serverName: typeof payload.serverName === 'string' ? payload.serverName : undefined,
+    data: {
+      ...(data ?? {}),
+      _meta: {
+        eventId: payload.eventId,
+        schemaVersion: payload.schemaVersion,
+        event,
+        instanceId: payload.instanceId,
+        serverName: payload.serverName,
+        ts: payload.ts,
+      },
+    },
+  };
+}
+
+async function forwardBatchToConvex(
+  payloads: Record<string, unknown>[],
+): Promise<IngestBatchResult> {
   if (!CONVEX_INGEST_SECRET) {
     throw new Error('CONVEX_INGEST_SECRET missing for direct mode');
   }
+  if (payloads.length === 0) {
+    return { ok: true, processed: 0, failed: 0, results: [] };
+  }
 
   const { mutation } = ensureConvexClient();
-  const event = String(payload.event || '');
-  const data = payload.data as Record<string, unknown> | undefined;
   const mutationArgs = {
     ingestSecret: CONVEX_INGEST_SECRET,
-    events: [
-      {
-        eventType: event,
-        serverName: typeof payload.serverName === 'string' ? payload.serverName : undefined,
-        data: {
-          ...(data ?? {}),
-          _meta: {
-            eventId: payload.eventId,
-            schemaVersion: payload.schemaVersion,
-            event,
-            instanceId: payload.instanceId,
-            serverName: payload.serverName,
-            ts: payload.ts,
-          },
-        },
-      },
-    ],
+    events: payloads.map(buildIngestEvent),
   };
 
   const raw = await mutation(CONVEX_MUTATION_BATCH, mutationArgs);
@@ -237,6 +258,95 @@ async function startConvexConfigPublisher(client: ReturnType<typeof createClient
   }, REDIS_CONFIG_SYNC_INTERVAL_MS);
 }
 
+type IngestBufferState = {
+  items: PendingIngestMessage[];
+  startedAt: number | null;
+};
+
+function appendToIngestBuffer(state: IngestBufferState, items: PendingIngestMessage[]): void {
+  if (items.length === 0) {
+    return;
+  }
+  if (state.startedAt === null) {
+    state.startedAt = Date.now();
+  }
+  state.items.push(...items);
+}
+
+async function flushIngestChunk(
+  client: ReturnType<typeof createClient>,
+  chunk: PendingIngestMessage[],
+): Promise<boolean> {
+  const coalesced = coalesceIngestBatch(chunk);
+  const droppedStatus = chunk.length - coalesced.length;
+
+  for (const { payload, event } of coalesced) {
+    if (event === 'server_status') {
+      const data = (payload.data ?? {}) as Record<string, unknown>;
+      const players = Array.isArray(data.players) ? data.players : [];
+      const statusName = typeof payload.serverName === 'string' ? payload.serverName : '';
+      noteServerStatus(statusName, players.length);
+    }
+  }
+
+  const ingestResult = await forwardBatchToConvex(coalesced.map((p) => p.payload));
+  if (!ingestBatchSucceeded(ingestResult)) {
+    const failed = ingestResult.results?.find((r) => r.ok !== true);
+    console.error(
+      '[redis-bridge] convex batch ingest failed (no ack):',
+      coalesced.length,
+      'events',
+      droppedStatus > 0 ? `(coalesced ${droppedStatus} duplicate server_status)` : '',
+      failed?.error ?? ingestResult,
+    );
+    return false;
+  }
+
+  if (droppedStatus > 0) {
+    console.log(
+      `[redis-bridge] ingested ${coalesced.length} events (coalesced ${droppedStatus} server_status)`,
+    );
+  }
+
+  for (const { msg, payload, event } of chunk) {
+    if (event === 'lap_completed') {
+      scheduleHudRefreshAfterLap(payload);
+    }
+    await client.xAck(REDIS_STREAM_KEY, GROUP, msg.id);
+  }
+  return true;
+}
+
+async function flushIngestBuffer(
+  client: ReturnType<typeof createClient>,
+  state: IngestBufferState,
+): Promise<void> {
+  while (
+    state.items.length > 0 &&
+    shouldFlushIngestBuffer(
+      state.items.length,
+      state.startedAt,
+      Date.now(),
+      INGEST_MAX_BATCH_SIZE,
+      INGEST_FLUSH_INTERVAL_MS,
+    )
+  ) {
+    const take = Math.min(state.items.length, INGEST_MAX_BATCH_SIZE);
+    const chunk = state.items.splice(0, take);
+    const ok = await flushIngestChunk(client, chunk);
+    if (!ok) {
+      state.items.unshift(...chunk);
+      if (state.startedAt === null) {
+        state.startedAt = Date.now();
+      }
+      break;
+    }
+    if (state.items.length === 0) {
+      state.startedAt = null;
+    }
+  }
+}
+
 async function runEventsConsumerLoop(client: ReturnType<typeof createClient>): Promise<void> {
   try {
     await client.xGroupCreate(REDIS_STREAM_KEY, GROUP, '0', { MKSTREAM: true });
@@ -245,7 +355,12 @@ async function runEventsConsumerLoop(client: ReturnType<typeof createClient>): P
     // group probably exists
   }
 
-  console.log(`[redis-bridge] listening stream=${REDIS_STREAM_KEY} group=${GROUP} consumer=${CONSUMER}`);
+  const buffer: IngestBufferState = { items: [], startedAt: null };
+
+  console.log(
+    `[redis-bridge] listening stream=${REDIS_STREAM_KEY} group=${GROUP} consumer=${CONSUMER} ` +
+      `batchMax=${INGEST_MAX_BATCH_SIZE} flushMs=${INGEST_FLUSH_INTERVAL_MS}`,
+  );
 
   while (true) {
     try {
@@ -253,51 +368,34 @@ async function runEventsConsumerLoop(client: ReturnType<typeof createClient>): P
         GROUP,
         CONSUMER,
         { key: REDIS_STREAM_KEY, id: '>' },
-        { COUNT: 25, BLOCK: 5000 },
+        { COUNT: REDIS_INGEST_READ_COUNT, BLOCK: INGEST_FLUSH_INTERVAL_MS },
       );
       const results = (raw ?? null) as unknown as StreamReadResult | null;
-      if (!results || results.length === 0) continue;
 
-      for (const stream of results) {
-        const messages = stream.messages;
-        for (const msg of messages) {
-          const payload = parsePayload(msg);
-          if (!payload) {
-            await client.xAck(REDIS_STREAM_KEY, GROUP, msg.id);
-            continue;
-          }
-          const event = String(payload.event || '');
-          if (CONFIG_ONLY_EVENTS.has(event)) {
-            await client.xAck(REDIS_STREAM_KEY, GROUP, msg.id);
-            continue;
-          }
-          try {
-            if (event === 'server_status') {
-              const data = (payload.data ?? {}) as Record<string, unknown>;
-              const players = Array.isArray(data.players) ? data.players : [];
-              const statusName =
-                typeof payload.serverName === 'string' ? payload.serverName : '';
-              noteServerStatus(statusName, players.length);
-            }
-            const ingestResult = await forwardToConvex(payload);
-            if (!ingestBatchSucceeded(ingestResult)) {
-              const failed = ingestResult.results?.find((r) => r.ok !== true);
-              console.error(
-                '[redis-bridge] convex ingest failed (no ack):',
-                event,
-                payload.eventId,
-                failed?.error ?? ingestResult,
-              );
+      if (results && results.length > 0) {
+        for (const stream of results) {
+          const pending: PendingIngestMessage[] = [];
+          for (const msg of stream.messages) {
+            const payload = parsePayload(msg);
+            if (!payload) {
+              await client.xAck(REDIS_STREAM_KEY, GROUP, msg.id);
               continue;
             }
-            if (event === 'lap_completed') {
-              void refreshHudAfterLapCompleted(payload);
+            const event = String(payload.event || '');
+            if (CONFIG_ONLY_EVENTS.has(event)) {
+              await client.xAck(REDIS_STREAM_KEY, GROUP, msg.id);
+              continue;
             }
-            await client.xAck(REDIS_STREAM_KEY, GROUP, msg.id);
-          } catch (err) {
-            console.error('[redis-bridge] process error:', err);
+            pending.push({ msg, payload, event });
           }
+          appendToIngestBuffer(buffer, pending);
         }
+      }
+
+      try {
+        await flushIngestBuffer(client, buffer);
+      } catch (err) {
+        console.error('[redis-bridge] flush error:', err);
       }
     } catch (err) {
       console.error('[redis-bridge] loop error:', err);

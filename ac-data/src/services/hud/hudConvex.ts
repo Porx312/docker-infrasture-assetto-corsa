@@ -57,9 +57,7 @@ export async function fetchHudSnapshotsForWorker(): Promise<HudWorkerSnapshot[]>
   return (raw ?? []) as HudWorkerSnapshot[];
 }
 
-export async function fetchHudTop10(
-  params: LbCacheParams,
-): Promise<{ cacheKey: string; top10: HudTop10Ok }> {
+export async function queryHudTop10(params: LbCacheParams): Promise<HudTop10> {
   const { query } = ensureConvexClient();
   const args: Record<string, unknown> = {
     serverName: params.serverName,
@@ -73,7 +71,13 @@ export async function fetchHudTop10(
   }
 
   const raw = await query(CONVEX_HUD_TOP10_QUERY, workerArgs(args));
-  const result = raw as HudTop10;
+  return raw as HudTop10;
+}
+
+export async function fetchHudTop10(
+  params: LbCacheParams,
+): Promise<{ cacheKey: string; top10: HudTop10Ok }> {
+  const result = await queryHudTop10(params);
   if (!result.ok) {
     throw new Error(`getHudTop10: ${result.reason}`);
   }
