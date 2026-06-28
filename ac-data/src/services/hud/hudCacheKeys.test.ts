@@ -36,41 +36,28 @@ test('buildBoardCacheKey includes car filter id', () => {
   );
 });
 
-test('buildPlayerCacheKey uses normalized server name', () => {
+test('buildPlayerCacheKey is steamId only', () => {
   assert.equal(
-    buildPlayerCacheKey({
-      steamId: '76561199000000001',
-      serverName: 'Project D',
-      track: 'pk_akina',
-      trackConfig: 'downhill',
-      carModel: 'ks_toyota_gt86',
-    }),
-    '76561199000000001@project_d@pk_akina@downhill@ks_toyota_gt86',
+    buildPlayerCacheKey({ steamId: '76561199000000001' }),
+    '76561199000000001',
   );
 });
 
-test('buildSessionCacheKey includes carFilter and carModel', () => {
+test('buildSessionCacheKey is steamId only', () => {
   assert.equal(
-    buildSessionCacheKey({
-      steamId: '76561199000000001',
-      serverName: 'srv1',
-      track: 'pk_akina',
-      trackConfig: 'downhill',
-      carFilter: 'global',
-      carModel: 'ks_toyota_gt86',
-    }),
-    '76561199000000001@srv1@pk_akina@downhill@global@ks_toyota_gt86',
+    buildSessionCacheKey({ steamId: '76561199000000001' }),
+    '76561199000000001',
   );
 });
 
 test('redis key prefixes', () => {
   assert.equal(
-    playerRedisKey('76561199000000001@project_d@pk_akina@downhill@'),
-    'ac:hud:player:76561199000000001@project_d@pk_akina@downhill@',
+    playerRedisKey('76561199000000001'),
+    'ac:hud:player:76561199000000001',
   );
   assert.equal(
-    sessionRedisKey('76561199000000001@srv1@pk_akina@@global@'),
-    'ac:hud:session:76561199000000001@srv1@pk_akina@@global@',
+    sessionRedisKey('76561199000000001'),
+    'ac:hud:session:76561199000000001',
   );
 });
 

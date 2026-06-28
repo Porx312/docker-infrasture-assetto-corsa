@@ -2,12 +2,14 @@ import {
   buildBoardCacheKey,
   buildPlayerCacheKey,
 } from './hudCacheKeys.js';
+import { isCarModelId } from './hudCarModel.js';
 import {
   buildSessionVpsResponse,
   mapMissingProfilePlayer,
   mapSessionResultToPlayer,
 } from './hudSessionResponse.js';
-import { getSessionCached, invalidateSessionCache } from './lapCompletedHudRefresh.js';
+import { getPlayerCached, getSessionCached, invalidateSessionCache } from './lapCompletedHudRefresh.js';
+import { mergeSessionProfileFields } from './hudProfile.js';
 import { normalizeHudQuery } from './hudQueryNormalize.js';
 import { resolvePlayerPresence } from './hudPlayerPresence.js';
 import {
@@ -37,17 +39,15 @@ export type SessionHudSubscribeParams = {
   track: string;
   trackConfig: string;
   carModel?: string;
-  carFilter?: string;
 };
 
 export type SessionHudConnection = {
   steamId: string;
-  carFilter: string;
-  carModel?: string;
   listener: SessionHudRoomListener;
 };
 
 const GLOBAL_SESSION_ERRORS = new Set<HudSessionErr['reason']>([
+  'player_not_connected',
   'server_not_found',
   'track_not_found',
   'car_not_found',
@@ -80,25 +80,30 @@ function presenceToLocation(presence: ResolvedPlayerPresence) {
   return normalizeHudQuery(presence.serverName, presence.track, presence.trackConfig || undefined);
 }
 
+function boardParamsFromSession(
+  presenceLocation: ReturnType<typeof presenceToLocation>,
+  session: { ok: true; context?: { server_name?: string; track_id?: string; layout_id?: string; car_id?: string } } | null,
+) {
+  const ctx = session?.ok ? session.context : undefined;
+  return {
+    serverName: ctx?.server_name ?? presenceLocation.serverName,
+    track: ctx?.track_id ?? presenceLocation.track,
+    trackConfig: ctx?.layout_id ?? presenceLocation.trackConfig,
+    carId: ctx?.car_id,
+  };
+}
+
 export async function buildSessionUpdatePayload(
   steamId: string,
-  options: { carFilter?: string; carModel?: string; invalidate?: boolean } = {},
+  options: { invalidate?: boolean } = {},
 ): Promise<HudSessionVpsResponse | HudSessionVpsErr> {
-  const carFilter = options.carFilter ?? 'global';
   const resolved = await resolvePlayerPresence(steamId);
   if (!resolved.ok) {
     return { ok: false, reason: resolved.reason };
   }
 
   const location = presenceToLocation(resolved.presence);
-  const sessionParams = {
-    steamId,
-    serverName: location.serverName,
-    track: location.track,
-    trackConfig: location.trackConfig,
-    carFilter,
-    carModel: options.carModel ?? (resolved.presence.carModel || undefined),
-  };
+  const sessionParams = { steamId };
 
   if (options.invalidate) {
     await invalidateSessionCache(sessionParams);
@@ -112,23 +117,34 @@ export async function buildSessionUpdatePayload(
     return { ok: false, reason: session.reason };
   }
 
-  const player = session.ok
-    ? mapSessionResultToPlayer(steamId, session)
-    : mapMissingProfilePlayer(steamId);
+  let profile = session.ok ? session.profile : null;
+  if (session.ok) {
+    const playerResult = await getPlayerCached({ steamId });
+    profile = mergeSessionProfileFields(session.profile, playerResult.ok ? playerResult.profile : null);
+  }
 
+  const player =
+    session.ok && session.context
+      ? {
+          steamId,
+          ok: true as const,
+          context: session.context,
+          profile,
+        }
+      : session.ok
+        ? mapSessionResultToPlayer(steamId, { ...session, profile })
+        : mapMissingProfilePlayer(steamId);
+
+  const boardLocation = boardParamsFromSession(location, session.ok ? session : null);
+  const boardCar =
+    boardLocation.carId && isCarModelId(boardLocation.carId) ? boardLocation.carId : 'global';
   const boardVersion = await readBoardVersion({
-    serverName: location.serverName,
-    track: location.track,
-    trackConfig: location.trackConfig,
-    car: carFilter,
+    serverName: boardLocation.serverName,
+    track: boardLocation.track,
+    trackConfig: boardLocation.trackConfig,
+    car: boardCar,
   });
-  const playerVersion = await readPlayerVersion({
-    steamId,
-    serverName: location.serverName,
-    track: location.track,
-    trackConfig: location.trackConfig,
-    carModel: sessionParams.carModel,
-  });
+  const playerVersion = await readPlayerVersion({ steamId });
   const version = combineSessionVersion(boardVersion, [playerVersion]);
 
   return buildSessionVpsResponse(version, [player]);
@@ -138,11 +154,7 @@ async function pushSessionUpdateForConnection(
   conn: SessionHudConnection,
   invalidate = false,
 ): Promise<void> {
-  const payload = await buildSessionUpdatePayload(conn.steamId, {
-    carFilter: conn.carFilter,
-    carModel: conn.carModel,
-    invalidate,
-  });
+  const payload = await buildSessionUpdatePayload(conn.steamId, { invalidate });
 
   if (!payload.ok) {
     conn.listener('session:error', payload);
@@ -172,8 +184,6 @@ export async function sendInitialSessionSnapshot(
 ): Promise<void> {
   const conn: SessionHudConnection = {
     steamId: params.steamId,
-    carFilter: params.carFilter ?? 'global',
-    carModel: params.carModel,
     listener,
   };
   await pushSessionUpdateForConnection(conn, false);
@@ -183,12 +193,9 @@ export function subscribeSessionHudRooms(
   params: SessionHudSubscribeParams,
   listener: SessionHudRoomListener,
 ): () => void {
-  const carFilter = params.carFilter ?? 'global';
   const trackConfig = params.trackConfig ?? '';
   const conn: SessionHudConnection = {
     steamId: params.steamId,
-    carFilter,
-    carModel: params.carModel,
     listener,
   };
 
@@ -202,39 +209,22 @@ export function subscribeSessionHudRooms(
       }),
     ),
   ];
-  if (params.carModel) {
+  const carModel = params.carModel?.trim();
+  if (carModel && isCarModelId(carModel)) {
     boardRooms.push(
       boardRoomFromCacheKey(
         buildBoardCacheKey({
           serverName: params.serverName,
           track: params.track,
           trackConfig,
-          car: params.carModel,
-        }),
-      ),
-    );
-  }
-  if (carFilter !== 'global') {
-    boardRooms.push(
-      boardRoomFromCacheKey(
-        buildBoardCacheKey({
-          serverName: params.serverName,
-          track: params.track,
-          trackConfig,
-          car: carFilter,
+          car: carModel,
         }),
       ),
     );
   }
 
   const playerRoom = playerRoomFromCacheKey(
-    buildPlayerCacheKey({
-      steamId: params.steamId,
-      serverName: params.serverName,
-      track: params.track,
-      trackConfig,
-      carModel: params.carModel ?? '',
-    }),
+    buildPlayerCacheKey({ steamId: params.steamId }),
   );
 
   const uniqueBoardRooms = [...new Set(boardRooms)];

@@ -8,10 +8,12 @@ Documento para el equipo del overlay. Transporte **SSE único** vía ac-data (`G
 |-------|-------|
 | `GET /hud/top10` | **Eliminado** |
 | Poll `GET /hud/version` + `GET /hud/session` | **Eliminado** — un solo `EventSource` |
-| `profile.rival` (singular) | `profile.rivals.above` / `profile.rivals.below` |
-| Query `serverName` + `track` | **Solo `steamId`** — servidor y pista vía presencia Redis |
+| `profile.rival` (singular) | `profile.rivals.above` / `profile.rivals.below` (Convex). ac-data añade `rival = rivals.above` en el SSE para overlays legacy. |
+| Query `serverName` + `track` | **Solo `steamId`** — overlay y worker; Convex resuelve sesión activa |
 
-El overlay **no** envía `serverName` ni `track`. ac-data descubre dónde está conectado cada jugador vía telemetry (`server_status`, `player_join`).
+**Tier vs rank:** `rank` es posición en el leaderboard del servidor; `tier` es nivel del combo pista+layout+coche vs el WR global (`verifiedRecords`). No son intercambiables.
+
+**Contrato Convex (worker):** ac-data llama `getHudPlayer({ steamId, workerSecret })` y `getHudSession({ steamId, workerSecret })`. Convex resuelve servidor, pista, layout, coche y combo desde `live_players`. El overlay **solo** envía `steamId`.
 
 ## Flujo de datos
 
@@ -23,13 +25,14 @@ sequenceDiagram
   participant Convex
 
   Overlay->>AcData: GET /hud/stream?steamId=
-  AcData->>Redis: resolve presence
+  AcData->>Redis: resolve presence (SSE gate)
+  AcData->>Convex: getHudSession({ steamId })
   AcData-->>Overlay: session:update inicial
   AcData-->>Overlay: battle:update si hay batalla
 
   Note over Redis: lap_completed
   Redis->>AcData: PUBLISH ac:hud:updates
-  AcData->>Convex: getHudSession si hace falta
+  AcData->>Convex: getHudPlayer / getHudSession({ steamId })
   AcData-->>Overlay: session:update
 ```
 
@@ -39,7 +42,7 @@ sequenceDiagram
 
 ## `GET /hud/stream`
 
-Query: `steamId`, `api_key?` (si `HUD_API_KEY` está definida), `carFilter?`, `carModel?`
+Query: `steamId`, `api_key?` (si `HUD_API_KEY` está definida)
 
 Base URL: `http://HOST:3000/hud/stream`
 
@@ -111,7 +114,8 @@ Reemplazar estado local completo en cada `session:update`.
         "rivals": {
           "above": { "rank": 83, "name": "Bob", "tier": 7, "lap_ms": 275100, "car_name": "RX-7" },
           "below": { "rank": 85, "name": "Carol", "tier": 6, "lap_ms": 276000, "car_name": "Miata" }
-        }
+        },
+        "rival": { "rank": 83, "name": "Bob", "tier": 7, "lap_ms": 275100, "car_name": "RX-7" }
       }
     }
   ]
@@ -120,6 +124,10 @@ Reemplazar estado local completo en cada `session:update`.
 
 - `rivals.above`: rank mejor; `null` si rank 1.
 - `rivals.below`: rank peor; `null` si último del board.
+- `profile.tier` y `profile.best_lap_ms` van **siempre** en el JSON SSE (número; `0` si no hay dato/WR).
+- ac-data normaliza campos Convex (`bestLapMs` → `best_lap_ms`) y fusiona `getHudPlayer` + `getHudSession` antes del push.
+- Convex solo envía `rivals`. ac-data duplica `rivals.above` en `profile.rival` en cada `session:update` (compatibilidad con overlays que aún leen el campo singular).
+- Overlays nuevos: usar solo `rivals.above` / `rivals.below`.
 - `session:error` con `reason: user_invalidated` → ocultar perfil (equivalente 403).
 
 ## Actualización automática
@@ -135,7 +143,7 @@ Delays: `HUD_LAP_REFRESH_DELAY_MS` (400), `HUD_BATTLE_REFRESH_DELAY_MS` (800), d
 
 | `reason` | Significado |
 |----------|-------------|
-| `player_not_connected` | Sin presencia Redis ni SSE activo |
+| `player_not_connected` | Sin presencia Redis/SSE **o** no está en `live_players` en Convex (worker debe enviar `player_join` / `server_status`) |
 | `not_managed_server` | Lobby no gestionado (no ProjectD en config) |
 
 Presencia se renueva en `server_status`, `player_join`, keepalive SSE (~30 s).

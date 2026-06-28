@@ -33,14 +33,6 @@ function requireQueryString(value: unknown): string | null {
   return trimmed || null;
 }
 
-function optionalQueryString(value: unknown): string | undefined {
-  if (typeof value !== 'string') {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  return trimmed || undefined;
-}
-
 export function formatSseEvent(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
@@ -67,9 +59,6 @@ export async function handleHudStreamSse(req: Request, res: Response): Promise<v
     return;
   }
 
-  const carFilter = optionalQueryString(req.query.carFilter) ?? optionalQueryString(req.query.car);
-  const carModel = optionalQueryString(req.query.carModel);
-
   const resolved = await resolvePlayerPresence(steamId);
   if (!resolved.ok) {
     res.status(404).json({ ok: false, reason: resolved.reason });
@@ -85,8 +74,7 @@ export async function handleHudStreamSse(req: Request, res: Response): Promise<v
     serverName: resolved.presence.serverName,
     track: resolved.presence.track,
     trackConfig: resolved.presence.trackConfig ?? '',
-    carModel: carModel ?? (resolved.presence.carModel || undefined),
-    carFilter,
+    carModel: resolved.presence.carModel,
   };
 
   res.setHeader('Content-Type', 'text/event-stream');

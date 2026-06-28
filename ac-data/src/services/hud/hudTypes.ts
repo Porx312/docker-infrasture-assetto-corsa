@@ -14,7 +14,9 @@ export type HudRivals = {
 
 export type HudProfile = {
   name: string;
+  /** Leaderboard position on the car-scoped board (distinct from tier). */
   rank: number;
+  /** Combo tier vs global WR for track + layout + carModel. */
   tier: number;
   best_lap_ms: number;
   car_name: string;
@@ -24,6 +26,8 @@ export type HudProfile = {
   elo?: number;
   isInvalidated?: boolean;
   rivals: HudRivals;
+  /** Added by ac-data on SSE (`rivals.above`); Convex does not send this field. */
+  rival?: HudRival | null;
 };
 
 export type HudPlayerOk = {
@@ -105,22 +109,13 @@ export type BoardCacheParams = {
   car?: string;
 };
 
+/** Convex resolves server/track/car from active session; worker passes steamId only. */
 export type PlayerCacheParams = {
   steamId: string;
-  serverName: string;
-  track: string;
-  trackConfig?: string;
-  carModel?: string;
 };
 
-export type SessionQueryParams = {
-  steamId: string;
-  serverName: string;
-  track: string;
-  trackConfig?: string;
-  carFilter?: string;
-  carModel?: string;
-};
+/** Same as PlayerCacheParams — Convex resolves session from live_players. */
+export type SessionQueryParams = PlayerCacheParams;
 
 export type WorkerSyncVersionResult = {
   configVersion: string;

@@ -38,39 +38,18 @@ export async function fetchWorkerSyncVersion(): Promise<WorkerSyncVersionResult>
 
 export async function fetchHudPlayer(params: PlayerCacheParams): Promise<HudPlayerResult> {
   const { query } = ensureConvexClient();
-  const args: Record<string, unknown> = {
-    steamId: params.steamId,
-    serverName: params.serverName,
-    track: params.track,
-  };
-  if (params.trackConfig) {
-    args.trackConfig = params.trackConfig;
-  }
-  if (params.carModel) {
-    args.carModel = params.carModel;
-  }
-
-  const raw = await query(CONVEX_HUD_PLAYER_QUERY, workerArgs(args));
+  const raw = await query(
+    CONVEX_HUD_PLAYER_QUERY,
+    workerArgs({ steamId: params.steamId }),
+  );
   return raw as HudPlayerResult;
 }
 
 export async function fetchHudSession(params: SessionQueryParams): Promise<HudSessionResult> {
   const { query } = ensureConvexClient();
-  const args: Record<string, unknown> = {
-    steamId: params.steamId,
-    serverName: params.serverName,
-    track: params.track,
-  };
-  if (params.trackConfig) {
-    args.trackConfig = params.trackConfig;
-  }
-  if (params.carFilter) {
-    args.carFilter = params.carFilter;
-  }
-  if (params.carModel) {
-    args.carModel = params.carModel;
-  }
-
-  const raw = await query(CONVEX_HUD_SESSION_QUERY, workerArgs(args));
+  const raw = await query(
+    CONVEX_HUD_SESSION_QUERY,
+    workerArgs({ steamId: params.steamId }),
+  );
   return raw as HudSessionResult;
 }

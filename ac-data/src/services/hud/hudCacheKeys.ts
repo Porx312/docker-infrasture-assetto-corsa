@@ -13,16 +13,11 @@ export function buildBoardCacheKey(params: BoardCacheParams): string {
 }
 
 export function buildPlayerCacheKey(params: PlayerCacheParams): string {
-  const trackConfig = params.trackConfig ?? '';
-  const carModel = params.carModel ?? '';
-  return `${params.steamId}@${normalizeHudKeyPart(params.serverName)}@${params.track}@${trackConfig}@${carModel}`;
+  return params.steamId;
 }
 
 export function buildSessionCacheKey(params: SessionQueryParams): string {
-  const trackConfig = params.trackConfig ?? '';
-  const carFilter = params.carFilter ?? 'global';
-  const carModel = params.carModel ?? '';
-  return `${params.steamId}@${normalizeHudKeyPart(params.serverName)}@${params.track}@${trackConfig}@${carFilter}@${carModel}`;
+  return params.steamId;
 }
 
 export const HUD_PLAYER_PREFIX = 'ac:hud:player:';

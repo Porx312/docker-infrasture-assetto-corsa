@@ -6,6 +6,7 @@ import {
   lookupManagedServer,
 } from './hudManagedServers.js';
 import { normalizeHudServerName } from './hudQueryNormalize.js';
+import { pickCarModelId, readCarModelFromEventData } from './hudCarModel.js';
 import {
   HUD_PRESENCE_JOIN_TTL_SEC,
   HUD_PRESENCE_TTL_SEC,
@@ -30,7 +31,14 @@ function parsePlayerRow(raw: unknown): { steamId: string; carModel: string } | n
   if (!steamId || steamId.startsWith('unknown_')) {
     return null;
   }
-  const carModel = typeof row.carModel === 'string' ? row.carModel.trim() : '';
+  const carModel =
+    pickCarModelId(typeof row.carModel === 'string' ? row.carModel : undefined, [
+      typeof row.car_id === 'string' ? row.car_id : undefined,
+      typeof row.carId === 'string' ? row.carId : undefined,
+    ]) ??
+    ((typeof row.car_id === 'string' ? row.car_id.trim() : '') ||
+      (typeof row.carId === 'string' ? row.carId.trim() : '') ||
+      (typeof row.carModel === 'string' ? row.carModel.trim() : ''));
   return { steamId, carModel };
 }
 
@@ -46,9 +54,7 @@ function buildPresenceRecord(
 ): PlayerPresenceRecord {
   const track = typeof data.trackName === 'string' ? data.trackName : '';
   const trackConfig = typeof data.trackConfig === 'string' ? data.trackConfig : '';
-  const carModel =
-    carModelOverride ??
-    (typeof data.carModel === 'string' ? data.carModel.trim() : '');
+  const carModel = readCarModelFromEventData(data, carModelOverride);
   return {
     serverName: normalizeHudServerName(serverName),
     track,
@@ -245,7 +251,7 @@ export async function noteHudPlayerJoin(payload: Record<string, unknown>): Promi
   }
 
   const normalizedServer = normalizeHudServerName(serverName);
-  const carModel = typeof data.carModel === 'string' ? data.carModel.trim() : '';
+  const carModel = readCarModelFromEventData(data);
   const record = buildPresenceRecord(serverName, data, steamId, carModel);
   await writePresence(steamId, record, HUD_PRESENCE_JOIN_TTL_SEC);
 

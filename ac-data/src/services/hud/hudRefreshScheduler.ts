@@ -29,8 +29,8 @@ type BoardJob = {
   carModel: string;
 };
 
-function playerJobKey(job: PlayerJob): PlayerRefreshKey {
-  return `${job.steamId}|${job.serverName}|${job.track}|${job.trackConfig}|${job.carModel}`;
+function playerJobKey(job: Pick<PlayerJob, 'steamId'>): PlayerRefreshKey {
+  return job.steamId;
 }
 
 function boardJobKey(job: BoardJob): string {
@@ -170,15 +170,7 @@ async function repushSessionForPlayers(jobs: PlayerJob[]): Promise<void> {
     jobs.map((job) =>
       Promise.resolve(
         pushSessionToPlayerRoom(
-          playerRoomFromCacheKey(
-            buildPlayerCacheKey({
-              steamId: job.steamId,
-              serverName: job.serverName,
-              track: job.track,
-              trackConfig: job.trackConfig,
-              carModel: job.carModel,
-            }),
-          ),
+          playerRoomFromCacheKey(buildPlayerCacheKey({ steamId: job.steamId })),
         ),
       ),
     ),
@@ -267,13 +259,13 @@ async function flushHudRefreshQueue(): Promise<void> {
 
       for (const job of playerJobs) {
         if (job.source === 'lap' && job.lapTimeMs !== undefined) {
-          const isPb = await isLapPersonalBest(job, job.lapTimeMs);
+          const isPb = await isLapPersonalBest({ steamId: job.steamId }, job.lapTimeMs);
           if (!isPb) {
             continue;
           }
         }
 
-        await refreshPlayerHudCache(job);
+        await refreshPlayerHudCache({ steamId: job.steamId });
         refreshedPlayers.push(job);
       }
 

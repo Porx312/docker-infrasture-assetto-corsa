@@ -5,7 +5,7 @@ import {
   playerRedisKey,
   sessionRedisKey,
 } from './hudCacheKeys.js';
-import { isProfileInvalidated } from './hudProfile.js';
+import { isProfileInvalidated, normalizeHudProfile } from './hudProfile.js';
 import {
   HUD_PLAYER_TTL_SEC,
   HUD_SESSION_TTL_SEC,
@@ -14,30 +14,37 @@ import {
   hudRedisSet,
 } from './hudRedis.js';
 import { bumpBoardVersion, bumpPlayerVersion } from './hudVersion.js';
-import type { BoardCacheParams, HudPlayerResult, HudSessionResult, PlayerCacheParams } from './hudTypes.js';
+import type { BoardCacheParams, HudPlayerResult, HudSessionResult, PlayerCacheParams, SessionQueryParams } from './hudTypes.js';
+
+function normalizePlayerResult(result: HudPlayerResult): HudPlayerResult {
+  if (!result.ok || !result.profile) {
+    return result;
+  }
+  const profile = normalizeHudProfile(result.profile);
+  if (!profile) {
+    return { ok: true, profile: null };
+  }
+  return { ok: true, profile };
+}
+
+function normalizeSessionResult(result: HudSessionResult): HudSessionResult {
+  if (!result.ok || !result.profile) {
+    return result;
+  }
+  const profile = normalizeHudProfile(result.profile);
+  if (!profile) {
+    return { ...result, profile: null };
+  }
+  return { ...result, profile };
+}
 
 export async function invalidatePlayerCache(params: PlayerCacheParams): Promise<void> {
   const cacheKey = buildPlayerCacheKey(params);
   await hudRedisDel(playerRedisKey(cacheKey));
 }
 
-export async function invalidateSessionCache(params: {
-  steamId: string;
-  serverName: string;
-  track: string;
-  trackConfig?: string;
-  carFilter?: string;
-  carModel?: string;
-}): Promise<void> {
-  const cacheKey = buildSessionCacheKey({
-    steamId: params.steamId,
-    serverName: params.serverName,
-    track: params.track,
-    trackConfig: params.trackConfig,
-    carModel: params.carModel,
-    carFilter: params.carFilter ?? 'global',
-  });
-  await hudRedisDel(sessionRedisKey(cacheKey));
+export async function invalidateSessionCache(params: SessionQueryParams): Promise<void> {
+  await hudRedisDel(sessionRedisKey(buildSessionCacheKey(params)));
 }
 
 export async function bumpBoardVersionsForLap(job: {
@@ -92,15 +99,9 @@ export async function isLapPersonalBest(
 }
 
 export async function refreshPlayerHudCache(job: PlayerCacheParams): Promise<void> {
+  const sessionParams: SessionQueryParams = { steamId: job.steamId };
+
   await invalidatePlayerCache(job);
-  const sessionParams = {
-    steamId: job.steamId,
-    serverName: job.serverName,
-    track: job.track,
-    trackConfig: job.trackConfig,
-    carModel: job.carModel,
-    carFilter: 'global' as const,
-  };
   await invalidateSessionCache(sessionParams);
 
   const [playerResult, sessionResult] = await Promise.all([
@@ -108,11 +109,14 @@ export async function refreshPlayerHudCache(job: PlayerCacheParams): Promise<voi
     fetchHudSession(sessionParams),
   ]);
 
+  const normalizedPlayer = normalizePlayerResult(playerResult);
+  const normalizedSession = normalizeSessionResult(sessionResult);
+
   const cacheKey = buildPlayerCacheKey(job);
-  await hudRedisSet(playerRedisKey(cacheKey), JSON.stringify(playerResult), HUD_PLAYER_TTL_SEC);
+  await hudRedisSet(playerRedisKey(cacheKey), JSON.stringify(normalizedPlayer), HUD_PLAYER_TTL_SEC);
 
   const sessionKey = buildSessionCacheKey(sessionParams);
-  await hudRedisSet(sessionRedisKey(sessionKey), JSON.stringify(sessionResult), HUD_SESSION_TTL_SEC);
+  await hudRedisSet(sessionRedisKey(sessionKey), JSON.stringify(normalizedSession), HUD_SESSION_TTL_SEC);
 
   await bumpPlayerVersion(job);
 }
@@ -123,7 +127,7 @@ export async function getPlayerCached(params: PlayerCacheParams): Promise<HudPla
 
   const cached = await hudRedisGet(redisKey);
   if (cached) {
-    const parsed = JSON.parse(cached) as HudPlayerResult;
+    const parsed = normalizePlayerResult(JSON.parse(cached) as HudPlayerResult);
     if (parsed.ok && isProfileInvalidated(parsed.profile)) {
       return { ok: false, reason: 'user_invalidated' };
     }
@@ -134,7 +138,7 @@ export async function getPlayerCached(params: PlayerCacheParams): Promise<HudPla
     return { ok: false, reason: 'user_not_found' };
   }
 
-  const result = await fetchHudPlayer(params);
+  const result = normalizePlayerResult(await fetchHudPlayer(params));
   if (result.ok && isProfileInvalidated(result.profile)) {
     return { ok: false, reason: 'user_invalidated' };
   }
@@ -144,31 +148,13 @@ export async function getPlayerCached(params: PlayerCacheParams): Promise<HudPla
   return result;
 }
 
-export async function getSessionCached(params: {
-  steamId: string;
-  serverName: string;
-  track: string;
-  trackConfig?: string;
-  carFilter?: string;
-  carModel?: string;
-}): Promise<HudSessionResult> {
-  const sessionParams = {
-    steamId: params.steamId,
-    serverName: params.serverName,
-    track: params.track,
-    trackConfig: params.trackConfig,
-    carFilter: params.carFilter,
-    carModel: params.carModel,
-  };
-  const cacheKey = buildSessionCacheKey({
-    ...sessionParams,
-    carFilter: params.carFilter ?? 'global',
-  });
+export async function getSessionCached(params: SessionQueryParams): Promise<HudSessionResult> {
+  const cacheKey = buildSessionCacheKey(params);
   const redisKey = sessionRedisKey(cacheKey);
 
   const cached = await hudRedisGet(redisKey);
   if (cached) {
-    const parsed = JSON.parse(cached) as HudSessionResult;
+    const parsed = normalizeSessionResult(JSON.parse(cached) as HudSessionResult);
     if (parsed.ok && isProfileInvalidated(parsed.profile)) {
       return { ok: false, reason: 'user_invalidated' };
     }
@@ -179,7 +165,7 @@ export async function getSessionCached(params: {
     return { ok: false, reason: 'user_not_found' };
   }
 
-  const result = await fetchHudSession(sessionParams);
+  const result = normalizeSessionResult(await fetchHudSession(params));
   if (result.ok && isProfileInvalidated(result.profile)) {
     return { ok: false, reason: 'user_invalidated' };
   }

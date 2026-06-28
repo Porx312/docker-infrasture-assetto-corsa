@@ -9,13 +9,7 @@ import {
 import { HUD_PLAYER_TTL_SEC, hudRedisDel, hudRedisSet, isHudRedisConfigured } from './hudRedis.js';
 import type { HudPlayerResult } from './hudTypes.js';
 
-const params = {
-  steamId: '76561199000000001',
-  serverName: 'ProjectD',
-  track: 'pk_akina',
-  trackConfig: 'downhill',
-  carModel: 'ks_toyota_gt86',
-};
+const params = { steamId: '76561199000000001' };
 
 test('isLapPersonalBest returns true when cache is empty', async () => {
   if (!isHudRedisConfigured()) {
