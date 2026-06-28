@@ -1,0 +1,153 @@
+Warning, server CPU overload, last step: 105 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 104 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 120 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 130 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 137 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 152 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 181 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 111 ms, UDP:1 TCP:0 packets, times rcv:0 hndl:0 select:1 step:1
+Warning, server CPU overload, last step: 104 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 168 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 128 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:65 step:65
+Warning, server CPU overload, last step: 184 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:1 step:1
+Warning, server CPU overload, last step: 185 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 102 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 144 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 135 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 170 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 115 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 150 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 199 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 157 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:71 step:71
+Warning, server CPU overload, last step: 136 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 126 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 119 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 193 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+PAGE: /api/details
+PAGE: /INFO
+REQ
+{ 9610 8082 akina ℹ18082 0 2 pk_akina-akina_downhill [ks_toyota_ae86_tuned] 64 0 [1 3] [1440 0] 86283 [na na] false 0 <nil> false true 9610 true false false 0}
+{ 9610 8082 akina ℹ18082 0 2 pk_akina-akina_downhill [ks_toyota_ae86_tuned] 64 0 [1 3] [1440 0] 86283 [na na] false 0 <nil> false true 9610 true false false 0}
+Warning, server CPU overload, last step: 117 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 132 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 135 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 107 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 226 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 166 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 101 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 102 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 140 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 101 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:7 step:7
+Warning, server CPU overload, last step: 114 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 231 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 126 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 121 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 118 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 115 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 101 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 126 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 186 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 105 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:1
+Warning, server CPU overload, last step: 127 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 149 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 128 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 128 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 131 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 188 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:1
+Warning, server CPU overload, last step: 239 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 110 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 202 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 132 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 107 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 184 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Warning, server CPU overload, last step: 125 ms, UDP:0 TCP:0 packets, times rcv:0 hndl:0 select:0 step:0
+Terminated
+jose@vmi3360914:~/assetto-infra/ac-data$ ^C^C
+jose@vmi3360914:~/assetto-infra/ac-data$ npm run dev
+
+> ac-data@1.0.0 dev
+> tsx watch src/index.ts
+
+[dotenv@17.2.4] injecting env (38) from ../.env.local -- tip: 📡 add observability to secrets: https://dotenvx.com/ops
+[hud-cache-sync] enabled instance=vps-eu-2 interval=120000ms
+[server-pool] disabled (SERVER_POOL_ENABLED=false)
+API corriendo en http://localhost:3000
+[redis-config-sync] enabled instance=vps-eu-2 interval=30000ms stream=ac:config
+[redis-config-applier] listening stream=ac:config group=ac-data-config-appliers-vps-eu-2 consumer=applier-vps-eu-2 instance=vps-eu-2
+[cleanup] Scanning for orphan AC server processes...
+[redis-config-applier] server skipped: no valid cars locally
+[redis-config-applier] applyConfig server-1 updated: displayName (NAME), password, track, configTrack, maxClients, cars (server_cfg.ini), entry_list.ini (regenerated)
+[redis-config-applier] start server-1: ok | Servidor server-1 iniciado (PID: 238015)
+Server CFG Path :  cfg/server_cfg.ini
+Entry List Path :  cfg/entry_list.ini
+Assetto Corsa Dedicated Server v1.15
+Protocol version: 202
+2026-06-19 16:13:15.969391734 +0200 CEST
+Num CPU: 4
+LOCAL IP 0: 127.0.1.1
+Using cfg path:  cfg/server_cfg.ini
+Car list:
+_ks_toyota_ae86_tuned_
+Client interval HZ: 18
+WARNING: pitstop window needs a valid range
+AUTH_PLUGIN_ADDRESS 
+Initialising UDP Plugin with target: 127.0.0.1:12010 on the local port 12011
+TRACK=pk_akina
+CARS=["ks_toyota_ae86_tuned"]
+Loading PRACTICE session
+SESSION: akina practice
+TYPE=PRACTICE
+TIME=1440
+LAPS=0
+OPEN=1
+WAIT TIME=0
+
+WARNING: pitstop window needs a valid range
+SESSION: 
+TYPE=RACE
+TIME=0
+LAPS=0
+OPEN=0
+WAIT TIME=20
+
+DynamicTrack: first session, resetting grip
+Trying to load DRS zones from: content/tracks/pk_akina/akina_downhill/data/drs_zones.ini
+open content/tracks/pk_akina/akina_downhill/data/drs_zones.ini: no such file or directory
+Weather update. Ambient: 22.144268 Road: 33.915646 Graphics: 3_clear
+Wind update. Speed: 0 Direction: 16
+CHECKSUM: system/data/surfaces.ini=41949b9f7045cad2af3f5eb951d170a9
+Initializing checksum for track config akina_downhill
+CHECKSUM: content/tracks/pk_akina/akina_downhill/data/surfaces.ini=afb1434a3d394655b364dea4d570fc53
+[redis-config-applier] server-2 inactive (no process to stop)
+CHECKSUM: content/tracks/pk_akina/bg.kn5=0bf158689ec387df0ddcfb30d0059664
+[redis-config-sync] published snapshot configVersion=3:2:1781876479910 snapshotVersion=3:1781876479910 servers=3
+[redis-bridge] listening stream=ac:events group=ac-data-consumers consumer=ac-data-vps-eu-2 batchMax=64 flushMs=5000
+[hud-cache-sync] published 3 keys version=3:0:0:0:0:0:0 instance=vps-eu-2
+CHECKSUM: content/tracks/pk_akina/building2.kn5=00f2bcd50336e8941f5792d1324cd7e6
+CHECKSUM: content/tracks/pk_akina/city2.kn5=c9da72005f1e5364c4ef1ff34a9c8484
+CHECKSUM: content/tracks/pk_akina/crowd.kn5=5e71d19b15e888eb866563534617243b
+CHECKSUM: content/tracks/pk_akina/gr2.kn5=a28beaa1a225f3281f8371600a43fbda
+CHECKSUM: content/tracks/pk_akina/parkingline.kn5=8843d5dd082af6d422d0be34979be9f0
+CHECKSUM: content/tracks/pk_akina/physics6.kn5=b1e983b7b5def1c66e1dff17e101d5bd
+CHECKSUM: content/tracks/pk_akina/pits_2way.kn5=31bcf96cfc50e5d610554734852433d4
+CHECKSUM: content/tracks/pk_akina/pits_down.kn5=7d8d9ceb948f359422f1fbfb2093da8e
+CHECKSUM: content/tracks/pk_akina/pits_up.kn5=f2a00f1d8256fe58579f22f2fc4244a5
+CHECKSUM: content/tracks/pk_akina/pk_akina.kn5=bb06e195ed316de014e19cd13f7a4b9a
+CHECKSUM: content/tracks/pk_akina/sign.kn5=daf6d0caa1f047d33b37ad1111b471d9
+CHECKSUM: content/tracks/pk_akina/tree.kn5=62e6a012a6ec409dd0d47a967e4dce8d
+CHECKSUM: content/tracks/pk_akina/models_akina_2way.ini=b38115b47f2a60fe9b3058637a617949
+CHECKSUM: content/tracks/pk_akina/models_akina_downhill.ini=b266bf1564b79a6c21e7a1dc553eeb8a
+CHECKSUM: content/tracks/pk_akina/models_akina_uphill.ini=0fb743d5ed3bdf17b9ec89a5085c5681
+ACD CHECKSUM:a952b7165754d02bdc41ff0e5b2bb11f
+Loading blacklist
+open blacklist.txt: no such file or directory
+Opening entry list:  cfg/entry_list.ini
+Found car  CAR_0
+CAR: 0 ks_toyota_ae86_tuned (0) [ []]  []  Ballast: 0 kg
+CAR: 0 ks_toyota_ae86_tuned (0) [ []]  []  Restrictor: 0
+open setups/ks_toyota_ae86_tuned.ini: no such file or directory
+Found car  CAR_1
+CAR: 1 ks_toyota_ae86_tuned (1) [ []]  []  Ballast: 0 kg
+CAR: 1 ks_toyota_ae86_tuned (1) [ []]  []  Restrictor: 0
+open setups/ks_toyota_ae86_tuned.ini: no such file or directory
+Random seed: 462819346

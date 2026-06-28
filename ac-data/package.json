@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "rimraf ./dist && tsc",
     "start": "node dist/index.js",
-    "test": "tsx --test src/controller/trackConfig.test.ts src/controller/cmWrapper.test.ts src/middleware/hudRateLimitKey.test.ts src/services/coalesceIngestBatch.test.ts src/services/hud/hudCacheKeys.test.ts src/services/hud/hudQueryNormalize.test.ts src/services/hud/hudSessionResponse.test.ts src/services/hud/hudVersion.test.ts"
+    "test": "tsx --test src/controller/trackConfig.test.ts src/controller/cmWrapper.test.ts src/middleware/hudRateLimitKey.test.ts src/services/coalesceIngestBatch.test.ts src/services/hud/battleHudPush.test.ts src/services/hud/battleHudReader.test.ts src/services/hud/hudStreamSse.test.ts src/services/hud/hudBattleCacheKeys.test.ts src/services/hud/hudBattleRooms.test.ts src/services/hud/hudCacheKeys.test.ts src/services/hud/hudManagedServers.test.ts src/services/hud/hudPlayerPresence.test.ts src/services/hud/hudProfile.test.ts src/services/hud/hudQueryNormalize.test.ts src/services/hud/hudRefreshScheduler.test.ts src/services/hud/hudScopeKeys.test.ts src/services/hud/hudSessionResponse.test.ts src/services/hud/hudUpdatesSubscriber.test.ts src/services/hud/hudVersion.test.ts src/services/hud/sessionHudPush.test.ts"
   },
   "keywords": [],
   "author": "",

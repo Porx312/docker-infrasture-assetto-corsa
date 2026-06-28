@@ -2,8 +2,15 @@ import time
 
 import pytest
 
+from core import settings
 from engines.battlesystem.models import CarState, TougeBattle
 from engines.battlesystem.pair_manager import PairBattleManager
+
+
+@pytest.fixture(autouse=True)
+def disable_battle_hud_for_chat_tests(monkeypatch):
+    """Legacy battlesystem tests assert in-game chat lines, not HUD Redis."""
+    monkeypatch.setattr(settings, "BATTLE_HUD_ENABLED", False)
 
 
 @pytest.fixture

@@ -8,8 +8,14 @@ const REDIS_PASSWORD = process.env.REDIS_PASSWORD || undefined;
 const REDIS_DB = Number(process.env.REDIS_DB || 0);
 const REDIS_SSL = (process.env.REDIS_SSL || 'false').trim().toLowerCase() === 'true';
 
-export const HUD_LB_TTL_SEC = Number(process.env.HUD_LB_TTL_SEC || 300);
 export const HUD_PLAYER_TTL_SEC = Number(process.env.HUD_PLAYER_TTL_SEC || 300);
+export const HUD_SESSION_TTL_SEC = Number(process.env.HUD_SESSION_TTL_SEC || 300);
+/** Refreshed on server_status, player_join, and successful HUD reads. */
+export const HUD_PRESENCE_TTL_SEC = Number(process.env.HUD_PRESENCE_TTL_SEC || 180);
+/** Longer TTL on join until player_leave explicitly clears presence. */
+export const HUD_PRESENCE_JOIN_TTL_SEC = Number(
+  process.env.HUD_PRESENCE_JOIN_TTL_SEC || 600,
+);
 
 let client: RedisClientType | null = null;
 let connectPromise: Promise<RedisClientType> | null = null;
@@ -65,4 +71,16 @@ export async function hudRedisGet(key: string): Promise<string | null> {
 export async function hudRedisSet(key: string, value: string, ttlSec: number): Promise<void> {
   const redis = await getHudRedisClient();
   await redis.set(key, value, { EX: ttlSec });
+}
+
+export async function hudRedisDel(key: string): Promise<void> {
+  const redis = await getHudRedisClient();
+  await redis.del(key);
+}
+
+/** Extend TTL when key exists; no-op if missing or Redis unavailable. */
+export async function hudRedisTouch(key: string, ttlSec: number): Promise<boolean> {
+  const redis = await getHudRedisClient();
+  const result = await redis.expire(key, ttlSec);
+  return result === 1;
 }

@@ -1,5 +1,6 @@
 import time
 
+from core import settings
 from core.logging_config import get_logger
 from engines.battlesystem.config import (
     ABANDON_MIN_PROGRESS_FOR_WIN,
@@ -8,6 +9,13 @@ from engines.battlesystem.config import (
 )
 from engines.battlesystem.rules.proximity import pair_uses_position_fallback_from_manager
 from engines.battlesystem.chat import format_point_broadcast, notify_touge_chat
+from network.battle_hud_publisher import (
+    format_abandon_win_label,
+    format_cancel_label,
+    format_finish_session_label,
+    format_point_label,
+    make_hud_event,
+)
 
 log = get_logger("battlesystem.scoring")
 
@@ -113,6 +121,14 @@ def finalize_abandon(manager, winner_guid, reason) -> bool:
     manager.battle.winner = None
     manager.state = "FINISHED"
     manager.finished_time = time.time()
+    cancel_label = format_cancel_label(reason)
+    manager._publish_hud(
+        hud_state="cancelled",
+        force=True,
+        cancel_reason=reason,
+        end_label=cancel_label,
+        last_event=make_hud_event(reason, cancel_label),
+    )
     return True
 
 
@@ -130,8 +146,17 @@ def finalize_default_win(manager, winner_guid, reason):
         manager.battle.car2_score,
     )
     msg = f"WIN {wn} — opponent abandoned ({reason}) | {manager._scoreboard_line()}"
-    notify_touge_chat(manager, msg)
+    if not settings.BATTLE_HUD_ENABLED:
+        notify_touge_chat(manager, msg)
     _dispatch_session_outcome(manager, status="finished")
+    end_label = format_abandon_win_label(manager, winner_guid, reason)
+    manager._publish_hud(
+        hud_state="finished",
+        force=True,
+        end_reason=reason,
+        end_label=end_label,
+        last_event=make_hud_event(reason, end_label, scorer_steam_id=winner_guid),
+    )
     manager.state = "FINISHED"
     manager.finished_time = time.time()
     return True
@@ -160,9 +185,28 @@ def finalize_single_session_result(manager, finish_gap_m, is_draw):
     else:
         log.info("session over DRAW finish_gap=%.1fm", finish_gap_m)
         msg = f"FINISH — DRAW (gap {finish_gap_m:.0f}m) | {board}"
-    notify_touge_chat(manager, msg)
+    if not settings.BATTLE_HUD_ENABLED:
+        notify_touge_chat(manager, msg)
     session_status = "draw" if winner is None else "finished"
     _dispatch_session_outcome(manager, status=session_status)
+    end_label = format_finish_session_label(
+        manager,
+        finish_gap_m,
+        is_draw=is_draw,
+        winner_guid=winner,
+    )
+    event_reason = "draw" if is_draw else "finish_outrun"
+    manager._publish_hud(
+        hud_state="finished",
+        force=True,
+        finish_gap_m=finish_gap_m,
+        end_label=end_label,
+        last_event=make_hud_event(
+            event_reason,
+            end_label,
+            scorer_steam_id=winner,
+        ),
+    )
     manager.state = "FINISHED"
     manager.finished_time = time.time()
 
@@ -185,7 +229,18 @@ def award_point(manager, winner_guid, reason="outrun", *, skip_chat: bool = Fals
         manager.battle.car2_score,
     )
 
-    if not skip_chat and manager.on_chat_message:
+    if not skip_chat and not settings.BATTLE_HUD_ENABLED and manager.on_chat_message:
         msg = format_point_broadcast(manager, winner_guid, reason)
         manager.on_chat_message(manager.battle.car1_guid, msg)
         manager.on_chat_message(manager.battle.car2_guid, msg)
+
+    manager._publish_hud(
+        hud_state="active",
+        force=True,
+        last_event={
+            "reason": reason,
+            "label": format_point_label(reason),
+            "scorerSteamId": winner_guid,
+            "ts": int(time.time() * 1000),
+        },
+    )

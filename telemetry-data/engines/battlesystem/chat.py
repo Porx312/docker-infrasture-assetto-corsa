@@ -19,6 +19,10 @@ def format_point_broadcast(manager, winner_guid, reason):
 
 def notify_touge_chat(manager, message: str) -> None:
     """Send a battle line to both drivers (one chat message each)."""
+    from core import settings
+
+    if settings.BATTLE_HUD_ENABLED:
+        return
     if not manager.on_chat_message or not manager.battle:
         return
     manager.on_chat_message(manager.battle.car1_guid, message)

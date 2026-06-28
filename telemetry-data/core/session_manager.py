@@ -55,6 +55,7 @@ class ServerState:
         self.battle_manager.on_battle_start = self.handle_battle_start
         self.battle_manager.on_score_update = self.handle_battle_score
         self.battle_manager.on_chat_message = self.handle_chat_message
+        self.battle_manager.on_hud_update = self.handle_battle_hud
 
         # Generic Time/Endurance Event logic engine
         self.event_engine = TimeAttackEngine(
@@ -70,6 +71,32 @@ class ServerState:
         if self._get_server_mode() != "battle":
             return None
         return f"battle-{uuid4().hex[:12]}"
+
+    def handle_battle_hud(self, pair_manager, **kwargs):
+        from network.battle_hud_publisher import (
+            clear_battle_hud,
+            publish_battle_hud,
+            schedule_clear_battle_hud,
+        )
+
+        if kwargs.get("clear"):
+            clear_battle_hud(self, kwargs.get("steam_ids") or [])
+            return
+        if kwargs.get("schedule_clear"):
+            schedule_clear_battle_hud(self, kwargs.get("steam_ids") or [])
+            return
+        publish_battle_hud(
+            self,
+            pair_manager,
+            hud_state=kwargs.get("hud_state"),
+            last_event=kwargs.get("last_event"),
+            cancel_reason=kwargs.get("cancel_reason"),
+            end_reason=kwargs.get("end_reason"),
+            end_label=kwargs.get("end_label"),
+            finish_gap_m=kwargs.get("finish_gap_m"),
+            position_fallback=kwargs.get("position_fallback"),
+            force=kwargs.get("force", False),
+        )
 
     def handle_battle_score(
         self,

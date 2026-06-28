@@ -80,3 +80,23 @@ Battle events (`network/event_dispatcher.dispatch_battle_webhook`):
 - Acknowledge (`XACK`) only after the Convex mutation succeeds.
 - Skip / ack-only on `server_config_snapshot` and `server_config_applied` —
   those are consumed by VPS-side workers, not by Convex ingestion.
+
+## Battle HUD keys (live overlay, not streams)
+
+Written by `telemetry-data/network/battle_hud_publisher.py` when
+`BATTLE_HUD_ENABLED=true`. Read by `ac-data` for SSE fan-out (`GET /hud/battle/stream`).
+
+| Key | Value | TTL |
+|-----|-------|-----|
+| `ac:hud:battle:{serverKey}:{steamId}` | JSON snapshot (`state`, scores, `pointsLog`, `gap3dM`, `disappearGapM`, `cancelReason`, `endReason`, `endLabel`, `finishGapM`, `positionFallback`, `lastEvent`, players with `car_id`) | `HUD_BATTLE_TTL_SEC` (default 120); terminal snapshots kept until `HUD_BATTLE_CLEAR_DELAY_SEC` (default 5) before key delete |
+| `ac:hud:ver:battle:{serverKey}:{steamId}` | version string (epoch ms) | `HUD_VER_TTL_SEC` (default 3600) |
+
+Redis snapshot players (telemetry): `steamId`, `name`, `car_id`, `score`, optional `role`.
+
+Each SSE `battle:update` enriches players from `ac:hud:player:*` (same cache as `/hud/player`):
+`name`, `tier`, `avatar_url`, `car_name`, `car_id` — profile wins over snapshot; legacy snapshots with `car` are still accepted.
+
+- `serverKey` = normalized AC display name (lowercase, spaces → `_`, CM suffix stripped).
+- Both players in a pair receive the same snapshot under their respective `steamId` keys.
+- Pub/sub channel `ac:hud:updates` notifies clients (same as time-attack HUD).
+- **ac-data** fan-out vía **SSE** (`GET /hud/battle/stream`) cuando `HUD_SSE_ENABLED=true`.

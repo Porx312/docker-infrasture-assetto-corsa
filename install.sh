@@ -152,6 +152,7 @@ if [ -d "$SERVER_DIR" ] && [ ! -L "$SERVER_DIR/server/content/cars" ]; then
             ln -sf "$CONTENT_SOURCE/tracks" "$SERVER_DIR/$instance/content/tracks"
             ln -sf "$CONTENT_SOURCE/weather" "$SERVER_DIR/$instance/content/weather"
             ln -sf "$SERVER_DIR/acServer" "$SERVER_DIR/$instance/acServer"
+            ln -sf "$SERVER_DIR/system" "$SERVER_DIR/$instance/system"
             echo "  $instance: done"
         fi
     done

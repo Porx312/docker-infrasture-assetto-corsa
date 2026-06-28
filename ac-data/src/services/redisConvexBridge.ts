@@ -8,7 +8,17 @@ import {
   type PendingIngestMessage,
 } from './coalesceIngestBatch.js';
 import { ensureConvexClient, isConvexConfigured } from './convexClient.js';
-import { scheduleHudRefreshAfterLap } from './hud/hudRefreshScheduler.js';
+import { scheduleHudRefreshAfterBattleFinished, scheduleHudRefreshAfterLap } from './hud/hudRefreshScheduler.js';
+import { fetchWorkerSyncVersion } from './hud/hudConvex.js';
+import {
+  updateManagedServersFromSnapshot,
+  type ManagedServerRow,
+} from './hud/hudManagedServers.js';
+import {
+  noteHudPlayerJoin,
+  noteHudPlayerLeave,
+  noteHudServerStatus,
+} from './hud/hudPlayerPresence.js';
 import { noteServerStatus } from './serverPool.js';
 
 const REDIS_HOST = process.env.REDIS_HOST || '';
@@ -32,10 +42,10 @@ const CONVEX_MUTATION_BATCH =
   process.env.CONVEX_MUTATION_BATCH || 'serverEvents:ingestWorkerEventsBatch';
 const CONVEX_INGEST_SECRET = process.env.CONVEX_INGEST_SECRET || '';
 const CONVEX_WORKER_SECRET = process.env.CONVEX_WORKER_SECRET || '';
-const CONVEX_CONFIG_VERSION_QUERY =
-  process.env.CONVEX_CONFIG_VERSION_QUERY || 'timeAttackServers:getWorkerInstanceConfigVersion';
 const CONVEX_CONFIG_SNAPSHOT_QUERY =
   process.env.CONVEX_CONFIG_SNAPSHOT_QUERY || 'timeAttackServers:getWorkerInstanceServerConfigs';
+const CONVEX_WORKER_SYNC_QUERY =
+  process.env.CONVEX_WORKER_SYNC_QUERY || 'workerSync:getWorkerInstanceSyncVersion';
 const REDIS_CONFIG_SYNC_ENABLED =
   (process.env.REDIS_CONFIG_SYNC_ENABLED || 'true').trim().toLowerCase() === 'true';
 const REDIS_CONFIG_SYNC_INTERVAL_MS = Number(process.env.REDIS_CONFIG_SYNC_INTERVAL_MS || 30_000);
@@ -63,14 +73,6 @@ type StreamReadResult = Array<{
   messages: StreamMessage[];
 }>;
 
-type WorkerConfigVersionResult = {
-  instanceId: string;
-  serverCount: number;
-  presetCount: number;
-  maxUpdatedAt: number;
-  version: string;
-};
-
 type WorkerConfigSnapshotResult = {
   instanceId: string;
   includeInactive: boolean;
@@ -79,6 +81,10 @@ type WorkerConfigSnapshotResult = {
   version: string;
   servers: unknown[];
 };
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 const CONFIG_ONLY_EVENTS = new Set<string>([
   'server_config_snapshot',
@@ -217,16 +223,24 @@ async function startConvexConfigPublisher(client: ReturnType<typeof createClient
   }
 
   const { query } = ensureConvexClient();
-  let lastVersion = '';
+  let lastConfigVersion = '';
+
+  let pollIntervalMs = REDIS_CONFIG_SYNC_INTERVAL_MS;
+  try {
+    const sync = await fetchWorkerSyncVersion();
+    pollIntervalMs = sync.pollIntervalMs > 0 ? sync.pollIntervalMs : REDIS_CONFIG_SYNC_INTERVAL_MS;
+    if (sync.pollJitterMs > 0) {
+      await sleep(sync.pollJitterMs);
+    }
+  } catch (err) {
+    console.warn('[redis-config-sync] worker sync bootstrap failed, using defaults:', err);
+  }
 
   const loop = async () => {
     try {
-      const versionResult = await query(CONVEX_CONFIG_VERSION_QUERY, {
-        workerSecret: CONVEX_WORKER_SECRET,
-        instanceId: AC_INSTANCE_ID,
-      });
-      const version = (versionResult as WorkerConfigVersionResult).version;
-      if (!version || version === lastVersion) {
+      const sync = await fetchWorkerSyncVersion();
+      const configVersion = sync.configVersion;
+      if (!configVersion || configVersion === lastConfigVersion) {
         return;
       }
 
@@ -236,13 +250,12 @@ async function startConvexConfigPublisher(client: ReturnType<typeof createClient
         includeInactive: true,
       });
 
-      const snapshot = snapshotResult as WorkerConfigSnapshotResult;
-      await publishConfigSnapshotToRedis(client, snapshot);
-      // Must compare against the same `version` string in subsequent polls; the
-      // snapshot uses a different formula in Convex and would re-publish forever.
-      lastVersion = version;
+  const snapshot = snapshotResult as WorkerConfigSnapshotResult;
+  updateManagedServersFromSnapshot((snapshot.servers ?? []) as ManagedServerRow[]);
+  await publishConfigSnapshotToRedis(client, snapshot);
+      lastConfigVersion = configVersion;
       console.log(
-        `[redis-config-sync] published snapshot configVersion=${version} snapshotVersion=${snapshot.version} servers=${snapshot.totalServers}`,
+        `[redis-config-sync] published snapshot configVersion=${configVersion} snapshotVersion=${snapshot.version} servers=${snapshot.totalServers}`,
       );
     } catch (err) {
       console.error('[redis-config-sync] loop error:', err);
@@ -250,12 +263,12 @@ async function startConvexConfigPublisher(client: ReturnType<typeof createClient
   };
 
   console.log(
-    `[redis-config-sync] enabled instance=${AC_INSTANCE_ID} interval=${REDIS_CONFIG_SYNC_INTERVAL_MS}ms stream=${REDIS_CONFIG_STREAM_KEY}`,
+    `[redis-config-sync] enabled instance=${AC_INSTANCE_ID} interval=${pollIntervalMs}ms stream=${REDIS_CONFIG_STREAM_KEY} syncQuery=${CONVEX_WORKER_SYNC_QUERY}`,
   );
   await loop();
   setInterval(() => {
     void loop();
-  }, REDIS_CONFIG_SYNC_INTERVAL_MS);
+  }, pollIntervalMs);
 }
 
 type IngestBufferState = {
@@ -286,6 +299,7 @@ async function flushIngestChunk(
       const players = Array.isArray(data.players) ? data.players : [];
       const statusName = typeof payload.serverName === 'string' ? payload.serverName : '';
       noteServerStatus(statusName, players.length);
+      await noteHudServerStatus(payload);
     }
   }
 
@@ -309,8 +323,15 @@ async function flushIngestChunk(
   }
 
   for (const { msg, payload, event } of chunk) {
+    if (event === 'player_join') {
+      await noteHudPlayerJoin(payload);
+    } else if (event === 'player_leave') {
+      await noteHudPlayerLeave(payload);
+    }
     if (event === 'lap_completed') {
       scheduleHudRefreshAfterLap(payload);
+    } else if (event === 'battle_finished') {
+      scheduleHudRefreshAfterBattleFinished(payload);
     }
     await client.xAck(REDIS_STREAM_KEY, GROUP, msg.id);
   }

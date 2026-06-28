@@ -14,6 +14,10 @@ import {
 } from '../controller/controller.js';
 import { normalizeTrackConfigForIni } from '../controller/trackConfig.js';
 import { shouldStartFromConfig } from './serverPool.js';
+import {
+  updateManagedServersFromSnapshot,
+  type ManagedServerRow,
+} from './hud/hudManagedServers.js';
 
 const REDIS_HOST = process.env.REDIS_HOST || '';
 const REDIS_PORT = Number(process.env.REDIS_PORT || 6379);
@@ -117,11 +121,10 @@ function getAvailableCars(): Set<string> {
     for (const entry of entries) {
       if (entry.isDirectory()) {
         const carPath = path.join(carsPath, entry.name);
-        const hasKn5 = fs.existsSync(path.join(carPath, `${entry.name}.kn5`)) ||
-                       fs.readdirSync(carPath).some(f => f.endsWith('.kn5'));
-        const hasCollider = fs.existsSync(path.join(carPath, 'collider.kn5'));
-        const hasDataAcd = fs.existsSync(path.join(carPath, 'data.acd'));
-        if (hasKn5 && hasCollider && hasDataAcd) {
+        const files = fs.readdirSync(carPath);
+        const hasKn5 = files.some(f => f.endsWith('.kn5'));
+        const hasDataAcd = files.includes('data.acd');
+        if (hasKn5 || hasDataAcd) {
           available.add(entry.name);
         }
       }
@@ -153,11 +156,12 @@ async function reconcileServer(row: ServerRow, isFirstSnapshot: boolean): Promis
   const availableCars = getAvailableCars();
   const entries = row.entries ? filterValidEntries(row.entries, availableCars) : undefined;
   if (entries === null && row.entries && row.entries.length > 0) {
-    console.warn(`[redis-config-applier] ${row.serverName} skipped: no valid cars locally`);
-    return;
+    console.warn(`[redis-config-applier] ${row.serverName} no valid cars locally, applying config without entries`);
   }
   if (entries) {
     row = { ...row, entries };
+  } else {
+    delete row.entries;
   }
 
   const signature = buildSignature(row);
@@ -238,6 +242,8 @@ async function handleSnapshot(payload: Record<string, unknown>, isFirstSnapshot:
 
   const rows = (data.servers as ServerRow[]) ?? [];
   if (!Array.isArray(rows) || rows.length === 0) return;
+
+  updateManagedServersFromSnapshot(rows as ManagedServerRow[]);
 
   for (const row of rows) {
     try {

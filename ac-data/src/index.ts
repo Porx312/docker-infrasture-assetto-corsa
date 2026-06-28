@@ -7,7 +7,7 @@ import acServerRoutes from './routes/acServerRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import hudRoutes from './routes/hudRoutes.js';
 import { hudMiddleware } from './middleware/hudMiddleware.js';
-import { startHudCacheSync } from './services/hud/hudCacheSync.js';
+import { initHudPushHub } from './services/hud/battleHudPush.js';
 import { startRedisConvexBridge } from './services/redisConvexBridge.js';
 import { startRedisConfigApplier } from './services/redisConfigApplier.js';
 import { startServerPoolMonitor } from './services/serverPool.js';
@@ -22,7 +22,7 @@ if (!SERVERS_PATH) {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://176.57.150.251:3000';
+const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://13.140.160.131:3000';
 
 // ------------------------ MIDDLEWARE ------------------------
 app.use((req, res, next) => {
@@ -90,9 +90,10 @@ app.use('/admin', express.static(ADMIN_PUBLIC_PATH, {
 }));
 
 // ------------------------ START SERVER ------------------------
+initHudPushHub();
+
 app.listen(PORT, async () => {
   void startRedisConvexBridge();
-  void startHudCacheSync();
   void startRedisConfigApplier();
   startServerPoolMonitor();
   console.log(`API corriendo en http://localhost:${PORT}`);

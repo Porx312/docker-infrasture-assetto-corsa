@@ -29,9 +29,12 @@ flowchart TB
   BM --> PM2
   PM1 --> SM
   PM2 --> SM
-  SM --> Chat[send_chat ACSP]
+  SM --> HudRedis[Redis ac:hud:battle]
   SM --> Webhook[battle_update / battle_finished]
+  HudRedis --> AcData[ac-data SSE /hud/battle/stream]
 ```
+
+Con `BATTLE_HUD_ENABLED=true` (default), el estado en vivo se publica en Redis y **no** se envían líneas de batalla por chat ACSP. El overlay se suscribe con `EventSource` a `/hud/battle/stream` vía `ac-data`.
 
 - `engines/battlesystem/orchestrator.py` (`BattleManager`): caché global de `CarState` por GUID, **matchmaking** y un `PairBattleManager` por pareja
 - `engines/battlesystem/pair_manager.py` (`PairBattleManager`): máquina de estados de una batalla touge concreta
@@ -118,15 +121,14 @@ Recomendación: instalar `content/tracks/&lt;track&gt;/ai/fast_lane.ai` en el se
 
 ## Feedback al jugador
 
-- Mensajes **privados in-game** vía `handle_chat_message` → `send_chat` por `car_id` (`core/session_manager.py`)
-- Formato de puntos: `OVERTAKE +1`, `RECOVER +1`, `FINISH +1`, marcador `NombreA 2 : NombreB 1`, etc. (`engines/battlesystem/chat.py`)
+- Con **`BATTLE_HUD_ENABLED=true`** (default): estado en vivo en Redis (`network/battle_hud_publisher.py`) → SSE `/hud/battle/stream` en `ac-data`. Sin chat de batalla.
+- Con `BATTLE_HUD_ENABLED=false`: mensajes in-game vía `handle_chat_message` → `send_chat` (`engines/battlesystem/chat.py`).
 
 ## Persistencia / backend
 
 - Al pasar a **ARMED**, se genera `battle-{uuid12}` (`handle_battle_start` en `session_manager.py`)
-- **Solo al terminar** una sesión con ganador o empate se publica Redis:
-  - `battle_update` + `battle_finished` con scores, `pointsLog`, track, coches (`network/event_dispatcher.py`). `status`: `finished` (ganador) o `draw` (empate). Cancelaciones 0-0 no publican evento
-- No hay updates intermedios por cada punto; el webhook es al cierre de la serie/sesión
+- **HUD en vivo** (cada transición / punto): claves Redis `ac:hud:battle:{serverKey}:{steamId}` y `ac:hud:ver:battle:*` (`network/battle_hud_publisher.py`). Snapshots de fin/cancel incluyen `cancelReason`, `endReason`, `endLabel`, `lastEvent`; se borran tras `HUD_BATTLE_CLEAR_DELAY_SEC` (default 5 s).
+- **Al terminar** sesión con ganador o empate: además `battle_update` + `battle_finished` en stream `ac:events` (`network/event_dispatcher.py`)
 
 Ver también [REDIS_CONTRACT.md](../REDIS_CONTRACT.md) para el esquema de eventos.
 
@@ -147,6 +149,7 @@ Ver también [REDIS_CONTRACT.md](../REDIS_CONTRACT.md) para el esquema de evento
 | Estado 1v1 | `engines/battlesystem/state_machine.py` |
 | Umbrales | `engines/battlesystem/config.py` |
 | Integración AC | `core/packet_processor.py` |
+| HUD batalla → Redis | `network/battle_hud_publisher.py` |
 | Tests reglas | `tests/battlesystem/` |
 
 ## Referencia rápida de umbrales

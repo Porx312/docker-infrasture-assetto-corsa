@@ -33,6 +33,7 @@ class BattleManager:
         self.on_battle_start = None
         self.on_score_update = None
         self.on_chat_message = None
+        self.on_hud_update = None
 
     @staticmethod
     def _pair_key(g1, g2):
@@ -66,6 +67,7 @@ class BattleManager:
         mgr.on_battle_start = self.on_battle_start
         mgr.on_score_update = self.on_score_update
         mgr.on_chat_message = self.on_chat_message
+        mgr.on_hud_update = self.on_hud_update
         return mgr
 
     def _cleanup_pair_if_done(self, key):
@@ -139,6 +141,7 @@ class BattleManager:
                     mgr._display_name(g2),
                     len(self.pair_managers),
                 )
+                mgr._publish_hud(hud_state="pairing", force=True)
             free = [g for g in free if g not in (g1, g2)]
 
     def set_server_mode(self, is_battle_server):

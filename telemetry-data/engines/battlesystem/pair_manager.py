@@ -42,6 +42,7 @@ class PairBattleManager:
         self.on_battle_start = None
         self.on_score_update = None
         self.on_chat_message = None
+        self.on_hud_update = None
         self.on_battle_end = None
         self.pair_locked_at = 0.0
         self._separated_since = 0.0
@@ -171,8 +172,23 @@ class PairBattleManager:
     def _award_point(self, winner_guid, reason="outrun", **kwargs):
         award_point(self, winner_guid, reason, **kwargs)
 
+    def _publish_hud(self, **kwargs) -> None:
+        if self.on_hud_update:
+            self.on_hud_update(self, **kwargs)
+
     def _abort_run_no_point(self, reason):
         log.info("run aborted (%s), no point", reason)
         self.state = "IDLE"
         self.arm_proximity_since = 0.0
         self._arming_countdown_announced_sec = -1
+        from network.battle_hud_publisher import format_cancel_label, make_hud_event
+
+        cancel_reason = "prestart_gap"
+        cancel_label = format_cancel_label(cancel_reason)
+        self._publish_hud(
+            hud_state="cancelled",
+            force=True,
+            cancel_reason=cancel_reason,
+            end_label=cancel_label,
+            last_event=make_hud_event(cancel_reason, cancel_label),
+        )

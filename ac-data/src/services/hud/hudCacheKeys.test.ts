@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  buildLbCacheKey,
+  buildBoardCacheKey,
   buildPlayerCacheKey,
   buildSessionCacheKey,
-  lbRedisKey,
   normalizeHudKeyPart,
   playerRedisKey,
   sessionRedisKey,
+  presenceRedisKey,
+  presenceRosterRedisKey,
 } from './hudCacheKeys.js';
 
 test('normalizeHudKeyPart lowercases and replaces spaces', () => {
@@ -16,16 +17,16 @@ test('normalizeHudKeyPart lowercases and replaces spaces', () => {
   assert.equal(normalizeHudKeyPart('  Foo Bar  '), 'foo_bar');
 });
 
-test('buildLbCacheKey matches Convex getHudSnapshotsForWorker formula', () => {
+test('buildBoardCacheKey matches board scope formula', () => {
   assert.equal(
-    buildLbCacheKey({ serverName: 'Project D', track: 'pk_akina', trackConfig: 'downhill' }),
+    buildBoardCacheKey({ serverName: 'Project D', track: 'pk_akina', trackConfig: 'downhill' }),
     'project_d@pk_akina@downhill@global',
   );
 });
 
-test('buildLbCacheKey includes car filter id', () => {
+test('buildBoardCacheKey includes car filter id', () => {
   assert.equal(
-    buildLbCacheKey({
+    buildBoardCacheKey({
       serverName: 'srv1',
       track: 'pk_akina',
       trackConfig: 'downhill',
@@ -64,15 +65,22 @@ test('buildSessionCacheKey includes carFilter and carModel', () => {
 
 test('redis key prefixes', () => {
   assert.equal(
-    lbRedisKey('project_d@pk_akina@downhill@global'),
-    'ac:hud:lb:project_d@pk_akina@downhill@global',
-  );
-  assert.equal(
     playerRedisKey('76561199000000001@project_d@pk_akina@downhill@'),
     'ac:hud:player:76561199000000001@project_d@pk_akina@downhill@',
   );
   assert.equal(
     sessionRedisKey('76561199000000001@srv1@pk_akina@@global@'),
     'ac:hud:session:76561199000000001@srv1@pk_akina@@global@',
+  );
+});
+
+test('presence redis key prefixes', () => {
+  assert.equal(
+    presenceRedisKey('76561199000000001'),
+    'ac:hud:presence:76561199000000001',
+  );
+  assert.equal(
+    presenceRosterRedisKey('project_d'),
+    'ac:hud:presence:roster:project_d',
   );
 });

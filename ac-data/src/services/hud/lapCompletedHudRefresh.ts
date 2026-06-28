@@ -1,124 +1,133 @@
+import { fetchHudPlayer, fetchHudSession, isHudConvexConfigured } from './hudConvex.js';
 import {
-  fetchHudPlayer,
-  fetchHudTop10,
-  isHudConvexConfigured,
-  queryHudTop10,
-  resolveTop10CacheKey,
-} from './hudConvex.js';
-import {
-  buildLbCacheKey,
   buildPlayerCacheKey,
-  lbRedisKey,
+  buildSessionCacheKey,
   playerRedisKey,
+  sessionRedisKey,
 } from './hudCacheKeys.js';
+import { isProfileInvalidated } from './hudProfile.js';
 import {
-  HUD_LB_TTL_SEC,
   HUD_PLAYER_TTL_SEC,
+  HUD_SESSION_TTL_SEC,
+  hudRedisDel,
   hudRedisGet,
   hudRedisSet,
 } from './hudRedis.js';
-import { bumpLbVersion, bumpPlayerVersion } from './hudVersion.js';
-import type { HudPlayerResult, HudTop10, HudTop10Ok } from './hudTypes.js';
+import { bumpBoardVersion, bumpPlayerVersion } from './hudVersion.js';
+import type { BoardCacheParams, HudPlayerResult, HudSessionResult, PlayerCacheParams } from './hudTypes.js';
 
-let lastHudCacheRefreshAt = 0;
-
-export function noteHudCacheRefreshed(): void {
-  lastHudCacheRefreshAt = Date.now();
+export async function invalidatePlayerCache(params: PlayerCacheParams): Promise<void> {
+  const cacheKey = buildPlayerCacheKey(params);
+  await hudRedisDel(playerRedisKey(cacheKey));
 }
 
-/** Skip expensive Convex version poll when lap-driven refresh ran recently. */
-export function wasHudCacheRefreshedRecently(withinMs = 60_000): boolean {
-  return lastHudCacheRefreshAt > 0 && Date.now() - lastHudCacheRefreshAt < withinMs;
-}
-
-export async function cacheTop10ForLap(job: {
+export async function invalidateSessionCache(params: {
+  steamId: string;
   serverName: string;
   track: string;
-  trackConfig: string;
-  car: string;
+  trackConfig?: string;
+  carFilter?: string;
+  carModel?: string;
 }): Promise<void> {
-  const params = {
-    serverName: job.serverName,
-    track: job.track,
-    trackConfig: job.trackConfig,
-    car: job.car,
-  };
-  const { cacheKey, top10 } = await fetchHudTop10(params);
-  const key = cacheKey || buildLbCacheKey(params);
-  await hudRedisSet(lbRedisKey(key), JSON.stringify(top10), HUD_LB_TTL_SEC);
-  await bumpLbVersion(params);
+  const cacheKey = buildSessionCacheKey({
+    steamId: params.steamId,
+    serverName: params.serverName,
+    track: params.track,
+    trackConfig: params.trackConfig,
+    carModel: params.carModel,
+    carFilter: params.carFilter ?? 'global',
+  });
+  await hudRedisDel(sessionRedisKey(cacheKey));
 }
 
-export async function cachePlayerForLap(job: {
-  steamId: string;
+export async function bumpBoardVersionsForLap(job: {
   serverName: string;
   track: string;
   trackConfig: string;
   carModel: string;
 }): Promise<void> {
-  const params = {
+  const boards: BoardCacheParams[] = [
+    { serverName: job.serverName, track: job.track, trackConfig: job.trackConfig, car: 'global' },
+  ];
+  if (job.carModel) {
+    boards.push({
+      serverName: job.serverName,
+      track: job.track,
+      trackConfig: job.trackConfig,
+      car: job.carModel,
+    });
+  }
+  await Promise.all(boards.map((params) => bumpBoardVersion(params)));
+}
+
+export async function readCachedProfileBestLapMs(params: PlayerCacheParams): Promise<number | null> {
+  const cached = await hudRedisGet(playerRedisKey(buildPlayerCacheKey(params)));
+  if (!cached) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(cached) as HudPlayerResult;
+    if (parsed.ok && parsed.profile && parsed.profile.best_lap_ms > 0) {
+      return parsed.profile.best_lap_ms;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/** True when lapTime beats cached profile best (or cache/profile best is unknown). */
+export async function isLapPersonalBest(
+  params: PlayerCacheParams,
+  lapTimeMs: number,
+): Promise<boolean> {
+  if (!Number.isFinite(lapTimeMs) || lapTimeMs <= 0) {
+    return true;
+  }
+  const previousBest = await readCachedProfileBestLapMs(params);
+  if (previousBest === null) {
+    return true;
+  }
+  return lapTimeMs < previousBest;
+}
+
+export async function refreshPlayerHudCache(job: PlayerCacheParams): Promise<void> {
+  await invalidatePlayerCache(job);
+  const sessionParams = {
     steamId: job.steamId,
     serverName: job.serverName,
     track: job.track,
     trackConfig: job.trackConfig,
     carModel: job.carModel,
+    carFilter: 'global' as const,
   };
-  const result = await fetchHudPlayer(params);
-  const key = buildPlayerCacheKey(params);
-  await hudRedisSet(playerRedisKey(key), JSON.stringify(result), HUD_PLAYER_TTL_SEC);
-  await bumpPlayerVersion(params);
+  await invalidateSessionCache(sessionParams);
+
+  const [playerResult, sessionResult] = await Promise.all([
+    fetchHudPlayer(job),
+    fetchHudSession(sessionParams),
+  ]);
+
+  const cacheKey = buildPlayerCacheKey(job);
+  await hudRedisSet(playerRedisKey(cacheKey), JSON.stringify(playerResult), HUD_PLAYER_TTL_SEC);
+
+  const sessionKey = buildSessionCacheKey(sessionParams);
+  await hudRedisSet(sessionRedisKey(sessionKey), JSON.stringify(sessionResult), HUD_SESSION_TTL_SEC);
+
+  await bumpPlayerVersion(job);
 }
 
-/** @deprecated Use scheduleHudRefreshAfterLap from hudRefreshScheduler instead. */
-export async function refreshHudAfterLapCompleted(payload: Record<string, unknown>): Promise<void> {
-  const { scheduleHudRefreshAfterLap } = await import('./hudRefreshScheduler.js');
-  scheduleHudRefreshAfterLap(payload);
-}
-
-export async function getTop10Cached(params: {
-  serverName: string;
-  track: string;
-  trackConfig?: string;
-  car?: string;
-}): Promise<HudTop10> {
-  const car = params.car ?? 'global';
-  const lbParams = { ...params, car };
-  const cacheKey = buildLbCacheKey(lbParams);
-  const redisKey = lbRedisKey(cacheKey);
-
-  const cached = await hudRedisGet(redisKey);
-  if (cached) {
-    return JSON.parse(cached) as HudTop10Ok;
-  }
-
-  if (!isHudConvexConfigured()) {
-    return { ok: false, reason: 'no_data' };
-  }
-
-  const result = await queryHudTop10(lbParams);
-  if (!result.ok) {
-    return result;
-  }
-
-  const key = resolveTop10CacheKey(lbParams, result);
-  await hudRedisSet(lbRedisKey(key), JSON.stringify(result), HUD_LB_TTL_SEC);
-  await bumpLbVersion(lbParams);
-  return result;
-}
-
-export async function getPlayerCached(params: {
-  steamId: string;
-  serverName: string;
-  track: string;
-  trackConfig?: string;
-  carModel?: string;
-}): Promise<HudPlayerResult> {
+export async function getPlayerCached(params: PlayerCacheParams): Promise<HudPlayerResult> {
   const cacheKey = buildPlayerCacheKey(params);
   const redisKey = playerRedisKey(cacheKey);
 
   const cached = await hudRedisGet(redisKey);
   if (cached) {
-    return JSON.parse(cached) as HudPlayerResult;
+    const parsed = JSON.parse(cached) as HudPlayerResult;
+    if (parsed.ok && isProfileInvalidated(parsed.profile)) {
+      return { ok: false, reason: 'user_invalidated' };
+    }
+    return parsed;
   }
 
   if (!isHudConvexConfigured()) {
@@ -126,6 +135,10 @@ export async function getPlayerCached(params: {
   }
 
   const result = await fetchHudPlayer(params);
+  if (result.ok && isProfileInvalidated(result.profile)) {
+    return { ok: false, reason: 'user_invalidated' };
+  }
+
   await hudRedisSet(redisKey, JSON.stringify(result), HUD_PLAYER_TTL_SEC);
   await bumpPlayerVersion(params);
   return result;
@@ -138,12 +151,39 @@ export async function getSessionCached(params: {
   trackConfig?: string;
   carFilter?: string;
   carModel?: string;
-}): Promise<HudPlayerResult> {
-  return getPlayerCached({
+}): Promise<HudSessionResult> {
+  const sessionParams = {
     steamId: params.steamId,
     serverName: params.serverName,
     track: params.track,
     trackConfig: params.trackConfig,
+    carFilter: params.carFilter,
     carModel: params.carModel,
+  };
+  const cacheKey = buildSessionCacheKey({
+    ...sessionParams,
+    carFilter: params.carFilter ?? 'global',
   });
+  const redisKey = sessionRedisKey(cacheKey);
+
+  const cached = await hudRedisGet(redisKey);
+  if (cached) {
+    const parsed = JSON.parse(cached) as HudSessionResult;
+    if (parsed.ok && isProfileInvalidated(parsed.profile)) {
+      return { ok: false, reason: 'user_invalidated' };
+    }
+    return parsed;
+  }
+
+  if (!isHudConvexConfigured()) {
+    return { ok: false, reason: 'user_not_found' };
+  }
+
+  const result = await fetchHudSession(sessionParams);
+  if (result.ok && isProfileInvalidated(result.profile)) {
+    return { ok: false, reason: 'user_invalidated' };
+  }
+
+  await hudRedisSet(redisKey, JSON.stringify(result), HUD_SESSION_TTL_SEC);
+  return result;
 }

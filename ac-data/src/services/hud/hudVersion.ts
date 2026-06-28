@@ -1,8 +1,14 @@
+import type { BoardCacheParams, PlayerCacheParams, BattleCacheParams } from './hudTypes.js';
 import {
-  buildLbCacheKey,
+  battleVersionRedisKey,
+  buildBattleCacheKey,
+  buildBoardCacheKey,
   buildPlayerCacheKey,
 } from './hudCacheKeys.js';
-import type { LbCacheParams, PlayerCacheParams } from './hudTypes.js';
+import {
+  boardScopeKeyFromCacheKey,
+  playerScopeKeyFromCacheKey,
+} from './hudScopeKeys.js';
 import { getHudRedisClient, isHudRedisConfigured } from './hudRedis.js';
 
 export const HUD_VER_PREFIX = 'ac:hud:ver:';
@@ -10,20 +16,20 @@ export const HUD_UPDATES_CHANNEL = 'ac:hud:updates';
 
 const HUD_VER_TTL_SEC = Number(process.env.HUD_VER_TTL_SEC || 3600);
 
-export function lbVersionKey(cacheKey: string): string {
-  return `${HUD_VER_PREFIX}lb:${cacheKey}`;
+export function boardVersionKey(cacheKey: string): string {
+  return `${HUD_VER_PREFIX}board:${cacheKey}`;
 }
 
 export function playerVersionKey(cacheKey: string): string {
   return `${HUD_VER_PREFIX}player:${cacheKey}`;
 }
 
-export async function bumpLbVersion(params: LbCacheParams): Promise<string> {
+export async function bumpBoardVersion(params: BoardCacheParams): Promise<string> {
   if (!isHudRedisConfigured()) {
     return '';
   }
-  const cacheKey = buildLbCacheKey(params);
-  return bumpVersionKey(lbVersionKey(cacheKey), cacheKey);
+  const cacheKey = buildBoardCacheKey(params);
+  return bumpVersionKey(boardVersionKey(cacheKey), boardScopeKeyFromCacheKey(cacheKey));
 }
 
 export async function bumpPlayerVersion(params: PlayerCacheParams): Promise<string> {
@@ -31,7 +37,7 @@ export async function bumpPlayerVersion(params: PlayerCacheParams): Promise<stri
     return '';
   }
   const cacheKey = buildPlayerCacheKey(params);
-  return bumpVersionKey(playerVersionKey(cacheKey), cacheKey);
+  return bumpVersionKey(playerVersionKey(cacheKey), playerScopeKeyFromCacheKey(cacheKey));
 }
 
 async function bumpVersionKey(redisKey: string, scopeKey: string): Promise<string> {
@@ -45,12 +51,12 @@ async function bumpVersionKey(redisKey: string, scopeKey: string): Promise<strin
   return version;
 }
 
-export async function readLbVersion(params: LbCacheParams): Promise<string | null> {
+export async function readBoardVersion(params: BoardCacheParams): Promise<string | null> {
   if (!isHudRedisConfigured()) {
     return null;
   }
   const redis = await getHudRedisClient();
-  return redis.get(lbVersionKey(buildLbCacheKey(params)));
+  return redis.get(boardVersionKey(buildBoardCacheKey(params)));
 }
 
 export async function readPlayerVersion(params: PlayerCacheParams): Promise<string | null> {
@@ -61,11 +67,19 @@ export async function readPlayerVersion(params: PlayerCacheParams): Promise<stri
   return redis.get(playerVersionKey(buildPlayerCacheKey(params)));
 }
 
-/** Combined version string for /hud/session clients (lb + each player). */
+export async function readBattleVersion(params: BattleCacheParams): Promise<string | null> {
+  if (!isHudRedisConfigured()) {
+    return null;
+  }
+  const redis = await getHudRedisClient();
+  return redis.get(battleVersionRedisKey(buildBattleCacheKey(params)));
+}
+
+/** Combined version string for SSE session payloads (board + each player). */
 export function combineSessionVersion(
-  lbVersion: string | null,
+  boardVersion: string | null,
   playerVersions: Array<string | null>,
 ): string {
-  const parts = [lbVersion ?? '0', ...playerVersions.map((v) => v ?? '0')];
+  const parts = [boardVersion ?? '0', ...playerVersions.map((v) => v ?? '0')];
   return parts.join(':');
 }

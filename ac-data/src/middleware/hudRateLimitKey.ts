@@ -20,7 +20,7 @@ export function extractHudSteamId(req: Pick<Request, 'query'>): string | undefin
 
 /**
  * Rate-limit bucket per steamId when present (NAT-safe for many HUD clients).
- * Falls back to client IP for /hud/top10 and other routes without steamId.
+ * Falls back to client IP for routes without steamId.
  */
 export function buildHudRateLimitKey(req: Request): string {
   const steamId = extractHudSteamId(req);

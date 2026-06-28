@@ -22,6 +22,7 @@ export const hudRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests' },
+  skip: (req) => req.path === '/stream',
 });
 
 export function hudCorsMiddleware(req: Request, res: Response, next: NextFunction): void {
@@ -40,7 +41,11 @@ export function hudCorsMiddleware(req: Request, res: Response, next: NextFunctio
   next();
 }
 
-export function hudCacheHeaders(_req: Request, res: Response, next: NextFunction): void {
+export function hudCacheHeaders(req: Request, res: Response, next: NextFunction): void {
+  if (req.path === '/stream') {
+    next();
+    return;
+  }
   res.setHeader('Cache-Control', 'public, max-age=10');
   next();
 }

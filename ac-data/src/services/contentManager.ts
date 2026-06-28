@@ -152,18 +152,22 @@ export async function extractZip(type: ContentType, zipPath: string): Promise<{ 
 
         for (const entry of entries) {
             try {
-                if (entry.isDirectory) {
-                    console.log(`[extractZip] Skipping directory: ${entry.path}`);
-                    continue;
-                }
-
                 const entryPath = entry.path;
                 if (!entryPath || entryPath.trim() === '') {
-                    console.log(`[extractZip] Skipping empty path entry`);
                     continue;
                 }
 
                 const normalizedPath = entryPath.replace(/\\/g, '/');
+                const isDirEntry = entry.isDirectory || normalizedPath.endsWith('/');
+
+                if (isDirEntry) {
+                    const targetDir = path.join(contentDir, normalizedPath);
+                    const relativePath = path.relative(contentDir, targetDir);
+                    if (relativePath.startsWith('..') || relativePath.includes('..')) continue;
+                    await fs.promises.mkdir(targetDir, { recursive: true });
+                    continue;
+                }
+
                 const targetDir = path.join(contentDir, path.dirname(normalizedPath));
                 const targetPath = path.join(contentDir, normalizedPath);
 
@@ -177,15 +181,16 @@ export async function extractZip(type: ContentType, zipPath: string): Promise<{ 
                     await fs.promises.mkdir(targetDir, { recursive: true });
                 }
 
-                if (entry.isDirectory) {
-                    await fs.promises.mkdir(targetPath, { recursive: true });
-                } else {
-                    const entryStream = entry.stream();
-                    const writeStream = createWriteStream(targetPath);
-                    await pipeline(entryStream, writeStream);
-                    extracted.push(normalizedPath);
-                    console.log(`[extractZip] Extracted: ${normalizedPath}`);
+                const existingStats = await fs.promises.stat(targetPath).catch(() => null);
+                if (existingStats?.isDirectory()) {
+                    continue;
                 }
+
+                const entryStream = entry.stream();
+                const writeStream = createWriteStream(targetPath);
+                await pipeline(entryStream, writeStream);
+                extracted.push(normalizedPath);
+                console.log(`[extractZip] Extracted: ${normalizedPath}`);
             } catch (err: any) {
                 console.error(`[extractZip] Failed to extract ${entry?.path}: ${err.message}`);
                 errors.push(`Failed to extract ${entry?.path}: ${err.message}`);
