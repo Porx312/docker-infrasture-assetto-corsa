@@ -11,14 +11,6 @@ export function playerScopeKeyFromCacheKey(cacheKey: string): string {
   return `${PLAYER_SCOPE_PREFIX}${cacheKey}`;
 }
 
-export function boardRoomFromCacheKey(cacheKey: string): string {
-  return boardScopeKeyFromCacheKey(cacheKey);
-}
-
-export function playerRoomFromCacheKey(cacheKey: string): string {
-  return playerScopeKeyFromCacheKey(cacheKey);
-}
-
 export function parseBoardScopeKey(scopeKey: string): { cacheKey: string } | null {
   if (!scopeKey.startsWith(BOARD_SCOPE_PREFIX)) {
     return null;

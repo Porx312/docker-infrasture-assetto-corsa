@@ -68,3 +68,16 @@ def test_lap_completed_time_attack_publishes(mock_send, server_state):
     assert mock_send.call_args.args[0] == "lap_completed"
     assert mock_send.call_args.args[2]["lapTime"] == 120_000
     server_state.battle_manager.handle_lap_completed.assert_not_called()
+
+
+@patch("core.packet_processor.send_server_event")
+def test_lap_completed_unified_without_type_publishes(mock_send, server_state):
+    runtime_config.set_server_modes(
+        [{"serverName": "server", "displayName": "pord"}]
+    )
+    process_packet(_lap_completed_packet(), server_state, ("127.0.0.1", 12001))
+    mock_send.assert_called_once()
+    assert mock_send.call_args.args[0] == "lap_completed"
+    server_state.battle_manager.handle_lap_completed.assert_called_once_with(
+        "76561199230780195"
+    )

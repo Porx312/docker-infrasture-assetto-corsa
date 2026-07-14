@@ -1,6 +1,6 @@
 import { normalizeHudServerName } from './hudQueryNormalize.js';
 
-export type ManagedServerType = 'time-attack' | 'battle' | string;
+export type ManagedServerType = 'unified' | 'time-attack' | 'battle' | string;
 
 export type ManagedServerRow = {
   serverName: string;
@@ -35,7 +35,7 @@ export function updateManagedServersFromSnapshot(rows: ManagedServerRow[]): void
     const entry: ManagedServer = {
       folderSlug: row.serverName,
       displayName,
-      type: row.type ?? 'time-attack',
+      type: row.type ?? 'unified',
     };
     byDisplayName.set(displayKey(displayName), entry);
     byDisplayName.set(displayKey(row.serverName), entry);

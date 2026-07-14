@@ -233,16 +233,12 @@ Push en tiempo real vía **Server-Sent Events** (`EventSource`). HTTP GET largo 
 const url = `http://HOST:3000/hud/stream?steamId=${steamId}&api_key=${apiKey}`;
 const es = new EventSource(url);
 
-es.addEventListener('session:update', (e) => {
+es.addEventListener('hud_session', (e) => {
   applySession(JSON.parse(e.data));
 });
 
-es.addEventListener('battle:update', (e) => {
+es.addEventListener('battle', (e) => {
   applyFullSnapshot(JSON.parse(e.data));
-});
-
-es.addEventListener('battle:clear', () => {
-  startFinishLatch();
 });
 
 es.onerror = () => {
@@ -255,16 +251,16 @@ es.onerror = () => {
 
 | Evento | Cuándo | Payload (`data`) |
 |--------|--------|-------------------|
-| `session:update` | Al conectar y tras cambio de perfil/rivals (time attack) | JSON `HudSessionVpsResponse` |
-| `session:error` | Presencia inválida mid-session | `{ ok: false, reason }` |
-| `battle:update` | Al conectar (si hay batalla) y en cada cambio Redis | JSON `HudBattleOk` |
-| `battle:clear` | Tras `finished`/`cancelled` ~5 s, o snapshot ausente | `{"ok":false,"reason":"no_battle"}` |
+| `hud_version` | Al conectar SSE y tras `player_join` / `lap_completed` / `battle_finished` | `{ steamId, version, lbVersion, playerVersion }` |
+| `hud_session` | Mismo trigger que `hud_version` | JSON perfil + rivals (`getHudSession`) |
+| `hud_error` | Presencia inválida o error Convex persistente | `{ steamId, reason }` |
+| `battle` | Al conectar (si hay batalla) y en cada cambio Redis | JSON `HudBattleOk` o `{ ok: false, reason: "no_battle" }` tras clear |
 
-Formato wire: `event: battle:update\ndata: {...}\n\n`
+Formato wire: `event: battle\ndata: {...}\n\n`
 
 Comentarios `: keepalive` cada ~30 s mantienen la conexión viva tras proxies. En cada keepalive, ac-data **renueva** `ac:hud:presence:{steamId}` en Redis.
 
-Tras `battle_finished` (Convex actualiza elo), ac-data refresca el perfil de **ambos** pilotos con steam id válido y vuelve a emitir `battle:update` para que el HUD muestre el elo nuevo en la pantalla de resultado (~800 ms delay, `HUD_BATTLE_REFRESH_DELAY_MS`).
+Tras `battle_finished` (Convex actualiza elo), ac-data refresca el perfil de **ambos** pilotos con steam id válido y vuelve a emitir `battle` + `hud_session` (~400 ms delay, `HUD_BATTLE_REFRESH_DELAY_MS`).
 
 ## Parámetros de query (obligatorios)
 
@@ -455,24 +451,24 @@ Tras `finished` o `cancelled`, el backend envía el snapshot final por SSE y, ~5
 
 1. Obtener `steamId` del jugador local (Steam GUID).
 2. Abrir `EventSource` a `/hud/stream?steamId=…` al entrar al servidor.
-3. En cada `battle:update`: reemplazar snapshot entero y pintar UI.
-4. En `battle:clear`: activar latch 3–5 s con último snapshot, luego ocultar overlay.
+3. En cada `battle`: reemplazar snapshot entero y pintar UI.
+4. Al recibir `{ ok: false, reason: "no_battle" }` en `battle`: activar latch 3–5 s con último snapshot, luego ocultar overlay.
 5. En `onerror`: cerrar y reconectar tras 2–3 s (no abrir múltiples streams en paralelo).
 
 ## Diferencias respecto a time-attack
 
 | Aspecto | Time-attack | Battle |
 |---------|-------------|--------|
-| Transporte | Poll HTTP | **SSE (`EventSource`)** |
-| Versión time attack | Campo `version` en `session:update` | Campo `version` en `battle:update` |
-| Datos battle | — | Eventos `battle:update` |
-| Datos perfil/rivals | Eventos `session:update` | — |
+| Transporte | **SSE (`EventSource`)** | **SSE (`EventSource`)** |
+| Versión time attack | Evento `hud_version` | — |
+| Datos battle | — | Evento `battle` |
+| Datos perfil/rivals | Eventos `hud_session` | `hud_session` tras batalla (elo) |
 | Query extra | `steamIds`, filtros opcionales | Solo `steamId` (+ `api_key`) |
 | Chat | N/A | Sin mensajes de batalla por chat si HUD activo |
 
 ## Sincronización y anti-desync (obligatorio en el cliente)
 
-El overlay debe tratar cada `battle:update` como **única fuente de verdad**. No mezclar chat in-game ni estado local.
+El overlay debe tratar cada `battle` como **única fuente de verdad**. No mezclar chat in-game ni estado local.
 
 ### Regla de oro
 
@@ -609,17 +605,17 @@ Debe conectar al stream SSE (keepalive o evento `battle:update` si hay batalla).
 
 ### Depuración rápida
 
-Loguear: URL del stream, cada evento SSE (`battle:update` / `battle:clear`), `state`, scores, latch.
+Loguear: URL del stream, cada evento SSE (`hud_session` / `battle`), `state`, scores, latch.
 
 ## Checklist de implementación
 
 1. Abrir `EventSource` a `/hud/stream` (no poll REST).
-2. Aplicar `session:update` completo para perfil/rivals/time attack.
-3. Aplicar snapshot battle completo en cada `battle:update`.
+2. Aplicar `hud_session` completo para perfil/rivals/time attack.
+3. Aplicar snapshot battle completo en cada `battle`.
 4. Resolver jugador local por `steamId`, no por `player1`/`player2`.
 5. Mapear todos los `state` (`pairing` … `cancelled`).
 6. Toasts con `lastEvent.label`; dedup por `lastEvent.ts`.
-7. Latch 3–5 s en `finished`/`cancelled` y al recibir `battle:clear`.
+7. Latch 3–5 s en `finished`/`cancelled` y al recibir `battle` con `reason: no_battle`.
 8. Reconectar un solo stream en `onerror`.
 
 ## Verificación manual (backend)

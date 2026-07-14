@@ -7,17 +7,15 @@
     "dev": "tsx watch src/index.ts",
     "build": "rimraf ./dist && tsc",
     "start": "node dist/index.js",
-    "test": "tsx --test src/controller/trackConfig.test.ts src/controller/cmWrapper.test.ts src/middleware/hudRateLimitKey.test.ts src/services/coalesceIngestBatch.test.ts src/services/hud/battleHudPush.test.ts src/services/hud/battleHudReader.test.ts src/services/hud/hudStreamSse.test.ts src/services/hud/hudBattleCacheKeys.test.ts src/services/hud/hudBattleRooms.test.ts src/services/hud/hudCacheKeys.test.ts src/services/hud/hudManagedServers.test.ts src/services/hud/hudPlayerPresence.test.ts src/services/hud/hudProfile.test.ts src/services/hud/hudQueryNormalize.test.ts src/services/hud/hudRefreshScheduler.test.ts src/services/hud/hudScopeKeys.test.ts src/services/hud/hudSessionResponse.test.ts src/services/hud/hudUpdatesSubscriber.test.ts src/services/hud/hudVersion.test.ts src/services/hud/sessionHudPush.test.ts"
+    "test": "bash -c \"shopt -s globstar && tsx --test src/**/*.test.ts\""
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "Assetto Corsa server management bridge",
   "dependencies": {
-    "ac-remote-telemetry-client": "^0.1.1",
     "convex": "^1.29.1",
     "cookie-parser": "^1.4.7",
-    "cors": "^2.8.6",
     "dotenv": "^17.2.4",
     "express": "^5.2.1",
     "express-rate-limit": "^8.5.2",
@@ -29,7 +27,6 @@
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",
-    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.1.0",

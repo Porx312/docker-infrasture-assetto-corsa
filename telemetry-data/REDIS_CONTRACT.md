@@ -51,7 +51,7 @@ Generic server lifecycle (`network/event_dispatcher.send_server_event`):
 
 - `player_join`
 - `player_leave`
-- `lap_completed` — **only** when Convex server `type` is `time-attack` (not battle)
+- `lap_completed` — on managed servers with time-attack or **unified** mode (legacy: `type=time-attack`; default when `type` omitted is unified)
 - `server_status` (heartbeat every ~15 s; intentional, used for liveness)
 - `server_config_applied` (only when `REDIS_CONFIG_INI_WRITE_ENABLED=true`
   and Python writes local cfg files; default is ac-data-only INI writes).
@@ -93,10 +93,33 @@ Written by `telemetry-data/network/battle_hud_publisher.py` when
 
 Redis snapshot players (telemetry): `steamId`, `name`, `car_id`, `score`, optional `role`.
 
-Each SSE `battle:update` enriches players from `ac:hud:player:*` (same cache as `/hud/player`):
+Each SSE `battle:update` enriches players from `ac:hud:player:*` (derived locally from `ac:hud:session:*` profile):
 `name`, `tier`, `avatar_url`, `car_name`, `car_id` — profile wins over snapshot; legacy snapshots with `car` are still accepted.
 
 - `serverKey` = normalized AC display name (lowercase, spaces → `_`, CM suffix stripped).
 - Both players in a pair receive the same snapshot under their respective `steamId` keys.
 - Pub/sub channel `ac:hud:updates` notifies clients (same as time-attack HUD).
 - **ac-data** fan-out vía **SSE** (`GET /hud/battle/stream`) cuando `HUD_SSE_ENABLED=true`.
+
+## User invalidation / global ban (not streams)
+
+When Convex marks a profile `isInvalidated`, **ac-data** persists ban state in Redis and
+publishes a kick signal. **telemetry-data** reads the same keys (no Convex query in Python).
+
+**Writer path:** on `player_join`, ac-data calls `workerPlayers:getPlayerJoinContext`
+(`CONVEX_PLAYER_JOIN_QUERY`) once — user `isInvalidated` + optional HUD `session` (player
+cache `ac:hud:player:*` is derived locally from `session.profile`) — then
+`markUserInvalidated` when applicable. See [`docs/CONVEX_PLAYER_JOIN_CONTEXT.md`](../docs/CONVEX_PLAYER_JOIN_CONTEXT.md).
+
+| Key / channel | Writer | Reader | TTL |
+|---------------|--------|--------|-----|
+| `ac:user:invalidated:{steamId}` | ac-data (`hudUserInvalidation.ts`) | telemetry-data on connect (after deferred `player_join` refresh) | `USER_INVALIDATED_TTL_SEC` (default 86400) |
+| Pub/sub `ac:user:invalidated` | ac-data on mark | telemetry-data subscriber → kick on all servers | — |
+
+On every `NEW_CONNECTION`, telemetry emits `player_join` **before** ban kick so ac-data can call Convex and run `clearUserInvalidated` when the user was re-validated. Kick is deferred (`USER_BAN_DEFER_POLL_MS` × `USER_BAN_DEFER_ATTEMPTS`) while ac-data refreshes Redis.
+
+Enforcement reads **only** `ac:user:invalidated:{steamId}` (not HUD player cache).
+
+Env: `USER_BAN_ENABLED`, `USER_INVALIDATED_REDIS_PREFIX`, `USER_INVALIDATED_CHANNEL`, `USER_BAN_KICK_MESSAGE`, `USER_BAN_DEFER_POLL_MS`, `USER_BAN_DEFER_ATTEMPTS`.
+
+Verify: `./scripts/verify-user-ban.sh [steamId]`

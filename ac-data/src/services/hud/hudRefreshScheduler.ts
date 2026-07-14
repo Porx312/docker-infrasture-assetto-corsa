@@ -1,14 +1,14 @@
 import {
   bumpBoardVersionsForLap,
-  isLapPersonalBest,
   refreshPlayerHudCache,
+  refreshPlayerHudCacheForLap,
 } from './lapCompletedHudRefresh.js';
 import { isHudConvexConfigured } from './hudConvex.js';
 import { isHudRedisConfigured } from './hudRedis.js';
 
 const HUD_LAP_REFRESH_DEBOUNCE_MS = Number(process.env.HUD_LAP_REFRESH_DEBOUNCE_MS || 1500);
-const HUD_LAP_REFRESH_DELAY_MS = Number(process.env.HUD_LAP_REFRESH_DELAY_MS || 400);
-const HUD_BATTLE_REFRESH_DELAY_MS = Number(process.env.HUD_BATTLE_REFRESH_DELAY_MS || 800);
+const HUD_LAP_REFRESH_DELAY_MS = Number(process.env.HUD_LAP_REFRESH_DELAY_MS || 800);
+const HUD_BATTLE_REFRESH_DELAY_MS = Number(process.env.HUD_BATTLE_REFRESH_DELAY_MS || 400);
 
 type PlayerRefreshKey = string;
 
@@ -162,59 +162,13 @@ async function repushSessionForPlayers(jobs: PlayerJob[]): Promise<void> {
     return;
   }
 
-  const { playerRoomFromCacheKey } = await import('./hudScopeKeys.js');
-  const { pushSessionToPlayerRoom } = await import('./sessionHudPush.js');
-  const { buildPlayerCacheKey } = await import('./hudCacheKeys.js');
+  const { pushHudUpdateForSteamId } = await import('./hudSsePush.js');
 
-  await Promise.all(
-    jobs.map((job) =>
-      Promise.resolve(
-        pushSessionToPlayerRoom(
-          playerRoomFromCacheKey(buildPlayerCacheKey({ steamId: job.steamId })),
-        ),
-      ),
-    ),
-  );
+  await Promise.all(jobs.map((job) => pushHudUpdateForSteamId(job.steamId, false)));
 }
 
-async function repushSessionForBoards(boardJobs: BoardJob[]): Promise<void> {
-  if (boardJobs.length === 0) {
-    return;
-  }
-
-  const { boardRoomFromCacheKey } = await import('./hudScopeKeys.js');
-  const { pushSessionToBoardRoom } = await import('./sessionHudPush.js');
-  const { buildBoardCacheKey } = await import('./hudCacheKeys.js');
-
-  const rooms = new Set<string>();
-  for (const job of boardJobs) {
-    rooms.add(
-      boardRoomFromCacheKey(
-        buildBoardCacheKey({
-          serverName: job.serverName,
-          track: job.track,
-          trackConfig: job.trackConfig,
-          car: 'global',
-        }),
-      ),
-    );
-    if (job.carModel) {
-      rooms.add(
-        boardRoomFromCacheKey(
-          buildBoardCacheKey({
-            serverName: job.serverName,
-            track: job.track,
-            trackConfig: job.trackConfig,
-            car: job.carModel,
-          }),
-        ),
-      );
-    }
-  }
-
-  for (const room of rooms) {
-    pushSessionToBoardRoom(room);
-  }
+async function repushSessionForBoards(_boardJobs: BoardJob[]): Promise<void> {
+  // Board bumps do not push SSE; rivals refresh on lap/battle/connect for the local player.
 }
 
 async function repushBattleHudForPlayers(jobs: PlayerJob[]): Promise<void> {
@@ -258,14 +212,21 @@ async function flushHudRefreshQueue(): Promise<void> {
       await Promise.all(boardJobs.map((job) => bumpBoardVersionsForLap(job)));
 
       for (const job of playerJobs) {
-        if (job.source === 'lap' && job.lapTimeMs !== undefined) {
-          const isPb = await isLapPersonalBest({ steamId: job.steamId }, job.lapTimeMs);
-          if (!isPb) {
-            continue;
-          }
+        if (job.source === 'lap') {
+          await refreshPlayerHudCacheForLap({
+            steamId: job.steamId,
+            lastLapMs: job.lapTimeMs,
+            source: 'lap',
+          });
+          refreshedPlayers.push(job);
+          continue;
         }
 
-        await refreshPlayerHudCache({ steamId: job.steamId });
+        await refreshPlayerHudCache({
+          steamId: job.steamId,
+          source: 'battle',
+          retryEloUntilChange: true,
+        });
         refreshedPlayers.push(job);
       }
 

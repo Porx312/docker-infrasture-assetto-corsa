@@ -22,7 +22,7 @@ export const hudRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests' },
-  skip: (req) => req.path === '/stream',
+  skip: (req) => req.path === '/stream' || req.path.startsWith('/worker/'),
 });
 
 export function hudCorsMiddleware(req: Request, res: Response, next: NextFunction): void {
@@ -32,8 +32,8 @@ export function hudCorsMiddleware(req: Request, res: Response, next: NextFunctio
   } else if (origin === HUD_CORS_ORIGIN) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   }
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-API-Key');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-API-Key, X-Worker-Secret');
   if (req.method === 'OPTIONS') {
     res.sendStatus(200);
     return;

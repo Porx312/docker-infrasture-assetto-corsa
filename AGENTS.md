@@ -90,6 +90,18 @@ Do not maintain a separate root `.env`; use `.env.local` or `.env.production` on
 5. **ac-data continuously restarting servers** — Convex config version changing on every poll; use stable version strings
 6. **Servers not restarting after stop** — Delete stale `server_pids.json`
 7. **Config race** — Keep `REDIS_CONFIG_INI_WRITE_ENABLED=false` in telemetry; ac-data owns INI writes + restarts
+8. **Global ban requires Convex join query** — Deploy `workerPlayers:getPlayerJoinContext` in ProjectD and set `CONVEX_PLAYER_JOIN_QUERY` in `.env.local`. Without it, `player_join` does not write `ac:user:invalidated:*` for offline banned users. Verify: `./scripts/verify-convex-player-join.sh [steamId]` and `./scripts/verify-user-ban-pipeline.sh [steamId]`
+
+## HUD / Convex env (ac-data)
+
+```bash
+CONVEX_PLAYER_JOIN_QUERY=workerPlayers:getPlayerJoinContext
+CONVEX_HUD_SESSION_QUERY=hud:getHudSession
+CONVEX_HUD_VERSION_QUERY=hud:getHudVersion
+USER_BAN_ENABLED=true
+```
+
+Session-only HUD: no `getHudPlayer` / `CONVEX_HUD_PLAYER_QUERY`. See [`docs/CONVEX_PLAYER_JOIN_CONTEXT.md`](docs/CONVEX_PLAYER_JOIN_CONTEXT.md).
 
 ## CI/CD
 

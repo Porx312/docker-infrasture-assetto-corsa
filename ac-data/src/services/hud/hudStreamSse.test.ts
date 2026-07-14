@@ -1,52 +1,89 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildSessionVpsResponse } from './hudSessionResponse.js';
-import { formatSseEvent } from './hudStreamSse.js';
+import { formatSseEvent } from './hudStreamSseFormat.js';
 import { normalizeHudProfile } from './hudProfile.js';
+import {
+  buildHudSessionEvent,
+  buildHudVersionEvent,
+  resetHudSseConnectionsForTests,
+  versionFingerprint,
+} from './hudSsePush.js';
 
-test('formatSseEvent serializes event and JSON data', () => {
-  const formatted = formatSseEvent('battle:update', { ok: true, version: '1', state: 'active' });
+test('formatSseEvent serializes hud_session payload', () => {
+  const formatted = formatSseEvent('hud_session', {
+    steamId: '76561199000000001',
+    ok: true,
+    version: 'v1',
+    context: null,
+    profile: null,
+  });
+  assert.match(formatted, /^event: hud_session\n/);
+});
+
+test('formatSseEvent serializes battle payload', () => {
+  const formatted = formatSseEvent('battle', { ok: true, version: '1', state: 'active' });
   assert.equal(
     formatted,
-    'event: battle:update\ndata: {"ok":true,"version":"1","state":"active"}\n\n',
+    'event: battle\ndata: {"ok":true,"version":"1","state":"active"}\n\n',
   );
 });
 
-test('formatSseEvent handles session:update payload', () => {
-  const formatted = formatSseEvent('session:update', { ok: true, version: '1:2', players: [] });
-  assert.match(formatted, /^event: session:update\n/);
-});
-
-test('formatSseEvent handles battle:clear payload', () => {
-  const formatted = formatSseEvent('battle:clear', { ok: false, reason: 'no_battle' });
-  assert.match(formatted, /^event: battle:clear\n/);
-  assert.match(formatted, /"reason":"no_battle"/);
-});
-
-test('session:update SSE includes tier and best_lap_ms in profile', () => {
-  const profile = normalizeHudProfile({
-    name: 'Alice',
-    rank: 84,
-    tier: 7,
-    bestLapMs: 275_432,
-    carName: 'AE86',
-    carId: 'ae86',
-    steamId: '76561199000000001',
-    rivals: { above: null, below: null },
+test('buildHudVersionEvent includes version fields', () => {
+  const payload = buildHudVersionEvent('76561199000000001', {
+    ok: true,
+    version: 'a:b:c:1:2:3:4:5',
+    lbVersion: 'a:b:c:1:2:3:4',
+    playerVersion: 123,
   });
-  assert.ok(profile);
+  assert.deepEqual(payload, {
+    steamId: '76561199000000001',
+    version: 'a:b:c:1:2:3:4:5',
+    lbVersion: 'a:b:c:1:2:3:4',
+    playerVersion: 123,
+  });
+});
 
-  const payload = buildSessionVpsResponse('1:2', [
-    {
-      steamId: '76561199000000001',
-      ok: true,
-      context: null,
-      profile,
+test('buildHudSessionEvent normalizes profile fields', () => {
+  const payload = buildHudSessionEvent('76561199000000001', {
+    ok: true,
+    version: 'v1',
+    context: {
+      server_id: 's1',
+      server_name: 'testing xd',
+      track_id: 'pk_akina',
+      track_name: 'Akina',
+      layout_id: 'downhill',
+      layout_name: 'Downhill',
+      car_id: 'ae86',
+      car_name: 'AE86',
+      player_steam_id: '76561199000000001',
     },
-  ]);
+    profile: normalizeHudProfile({
+      name: 'Alice',
+      rank: 84,
+      tier: 7,
+      bestLapMs: 275_432,
+      carName: 'AE86',
+      carId: 'ae86',
+      steamId: '76561199000000001',
+      rivals: { above: null, below: null },
+    }),
+  });
 
-  const formatted = formatSseEvent('session:update', payload);
-  assert.match(formatted, /"tier":7/);
-  assert.match(formatted, /"best_lap_ms":275432/);
+  assert.equal(payload.steamId, '76561199000000001');
+  assert.equal((payload.profile as { best_lap_ms: number }).best_lap_ms, 275_432);
+});
+
+test('versionFingerprint tracks lb and player version', () => {
+  assert.equal(
+    versionFingerprint({
+      ok: true,
+      version: 'v',
+      lbVersion: 'lb',
+      playerVersion: 1,
+    }),
+    'v|lb|1',
+  );
+  resetHudSseConnectionsForTests();
 });

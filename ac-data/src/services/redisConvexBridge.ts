@@ -14,6 +14,9 @@ import {
   updateManagedServersFromSnapshot,
   type ManagedServerRow,
 } from './hud/hudManagedServers.js';
+import { refreshHudAfterPlayerJoin } from './hud/hudAfterPlayerJoin.js';
+import { invalidateHudCachesForSteamId } from './hud/lapCompletedHudRefresh.js';
+import { pushHudUpdateForSteamId } from './hud/hudSsePush.js';
 import {
   noteHudPlayerJoin,
   noteHudPlayerLeave,
@@ -40,8 +43,10 @@ const CONSUMER =
 
 const CONVEX_MUTATION_BATCH =
   process.env.CONVEX_MUTATION_BATCH || 'serverEvents:ingestWorkerEventsBatch';
-const CONVEX_INGEST_SECRET = process.env.CONVEX_INGEST_SECRET || '';
-const CONVEX_WORKER_SECRET = process.env.CONVEX_WORKER_SECRET || '';
+const CONVEX_INGEST_SECRET = (process.env.CONVEX_INGEST_SECRET || '').trim();
+const CONVEX_WORKER_SECRET = (process.env.CONVEX_WORKER_SECRET || '').trim();
+const PENDING_RECLAIM_MIN_IDLE_MS = Number(process.env.REDIS_PENDING_RECLAIM_MIN_IDLE_MS || 60_000);
+const PENDING_RECLAIM_BATCH = Number(process.env.REDIS_PENDING_RECLAIM_BATCH || 50);
 const CONVEX_CONFIG_SNAPSHOT_QUERY =
   process.env.CONVEX_CONFIG_SNAPSHOT_QUERY || 'timeAttackServers:getWorkerInstanceServerConfigs';
 const CONVEX_WORKER_SYNC_QUERY =
@@ -325,10 +330,21 @@ async function flushIngestChunk(
   for (const { msg, payload, event } of chunk) {
     if (event === 'player_join') {
       await noteHudPlayerJoin(payload);
+      const joinData = (payload.data ?? {}) as Record<string, unknown>;
+      const joinSteamId = typeof joinData.steamId === 'string' ? joinData.steamId.trim() : '';
+      if (joinSteamId) {
+        await refreshHudAfterPlayerJoin(joinSteamId);
+      }
     } else if (event === 'player_leave') {
       await noteHudPlayerLeave(payload);
     }
     if (event === 'lap_completed') {
+      const lapData = (payload.data ?? {}) as Record<string, unknown>;
+      const lapSteamId = typeof lapData.steamId === 'string' ? lapData.steamId.trim() : '';
+      if (lapSteamId) {
+        await invalidateHudCachesForSteamId(lapSteamId);
+        void pushHudUpdateForSteamId(lapSteamId, true);
+      }
       scheduleHudRefreshAfterLap(payload);
     } else if (event === 'battle_finished') {
       scheduleHudRefreshAfterBattleFinished(payload);
@@ -336,6 +352,75 @@ async function flushIngestChunk(
     await client.xAck(REDIS_STREAM_KEY, GROUP, msg.id);
   }
   return true;
+}
+
+function formatFlushError(err: unknown): string {
+  if (err instanceof Error) {
+    return err.message;
+  }
+  return String(err);
+}
+
+/** Reclaim stale XPENDING entries so fetch failures do not block the consumer forever. */
+async function reclaimStalePendingMessages(
+  client: ReturnType<typeof createClient>,
+  buffer: IngestBufferState,
+): Promise<number> {
+  let reclaimed = 0;
+  let cursor = '0-0';
+
+  while (reclaimed < PENDING_RECLAIM_BATCH) {
+    const raw = await client.xAutoClaim(
+      REDIS_STREAM_KEY,
+      GROUP,
+      CONSUMER,
+      PENDING_RECLAIM_MIN_IDLE_MS,
+      cursor,
+      { COUNT: Math.min(10, PENDING_RECLAIM_BATCH - reclaimed) },
+    );
+
+    const nextCursor = raw?.nextId;
+    const messages = raw?.messages as Array<{ id: string; message: Record<string, string> } | null> | undefined;
+    cursor = typeof nextCursor === 'string' ? nextCursor : '0-0';
+
+    if (!messages || messages.length === 0) {
+      break;
+    }
+
+    const pending: PendingIngestMessage[] = [];
+    for (const msg of messages) {
+      if (!msg) {
+        continue;
+      }
+      const streamMsg: StreamMessage = {
+        id: msg.id,
+        message: msg.message as Record<string, string> | undefined,
+      };
+      const payload = parsePayload(streamMsg);
+      if (!payload) {
+        await client.xAck(REDIS_STREAM_KEY, GROUP, msg.id);
+        continue;
+      }
+      const event = String(payload.event || '');
+      if (CONFIG_ONLY_EVENTS.has(event)) {
+        await client.xAck(REDIS_STREAM_KEY, GROUP, msg.id);
+        continue;
+      }
+      pending.push({ msg: streamMsg, payload, event });
+      reclaimed += 1;
+    }
+
+    if (pending.length > 0) {
+      appendToIngestBuffer(buffer, pending);
+      console.log(`[redis-bridge] reclaimed ${pending.length} stale pending message(s)`);
+    }
+
+    if (cursor === '0-0') {
+      break;
+    }
+  }
+
+  return reclaimed;
 }
 
 async function flushIngestBuffer(
@@ -383,8 +468,27 @@ async function runEventsConsumerLoop(client: ReturnType<typeof createClient>): P
       `batchMax=${INGEST_MAX_BATCH_SIZE} flushMs=${INGEST_FLUSH_INTERVAL_MS}`,
   );
 
+  try {
+    const reclaimed = await reclaimStalePendingMessages(client, buffer);
+    if (reclaimed > 0) {
+      await flushIngestBuffer(client, buffer);
+    }
+  } catch (err) {
+    console.error('[redis-bridge] pending reclaim error:', formatFlushError(err));
+  }
+
+  let loopCount = 0;
   while (true) {
     try {
+      loopCount += 1;
+      if (loopCount % 60 === 0) {
+        try {
+          await reclaimStalePendingMessages(client, buffer);
+        } catch (err) {
+          console.error('[redis-bridge] periodic pending reclaim error:', formatFlushError(err));
+        }
+      }
+
       const raw = await client.xReadGroup(
         GROUP,
         CONSUMER,
@@ -416,7 +520,7 @@ async function runEventsConsumerLoop(client: ReturnType<typeof createClient>): P
       try {
         await flushIngestBuffer(client, buffer);
       } catch (err) {
-        console.error('[redis-bridge] flush error:', err);
+        console.error('[redis-bridge] flush error:', formatFlushError(err));
       }
     } catch (err) {
       console.error('[redis-bridge] loop error:', err);

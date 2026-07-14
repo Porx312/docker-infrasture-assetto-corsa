@@ -256,7 +256,7 @@ All services share the repo-root [`.env.example`](.env.example) template (copied
 | `CORS_ORIGIN` | - | CORS allowed origin (ac-data) |
 | `SERVER_STATUS_POLL_INTERVAL_SEC` | 15 | Local poll cadence (telemetry) |
 | `SERVER_STATUS_PUBLISH_INTERVAL_SEC` | 30 | Publish on-change cadence (telemetry) |
-| `SERVER_STATUS_HEARTBEAT_INTERVAL_SEC` | Heartbeat interval |
+| `SERVER_STATUS_HEARTBEAT_INTERVAL_SEC` | Heartbeat interval (default 60; keeps Convex `live_players` fresh when lobby unchanged) |
 
 ---
 

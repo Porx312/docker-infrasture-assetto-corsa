@@ -115,7 +115,7 @@ export async function refreshPlayerPresence(presence: ResolvedPlayerPresence): P
     carModel: presence.carModel,
     updatedAt: Date.now(),
   };
-  await writePresence(presence.steamId, record);
+  await writePresence(presence.steamId, record, HUD_PRESENCE_JOIN_TTL_SEC);
   registerBattleSsePresence({ ...presence, updatedAt: record.updatedAt });
 }
 

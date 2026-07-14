@@ -38,3 +38,13 @@ def test_set_server_modes_and_lookup():
     assert meta["enableCollisions"] is True
     assert meta["detectIdle"] is True
     assert meta["maxFails"] == 3
+
+
+def test_set_server_modes_defaults_to_unified_without_type():
+    runtime_config.set_server_modes(
+        [{"serverName": "server", "displayName": "testing"}]
+    )
+    state = _FakeState(folder_id="server", config_name="testing")
+    assert runtime_config.get_mode_for_state(state) == "unified"
+    assert runtime_config.battle_enabled("unified") is True
+    assert runtime_config.time_attack_enabled("unified") is True

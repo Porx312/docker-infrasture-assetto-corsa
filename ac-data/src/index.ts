@@ -1,6 +1,5 @@
 import './config/loadEnv.js';
 import express from 'express';
-import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import path from 'path';
 import acServerRoutes from './routes/acServerRoutes.js';

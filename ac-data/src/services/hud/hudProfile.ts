@@ -1,4 +1,4 @@
-import type { HudProfile, HudRival, HudRivals } from './hudTypes.js';
+import type { HudPlayerResult, HudProfile, HudRival, HudRivals, HudSessionResult } from './hudTypes.js';
 
 const EMPTY_RIVALS: HudRivals = { above: null, below: null };
 
@@ -71,6 +71,11 @@ export function coerceHudProfile(
     rivals,
   };
 
+  const lastLapMs = readNumber(source, 'last_lap_ms', 'lastLapMs', 'lastLap');
+  if (lastLapMs > 0) {
+    profile.last_lap_ms = lastLapMs;
+  }
+
   const elo = readNumber(source, 'elo');
   if (elo > 0) {
     profile.elo = elo;
@@ -81,7 +86,7 @@ export function coerceHudProfile(
     profile.avatar_url = avatarUrl;
   }
 
-  if (source.isInvalidated === true) {
+  if (source.isInvalidated === true || source.is_invalidated === true) {
     profile.isInvalidated = true;
   }
 
@@ -113,38 +118,15 @@ export function normalizeHudProfile(
   };
 }
 
-/** Session has rivals; player cache often has fresher tier/best_lap_ms for the combo. */
-export function mergeSessionProfileFields(
-  sessionProfile: HudProfile | Record<string, unknown> | null | undefined,
-  playerProfile: HudProfile | Record<string, unknown> | null | undefined,
-): HudProfile | null {
-  const session = sessionProfile ? normalizeHudProfile(sessionProfile) : null;
-  const player = playerProfile ? normalizeHudProfile(playerProfile) : null;
-
-  if (!session && !player) {
-    return null;
-  }
-  if (!session) {
-    return player;
-  }
-  if (!player) {
-    return session;
+/** Derive local player cache shape from a Convex session result (no getHudPlayer). */
+export function playerResultFromSession(session: HudSessionResult): HudPlayerResult {
+  if (!session.ok) {
+    if (session.reason === 'car_not_found') {
+      return { ok: false, reason: 'track_not_found' };
+    }
+    return { ok: false, reason: session.reason };
   }
 
-  const sessionHasRivals = Boolean(session.rivals.above || session.rivals.below);
-
-  return normalizeHudProfile({
-    ...session,
-    name: session.name || player.name,
-    steam_id: session.steam_id || player.steam_id,
-    car_id: session.car_id || player.car_id,
-    car_name: session.car_name || player.car_name,
-    rank: session.rank > 0 ? session.rank : player.rank,
-    tier: player.tier > 0 ? player.tier : session.tier,
-    best_lap_ms: player.best_lap_ms > 0 ? player.best_lap_ms : session.best_lap_ms,
-    elo: session.elo ?? player.elo,
-    avatar_url: session.avatar_url ?? player.avatar_url,
-    isInvalidated: session.isInvalidated === true || player.isInvalidated === true,
-    rivals: sessionHasRivals ? session.rivals : player.rivals,
-  });
+  const profile = session.profile ? normalizeHudProfile(session.profile) : null;
+  return { ok: true, profile };
 }

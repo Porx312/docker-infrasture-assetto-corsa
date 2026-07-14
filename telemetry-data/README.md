@@ -7,7 +7,7 @@ Python service that processes race events from AC servers and publishes to Redis
 - Listens to UDP packets from AC servers (ACSP protocol)
 - Detects player joins/leaves, session changes, lap times, battles
 - Publishes events to Redis stream `ac:events`
-- Consumes `ac:config` snapshots to update in-memory server modes (battle / time-attack / event)
+- Consumes `ac:config` snapshots to update in-memory server modes (legacy `battle` / `time-attack`; default **unified** when `type` is omitted)
 
 ## Architecture
 
@@ -38,7 +38,7 @@ CI deploy on `main` rebuilds the container via `docker-compose.prod.yml` using `
 
 ## Server folders (`server-1`, `server-2`, …)
 
-Convex identifies each instance by **folder slug** (`serverName` = `server-1`, `server-2`, …), not by the AC display name (`NAME=` / `akina`). Telemetry resolves battle/time-attack mode using that folder id first, then display names.
+Convex identifies each instance by **folder slug** (`serverName` = `server-1`, `server-2`, …), not by the AC display name (`NAME=` / `akina`). Telemetry resolves server mode from the config snapshot; when ProjectD omits `type`, mode is **unified** (battles + time attack on the same lobby).
 
 At startup you should see lines like:
 
@@ -89,7 +89,7 @@ pytest -q
 Full documentation (architecture, state machine, scoring, Redis events): **[docs/BATTLE_MODE.md](docs/BATTLE_MODE.md)**.
 
 Summary: 1v1 touge pairs matched automatically when close and fast; states `IDLE` → `ARMED` → `LAUNCHING` → `ACTIVE` → `FINISHED`; run ends when the lead completes the lap; **5 s** sustained proximity before ARMED with `X vs Y — BATTLE ARM` countdown chat (`BATTLE_ARM_SUSTAINED_PROXIMITY_SEC`); ARMED/GO messages also show the matchup; **20 s** post-finish rematch cooldown (`BATTLE_FINISHED_COOLDOWN_SEC`).
-
+ 
 ## Event Types Published
 
 - `player_join`, `player_leave`, `lap_completed`, `server_status`

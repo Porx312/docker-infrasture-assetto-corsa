@@ -4,6 +4,12 @@ import re
 from network.ac_packet import ACSP, PacketParser
 from core.session_manager import DriverInfo, send_registration, send_chat, send_admin_command
 from core import runtime_config, settings
+from core.user_ban_enforcer import (
+    is_steam_id_banned,
+    kick_driver,
+    maybe_kick_banned_driver_on_car_update,
+    schedule_deferred_ban_kick,
+)
 from core.logging_config import get_logger
 from core.cm_name import display_server_name, strip_cm_name_suffix
 from network.event_dispatcher import send_server_event
@@ -132,7 +138,7 @@ def process_packet(data, server_state, addr):
                 log.error("[%s] error reloading %s: %s", server_state.port, server_state.cfg_path, e)
 
         server_mode = _resolve_server_mode(server_state)
-        is_battle_server = server_mode == "battle"
+        is_battle_server = runtime_config.battle_enabled(server_mode)
         server_state.battle_manager.set_server_mode(is_battle_server)
 
         if server_mode:
@@ -179,10 +185,7 @@ def process_packet(data, server_state, addr):
         driver.lap_start_time = time.time() * 1000
         driver.lap_notified_fail = False
 
-        # Notify Node.js the player joined (Event webhook dropped as it's not a lap update)
         if not guid.startswith('unknown_'):
-            
-            # Node.js General Webhook
             send_server_event(
                 "player_join",
                 display_server_name(server_state),
@@ -195,7 +198,44 @@ def process_packet(data, server_state, addr):
                 },
             )
 
-    # ─── CAR_INFO (210) ─────────────────────────────────────
+            if is_steam_id_banned(guid):
+                schedule_deferred_ban_kick(server_state, driver)
+                return
+
+    # ─── CLIENT_LOADED (58) ─────────────────────────────────
+    elif packet_type == ACSP.CLIENT_LOADED:
+        car_id = parser.read_uint8()
+        if car_id is None:
+            return
+
+        cached = server_state.last_known_by_car_id.get(car_id, {})
+        guid = cached.get("guid")
+        name = cached.get("name") or "Driver"
+        model = cached.get("model") or "Unknown"
+        driver = server_state.active_drivers.get(car_id)
+        if driver:
+            guid = driver.guid or guid
+            name = driver.name or name
+            model = driver.model or model
+
+        if guid and not guid.startswith("unknown_") and is_steam_id_banned(guid):
+            log.info(
+                "[%s] CLIENT_LOADED banned guid=%s car=%s",
+                server_state.port,
+                guid,
+                car_id,
+            )
+            if not driver:
+                driver = DriverInfo(name, guid, model)
+                driver.car_id = car_id
+            kick_driver(
+                server_state,
+                driver,
+                "user_invalidated_client_loaded",
+                send_message=False,
+            )
+
+    # ─── CAR_INFO (54) ──────────────────────────────────────
     elif packet_type == ACSP.CAR_INFO:
         car_id       = parser.read_uint8()
         if car_id is None: return
@@ -276,6 +316,16 @@ def process_packet(data, server_state, addr):
         log.debug("[%s] car_info car=%s name=%s model=%s", server_state.port, car_id, name, model)
         server_state.battle_manager.set_driver_name(guid, name)
 
+        if not guid.startswith("unknown_") and is_steam_id_banned(guid):
+            log.info(
+                "[%s] CAR_INFO banned guid=%s car=%s",
+                server_state.port,
+                guid,
+                car_id,
+            )
+            kick_driver(server_state, driver, "user_invalidated")
+            return
+
         # If realtime stream (packet 53) drops, recover subscription proactively.
         now_ms = int(time.time() * 1000)
         last_car_update_ms = getattr(server_state, "last_car_update_ms", 0)
@@ -341,10 +391,12 @@ def process_packet(data, server_state, addr):
             driver.car_id = car_id
             server_state.event_engine.check_idle(driver, speed_ms, now, meta)
 
-            is_battle_server = server_mode == "battle"
+            if not driver.guid.startswith("unknown_"):
+                maybe_kick_banned_driver_on_car_update(server_state, driver)
+
+            is_battle_server = runtime_config.battle_enabled(server_mode)
             server_state.battle_manager.set_server_mode(is_battle_server)
 
-            # Feed BattleManager only on battle servers.
             if is_battle_server:
                 server_state.battle_manager.update(
                     driver.guid,
@@ -366,7 +418,7 @@ def process_packet(data, server_state, addr):
             driver1 = server_state.active_drivers.get(car_id)
             driver2 = server_state.active_drivers.get(other_car_id)
             server_mode = _resolve_server_mode(server_state)
-            is_battle_server = server_mode == "battle"
+            is_battle_server = runtime_config.battle_enabled(server_mode)
             server_state.battle_manager.set_server_mode(is_battle_server)
             if is_battle_server and driver1 and driver2:
                 server_state.battle_manager.handle_collision(
@@ -380,7 +432,7 @@ def process_packet(data, server_state, addr):
             if driver:
                 driver.car_id = car_id
                 server_mode = _resolve_server_mode(server_state)
-                if server_mode in ("event", "time-attack"):
+                if runtime_config.time_attack_enabled(server_mode):
                     meta = runtime_config.get_event_constraints_for_state(server_state)
                     server_state.event_engine.check_collision(driver, meta)
 
@@ -431,18 +483,11 @@ def process_packet(data, server_state, addr):
             return
 
         server_mode = _resolve_server_mode(server_state)
-        if server_mode == "battle":
+        if runtime_config.battle_enabled(server_mode):
             server_state.battle_manager.set_server_mode(True)
             server_state.battle_manager.handle_lap_completed(driver.guid)
-            log.info(
-                "[%s] battle lap completed name=%s time=%.3fs",
-                server_state.port,
-                driver.name,
-                ac_lap_time / 1000,
-            )
-            return
 
-        if server_mode != "time-attack":
+        if not runtime_config.time_attack_enabled(server_mode):
             log.debug(
                 "[%s] lap_completed ignored mode=%r name=%s",
                 server_state.port,

@@ -26,12 +26,26 @@ _modes: dict[str, str] = {}
 _event_constraints: dict[str, dict] = {}
 
 
+UNIFIED_MODE = "unified"
+_LEGACY_MODES = frozenset({"battle", "time-attack", "event", UNIFIED_MODE})
+
+
 def _normalize_mode(value: object) -> str:
     text = (str(value) if value is not None else "").strip().lower()
     text = text.replace("_", "-")
-    if text in {"battle", "time-attack", "event"}:
+    if text in _LEGACY_MODES:
         return text
     return ""
+
+
+def battle_enabled(mode: Optional[str]) -> bool:
+    """True when battle matchmaking/collisions should run."""
+    return mode in ("battle", UNIFIED_MODE)
+
+
+def time_attack_enabled(mode: Optional[str]) -> bool:
+    """True when lap_completed / event constraints should run."""
+    return mode in ("time-attack", "event", UNIFIED_MODE)
 
 
 def _extract_event_constraints(row: dict) -> dict:
@@ -57,7 +71,9 @@ def set_server_modes(rows: Iterable[dict]) -> None:
     Replace the server mode mapping with values derived from a snapshot row list.
 
     Each row may contain `serverName` (folder slug, e.g. "server-2"),
-    `displayName` (the AC SERVER_NAME), and `type` (battle | time-attack | event).
+    `displayName` (the AC SERVER_NAME), and optional legacy `type`
+    (battle | time-attack | event). When `type` is omitted, mode is ``unified``
+    (battles + time attack on the same server).
     All keys are lowercased to make lookups case-insensitive.
     """
     new_map: dict[str, str] = {}
@@ -65,7 +81,6 @@ def set_server_modes(rows: Iterable[dict]) -> None:
     for row in rows or []:
         if not isinstance(row, dict):
             continue
-        mode = _normalize_mode(row.get("type"))
         event_meta = _extract_event_constraints(row)
         keys_for_row: list[str] = []
         for key in ("serverName", "displayName"):
@@ -73,9 +88,11 @@ def set_server_modes(rows: Iterable[dict]) -> None:
             if not value:
                 continue
             keys_for_row.append(str(value).strip().lower())
-        if mode:
-            for k in keys_for_row:
-                new_map[k] = mode
+        if not keys_for_row:
+            continue
+        mode = _normalize_mode(row.get("type")) or UNIFIED_MODE
+        for k in keys_for_row:
+            new_map[k] = mode
         if event_meta:
             for k in keys_for_row:
                 new_constraints[k] = dict(event_meta)

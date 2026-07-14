@@ -8,6 +8,9 @@ class ACSP:
     GET_CAR_INFO = 201        # Request car info
     SEND_CHAT = 202
     BROADCAST_CHAT = 203
+    KICK_USER = 206
+    RESTART_SESSION = 208
+    ADMIN_COMMAND = 209
     GET_SESSION_INFO = 59     # Request session info
 
     # Incoming (Server -> Backend)

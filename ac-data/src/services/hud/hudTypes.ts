@@ -19,6 +19,8 @@ export type HudProfile = {
   /** Combo tier vs global WR for track + layout + carModel. */
   tier: number;
   best_lap_ms: number;
+  /** Most recent valid lap time (ms); set by ac-data after lap_completed when Convex has not updated PB yet. */
+  last_lap_ms?: number;
   car_name: string;
   car_id: string;
   avatar_url?: string;
@@ -83,25 +85,6 @@ export type HudSessionErr = {
 
 export type HudSessionResult = HudSessionOk | HudSessionErr;
 
-/** One player slot in session:update SSE payload. */
-export type HudSessionPlayer = {
-  steamId: string;
-  ok: true;
-  context: HudContext | null;
-  profile: HudProfile | null;
-};
-
-export type HudSessionVpsResponse = {
-  ok: true;
-  version: string;
-  players: HudSessionPlayer[];
-};
-
-export type HudSessionVpsErr = {
-  ok: false;
-  reason: HudSessionErr['reason'];
-};
-
 export type BoardCacheParams = {
   serverName: string;
   track: string;
@@ -112,6 +95,8 @@ export type BoardCacheParams = {
 /** Convex resolves server/track/car from active session; worker passes steamId only. */
 export type PlayerCacheParams = {
   steamId: string;
+  /** When set after lap_completed, merged into cached profile for SSE. */
+  lastLapMs?: number;
 };
 
 /** Same as PlayerCacheParams — Convex resolves session from live_players. */
@@ -122,6 +107,60 @@ export type WorkerSyncVersionResult = {
   pollIntervalMs: number;
   pollJitterMs: number;
 };
+
+export type HudVersionQueryParams = {
+  steamId: string;
+  now?: number;
+};
+
+export type HudVersionOk = {
+  ok: true;
+  version: string;
+  lbVersion: string;
+  playerVersion: number;
+  playerVersions?: Record<string, number>;
+};
+
+export type HudVersionErr = {
+  ok: false;
+  reason:
+    | 'server_not_found'
+    | 'track_not_found'
+    | 'car_not_found'
+    | 'user_not_found'
+    | 'user_invalidated'
+    | HudPresenceErrReason;
+};
+
+export type HudVersionResult = HudVersionOk | HudVersionErr;
+
+/** Worker user record returned by getPlayerJoinContext (Convex). */
+export type PlayerJoinUser = {
+  steamId: string;
+  isInvalidated: boolean;
+  name?: string;
+};
+
+export type PlayerJoinContextOk = {
+  ok: true;
+  user: PlayerJoinUser;
+  session?: HudSessionResult;
+};
+
+export type PlayerJoinContextErr = {
+  ok: false;
+  reason:
+    | 'server_not_found'
+    | 'track_not_found'
+    | 'car_not_found'
+    | 'user_not_found'
+    | 'user_invalidated'
+    | HudPresenceErrReason;
+  user?: PlayerJoinUser;
+  session?: HudSessionResult;
+};
+
+export type PlayerJoinContextResult = PlayerJoinContextOk | PlayerJoinContextErr;
 
 export type HudBattlePlayer = {
   steamId: string;

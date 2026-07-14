@@ -12,11 +12,11 @@ import type { HudBattleOk } from './hudTypes.js';
 
 const ROOM = 'battle:testing:76561199000000001';
 
-test('pushBattleToRoom emits battle:update and schedules battle:clear on finished', async () => {
+test('pushBattleToRoom emits battle and schedules clear on finished', async () => {
   resetBattleHudPushForTests();
 
   const roomEvents: Array<{ event: string; payload: unknown }> = [];
-  const listener = (event: 'battle:update' | 'battle:clear', payload: unknown) => {
+  const listener = (event: 'battle', payload: unknown) => {
     roomEvents.push({ event, payload });
   };
   subscribeBattleHudRoom(ROOM, listener);
@@ -58,20 +58,20 @@ test('pushBattleToRoom emits battle:update and schedules battle:clear on finishe
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     assert.equal(roomEvents.length, 2);
-    assert.equal(roomEvents[0]?.event, 'battle:update');
+    assert.equal(roomEvents[0]?.event, 'battle');
     assert.deepEqual(roomEvents[0]?.payload, snapshot);
-    assert.equal(roomEvents[1]?.event, 'battle:clear');
+    assert.equal(roomEvents[1]?.event, 'battle');
   } finally {
     unsubscribeBattleHudRoom(ROOM, listener);
     resetBattleHudPushForTests();
   }
 });
 
-test('pushBattleToRoom emits battle:clear when snapshot missing', async () => {
+test('pushBattleToRoom emits battle when snapshot missing', async () => {
   resetBattleHudPushForTests();
 
   const roomEvents: Array<{ event: string; payload: unknown }> = [];
-  const listener = (event: 'battle:update' | 'battle:clear', payload: unknown) => {
+  const listener = (event: 'battle', payload: unknown) => {
     roomEvents.push({ event, payload });
   };
   subscribeBattleHudRoom(ROOM, listener);
@@ -80,7 +80,7 @@ test('pushBattleToRoom emits battle:clear when snapshot missing', async () => {
 
   try {
     await pushBattleToRoom(ROOM);
-    assert.deepEqual(roomEvents, [{ event: 'battle:clear', payload: { ok: false, reason: 'no_battle' } }]);
+    assert.deepEqual(roomEvents, [{ event: 'battle', payload: { ok: false, reason: 'no_battle' } }]);
   } finally {
     unsubscribeBattleHudRoom(ROOM, listener);
     resetBattleHudPushForTests();

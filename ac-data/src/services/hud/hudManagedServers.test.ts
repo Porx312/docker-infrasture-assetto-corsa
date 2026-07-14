@@ -28,10 +28,10 @@ test('lookupManagedServer returns null for unknown server', () => {
   assert.equal(lookupManagedServer('Random Public Server'), null);
 });
 
-test('lookupManagedServer distinguishes battle vs time-attack', () => {
+test('updateManagedServersFromSnapshot defaults to unified when type omitted', () => {
   resetManagedServersForTests();
   updateManagedServersFromSnapshot([
-    { serverName: 'server-2', displayName: 'Battle Test', type: 'battle' },
+    { serverName: 'server-2', displayName: 'Akina TA' },
   ]);
-  assert.equal(lookupManagedServer('Battle Test')?.type, 'battle');
+  assert.equal(lookupManagedServer('Akina TA')?.type, 'unified');
 });

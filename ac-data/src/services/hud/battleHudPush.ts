@@ -1,15 +1,12 @@
 import { getBattleCached } from './battleHudReader.js';
 import { parseBattleScopeKey } from './hudBattleRooms.js';
-import { parseBoardScopeKey, parsePlayerScopeKey } from './hudScopeKeys.js';
+import { parsePlayerScopeKey } from './hudScopeKeys.js';
 import { isHudRedisConfigured } from './hudRedis.js';
-import {
-  pushSessionToBoardRoom,
-  pushSessionToPlayerRoom,
-} from './sessionHudPush.js';
+import { pushHudUpdateForSteamId } from './hudSsePush.js';
 import { startHudUpdatesSubscriber } from './hudUpdatesSubscriber.js';
 import type { HudBattleErr, HudBattleOk } from './hudTypes.js';
 
-export type BattleHudPushEvent = 'battle:update' | 'battle:clear';
+export type BattleHudPushEvent = 'battle';
 
 export type BattleHudRoomListener = (event: BattleHudPushEvent, payload: unknown) => void;
 
@@ -49,7 +46,7 @@ function scheduleBattleClear(room: string): void {
   const timer = setTimeout(() => {
     clearTimers.delete(room);
     const payload: HudBattleErr = { ok: false, reason: 'no_battle' };
-    emitToRoom(room, 'battle:clear', payload);
+    emitToRoom(room, 'battle', payload);
   }, battleClearDelayMs());
   clearTimers.set(room, timer);
 }
@@ -71,16 +68,13 @@ export function initHudPushHub(): void {
     onBattleUpdate: (update) => {
       void pushBattleToRoom(update.scopeKey);
     },
-    onBoardUpdate: (update) => {
-      const parsed = parseBoardScopeKey(update.scopeKey);
-      if (parsed) {
-        pushSessionToBoardRoom(update.scopeKey);
-      }
+    onBoardUpdate: (_update) => {
+      // Board-only bumps do not push SSE; local player updates come from lap/battle/connect events.
     },
     onPlayerUpdate: (update) => {
       const parsed = parsePlayerScopeKey(update.scopeKey);
       if (parsed) {
-        pushSessionToPlayerRoom(update.scopeKey);
+        void pushHudUpdateForSteamId(parsed.cacheKey, true);
       }
     },
   });
@@ -115,7 +109,7 @@ export async function pushBattleToRoom(room: string): Promise<void> {
 
   const result = await battleSnapshotFetcher(params);
   if (result.ok) {
-    emitToRoom(room, 'battle:update', result);
+    emitToRoom(room, 'battle', result);
     if (shouldScheduleClear(result)) {
       scheduleBattleClear(room);
     } else {
@@ -124,7 +118,7 @@ export async function pushBattleToRoom(room: string): Promise<void> {
     return;
   }
 
-  emitToRoom(room, 'battle:clear', result);
+  emitToRoom(room, 'battle', result);
 }
 
 export async function sendInitialBattleSnapshot(
@@ -141,7 +135,7 @@ export async function sendInitialBattleSnapshot(
     return;
   }
 
-  listener('battle:update', result);
+  listener('battle', result);
   if (shouldScheduleClear(result)) {
     scheduleBattleClear(room);
   }

@@ -8,8 +8,10 @@ const REDIS_PASSWORD = process.env.REDIS_PASSWORD || undefined;
 const REDIS_DB = Number(process.env.REDIS_DB || 0);
 const REDIS_SSL = (process.env.REDIS_SSL || 'false').trim().toLowerCase() === 'true';
 
-export const HUD_PLAYER_TTL_SEC = Number(process.env.HUD_PLAYER_TTL_SEC || 300);
+export const HUD_PLAYER_TTL_SEC = Number(process.env.HUD_PLAYER_TTL_SEC || 10);
 export const HUD_SESSION_TTL_SEC = Number(process.env.HUD_SESSION_TTL_SEC || 300);
+/** Short TTL for transient Convex errors (not player_not_connected — that is never cached). */
+export const HUD_TRANSIENT_ERROR_TTL_SEC = Number(process.env.HUD_TRANSIENT_ERROR_TTL_SEC || 10);
 /** Refreshed on server_status, player_join, and successful HUD reads. */
 export const HUD_PRESENCE_TTL_SEC = Number(process.env.HUD_PRESENCE_TTL_SEC || 180);
 /** Longer TTL on join until player_leave explicitly clears presence. */

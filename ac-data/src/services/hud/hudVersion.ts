@@ -1,10 +1,5 @@
-import type { BoardCacheParams, PlayerCacheParams, BattleCacheParams } from './hudTypes.js';
-import {
-  battleVersionRedisKey,
-  buildBattleCacheKey,
-  buildBoardCacheKey,
-  buildPlayerCacheKey,
-} from './hudCacheKeys.js';
+import type { BoardCacheParams, PlayerCacheParams } from './hudTypes.js';
+import { buildBoardCacheKey, buildPlayerCacheKey } from './hudCacheKeys.js';
 import {
   boardScopeKeyFromCacheKey,
   playerScopeKeyFromCacheKey,
@@ -49,37 +44,4 @@ async function bumpVersionKey(redisKey: string, scopeKey: string): Promise<strin
     JSON.stringify({ scopeKey, version, ts: Date.now() }),
   );
   return version;
-}
-
-export async function readBoardVersion(params: BoardCacheParams): Promise<string | null> {
-  if (!isHudRedisConfigured()) {
-    return null;
-  }
-  const redis = await getHudRedisClient();
-  return redis.get(boardVersionKey(buildBoardCacheKey(params)));
-}
-
-export async function readPlayerVersion(params: PlayerCacheParams): Promise<string | null> {
-  if (!isHudRedisConfigured()) {
-    return null;
-  }
-  const redis = await getHudRedisClient();
-  return redis.get(playerVersionKey(buildPlayerCacheKey(params)));
-}
-
-export async function readBattleVersion(params: BattleCacheParams): Promise<string | null> {
-  if (!isHudRedisConfigured()) {
-    return null;
-  }
-  const redis = await getHudRedisClient();
-  return redis.get(battleVersionRedisKey(buildBattleCacheKey(params)));
-}
-
-/** Combined version string for SSE session payloads (board + each player). */
-export function combineSessionVersion(
-  boardVersion: string | null,
-  playerVersions: Array<string | null>,
-): string {
-  const parts = [boardVersion ?? '0', ...playerVersions.map((v) => v ?? '0')];
-  return parts.join(':');
 }

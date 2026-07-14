@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { isProfileInvalidated, mergeSessionProfileFields, normalizeHudProfile } from './hudProfile.js';
+import { isProfileInvalidated, normalizeHudProfile, playerResultFromSession } from './hudProfile.js';
 import type { HudProfile } from './hudTypes.js';
 
 const validProfile: HudProfile = {
@@ -30,11 +30,50 @@ test('isProfileInvalidated is false for normal profile', () => {
 
 test('isProfileInvalidated is true when flagged', () => {
   assert.equal(isProfileInvalidated({ ...validProfile, isInvalidated: true }), true);
+  assert.equal(
+    isProfileInvalidated(normalizeHudProfile({ ...validProfile, is_invalidated: true })!),
+    true,
+  );
 });
 
 test('isProfileInvalidated is false for null profile', () => {
   assert.equal(isProfileInvalidated(null), false);
   assert.equal(isProfileInvalidated(undefined), false);
+});
+
+test('playerResultFromSession derives player profile from session ok', () => {
+  const derived = playerResultFromSession({
+    ok: true,
+    version: 'v1',
+    context: {
+      server_id: 's1',
+      server_name: 'testing',
+      track_id: 'pk_akina',
+      track_name: 'Akina',
+      layout_id: 'downhill',
+      layout_name: 'Downhill',
+      car_id: 'ks_toyota_gt86',
+      car_name: 'GT86',
+      player_steam_id: validProfile.steam_id,
+    },
+    profile: validProfile,
+  });
+  assert.equal(derived.ok, true);
+  if (derived.ok) {
+    assert.equal(derived.profile?.rank, 1);
+    assert.equal(derived.profile?.tier, 5);
+  }
+});
+
+test('playerResultFromSession maps session errors to player errors', () => {
+  assert.deepEqual(playerResultFromSession({ ok: false, reason: 'user_invalidated' }), {
+    ok: false,
+    reason: 'user_invalidated',
+  });
+  assert.deepEqual(playerResultFromSession({ ok: false, reason: 'car_not_found' }), {
+    ok: false,
+    reason: 'track_not_found',
+  });
 });
 
 test('normalizeHudProfile mirrors rivals.above to rival', () => {
@@ -92,34 +131,4 @@ test('coerceHudProfile maps camelCase Convex fields', () => {
   assert.equal(normalized?.tier, 7);
   assert.equal(normalized?.car_id, 'ae86');
   assert.equal(normalized?.rivals.above?.lap_ms, 275_100);
-});
-
-test('mergeSessionProfileFields prefers player tier and best_lap_ms', () => {
-  const merged = mergeSessionProfileFields(
-    {
-      name: 'Alice',
-      rank: 84,
-      tier: 0,
-      best_lap_ms: 0,
-      car_name: 'AE86',
-      car_id: 'ae86',
-      steam_id: '76561199000000001',
-      rivals: { above: rivalAbove, below: null },
-    },
-    {
-      name: 'Alice',
-      rank: 0,
-      tier: 7,
-      best_lap_ms: 275_432,
-      car_name: 'AE86',
-      car_id: 'ae86',
-      steam_id: '76561199000000001',
-      rivals: { above: null, below: null },
-    },
-  );
-
-  assert.equal(merged?.tier, 7);
-  assert.equal(merged?.best_lap_ms, 275_432);
-  assert.equal(merged?.rank, 84);
-  assert.equal(merged?.rivals.above?.name, 'Bob');
 });

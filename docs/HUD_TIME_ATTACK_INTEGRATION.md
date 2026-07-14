@@ -1,44 +1,47 @@
 # Guía de integración: Time Attack HUD (perfil + rivals)
 
-Documento para el equipo del overlay. Transporte **SSE único** vía ac-data (`GET /hud/stream`). Perfil Convex con **rivals** (sin top-10 ni leaderboard).
+Documento para el equipo del overlay (ProjectD-HUD Lua). Transporte **SSE único** vía ac-data (`GET /hud/stream`). ac-data consulta Convex con `workerSecret` y empuja JSON al cliente in-game. **No hay rutas HTTP `/hud/version`, `/hud/session` ni `/hud/player`.**
 
 ## Cambios respecto al overlay antiguo
 
 | Antes | Ahora |
 |-------|-------|
 | `GET /hud/top10` | **Eliminado** |
-| Poll `GET /hud/version` + `GET /hud/session` | **Eliminado** — un solo `EventSource` |
-| `profile.rival` (singular) | `profile.rivals.above` / `profile.rivals.below` (Convex). ac-data añade `rival = rivals.above` en el SSE para overlays legacy. |
-| Query `serverName` + `track` | **Solo `steamId`** — overlay y worker; Convex resuelve sesión activa |
+| Poll HTTP `/hud/version` + `/hud/session` | **Eliminado** — ac-data empuja `hud_version` + `hud_session` solo por eventos |
+| `session:update` / `battle:update` | `hud_session` / `hud_version` / `hud_error` / `battle` |
+| Query `serverName` + `track` | **Solo `steamId`** — Convex resuelve sesión activa desde `live_players` |
+| `profile.rival` (singular) | `profile.rivals.above` / `profile.rivals.below` |
 
 **Tier vs rank:** `rank` es posición en el leaderboard del servidor; `tier` es nivel del combo pista+layout+coche vs el WR global (`verifiedRecords`). No son intercambiables.
 
-**Contrato Convex (worker):** ac-data llama `getHudPlayer({ steamId, workerSecret })` y `getHudSession({ steamId, workerSecret })`. Convex resuelve servidor, pista, layout, coche y combo desde `live_players`. El overlay **solo** envía `steamId`.
+**Contrato Convex (worker):** ac-data llama `getHudVersion`, `getHudSession` (y opcionalmente caché corta interna). El overlay **solo** abre SSE con `steamId`.
 
 ## Flujo de datos
 
 ```mermaid
 sequenceDiagram
-  participant Overlay
+  participant Lua as ProjectD-HUD
   participant AcData as ac-data
-  participant Redis
-  participant Convex
+  participant Redis as Redis
+  participant Convex as Convex_hud
 
-  Overlay->>AcData: GET /hud/stream?steamId=
-  AcData->>Redis: resolve presence (SSE gate)
-  AcData->>Convex: getHudSession({ steamId })
-  AcData-->>Overlay: session:update inicial
-  AcData-->>Overlay: battle:update si hay batalla
-
-  Note over Redis: lap_completed
-  Redis->>AcData: PUBLISH ac:hud:updates
-  AcData->>Convex: getHudPlayer / getHudSession({ steamId })
-  AcData-->>Overlay: session:update
+  Lua->>AcData: SSE subscribe steamId
+  AcData->>Convex: getHudVersion + getHudSession
+  AcData-->>Lua: hud_version + hud_session
+  Redis-->>AcData: player_join
+  AcData->>Convex: getHudVersion + getHudSession
+  AcData-->>Lua: hud_version + hud_session
+  Redis-->>AcData: lap_completed
+  AcData->>AcData: invalidar caché + push inmediato
+  AcData-->>Lua: hud_version + hud_session
+  Redis-->>AcData: battle_finished
+  AcData-->>Lua: battle
+  AcData-->>Lua: hud_version + hud_session
 ```
 
-1. telemetry-data publica `lap_completed` y presencia en Redis.
-2. ac-data refresca caché y publica `board:` / `player:` en `ac:hud:updates`.
-3. El overlay abre **un** `EventSource` y aplica cada `session:update`.
+1. telemetry-data publica `lap_completed`, batallas y presencia en Redis.
+2. Al abrir SSE, ac-data empuja un snapshot inicial (`hud_version` + `hud_session`).
+3. Tras `player_join`, `lap_completed` o `battle_finished`, ac-data invalida/refresca caché y empuja `hud_version` + `hud_session` (sin poll periódico).
 
 ## `GET /hud/stream`
 
@@ -48,117 +51,125 @@ Base URL: `http://HOST:3000/hud/stream`
 
 ### Eventos SSE
 
-| Evento | Payload |
-|--------|---------|
-| `session:update` | `{ ok: true, version, players[] }` — perfil + rivals + context |
-| `session:error` | `{ ok: false, reason }` — presencia inválida |
-| `battle:update` / `battle:clear` | Ver [HUD_BATTLE_INTEGRATION.md](./HUD_BATTLE_INTEGRATION.md) |
+| Evento | Cuándo | Payload |
+|--------|--------|---------|
+| `hud_version` | Al conectar SSE, `player_join`, `lap_completed`, `battle_finished` | `{ steamId, version, lbVersion, playerVersion }` |
+| `hud_session` | Mismo trigger que `hud_version` | Respuesta `getHudSession` + `steamId` en raíz |
+| `hud_error` | Error persistente (`player_not_connected`, `user_not_found`, `user_invalidated`, …) | `{ steamId, reason }` |
+| `battle` | `battle_update` / `battle_finished` en Redis | Snapshot batalla (ver [HUD_BATTLE_INTEGRATION.md](./HUD_BATTLE_INTEGRATION.md)) |
 
-### Cliente
+### Cliente Lua / overlay
 
 ```javascript
 const url = `http://HOST:3000/hud/stream?steamId=${steamId}&api_key=${apiKey}`;
 const es = new EventSource(url);
 
-es.addEventListener('session:update', (e) => {
+es.addEventListener('hud_version', (e) => {
   const data = JSON.parse(e.data);
-  // data.players[0].profile — tier, best_lap_ms, rivals.above/below
+  // comparar version / lbVersion / playerVersion localmente si hace falta
+});
+
+es.addEventListener('hud_session', (e) => {
+  const data = JSON.parse(e.data);
+  // data.profile — tier, best_lap_ms, rivals.above/below, elo
   applySession(data);
 });
 
-es.addEventListener('session:error', (e) => {
-  handlePresenceError(JSON.parse(e.data));
+es.addEventListener('hud_error', (e) => {
+  handleHudError(JSON.parse(e.data));
 });
 
-es.addEventListener('battle:update', (e) => {
+es.addEventListener('battle', (e) => {
   applyBattle(JSON.parse(e.data));
 });
-
-es.onerror = () => {
-  es.close();
-  setTimeout(() => { /* reconectar */ }, 3000);
-};
 ```
 
-Reemplazar estado local completo en cada `session:update`.
+Reemplazar estado local completo en cada `hud_session`.
 
-### Shape `session:update`
+### Shape `hud_session`
 
 ```json
 {
+  "steamId": "7656119…",
   "ok": true,
-  "version": "boardVer:playerVer",
-  "players": [
-    {
-      "steamId": "76561199000000001",
-      "ok": true,
-      "context": {
-        "server_name": "ProjectD",
-        "track_id": "pk_akina",
-        "layout_id": "akina_downhill",
-        "car_id": "ae86",
-        "car_name": "Trueno AE86",
-        "player_steam_id": "76561199000000001"
-      },
-      "profile": {
-        "name": "Alice",
-        "rank": 84,
-        "tier": 7,
-        "best_lap_ms": 275432,
-        "car_name": "Trueno AE86",
-        "car_id": "ae86",
-        "steam_id": "76561199000000001",
-        "elo": 1520,
-        "isInvalidated": false,
-        "avatar_url": "https://…",
-        "rivals": {
-          "above": { "rank": 83, "name": "Bob", "tier": 7, "lap_ms": 275100, "car_name": "RX-7" },
-          "below": { "rank": 85, "name": "Carol", "tier": 6, "lap_ms": 276000, "car_name": "Miata" }
-        },
-        "rival": { "rank": 83, "name": "Bob", "tier": 7, "lap_ms": 275100, "car_name": "RX-7" }
-      }
-    }
-  ]
+  "version": "serverId:track:layout:…",
+  "context": { "server_name": "testing xd", "track_id": "pk_akina", "…": "…" },
+  "profile": {
+    "rank": 84,
+    "tier": 7,
+    "best_lap_ms": 275432,
+    "rivals": { "above": { "…": "…" }, "below": { "…": "…" } }
+  }
 }
 ```
 
-- `rivals.above`: rank mejor; `null` si rank 1.
+- `rivals.above`: rank mejor; `null` si rank 1 (eres #1 — no hay rival arriba en el board car-scoped).
 - `rivals.below`: rank peor; `null` si último del board.
-- `profile.tier` y `profile.best_lap_ms` van **siempre** en el JSON SSE (número; `0` si no hay dato/WR).
-- ac-data normaliza campos Convex (`bestLapMs` → `best_lap_ms`) y fusiona `getHudPlayer` + `getHudSession` antes del push.
-- Convex solo envía `rivals`. ac-data duplica `rivals.above` en `profile.rival` en cada `session:update` (compatibilidad con overlays que aún leen el campo singular).
-- Overlays nuevos: usar solo `rivals.above` / `rivals.below`.
-- `session:error` con `reason: user_invalidated` → ocultar perfil (equivalente 403).
+- `profile.tier`, `profile.best_lap_ms` van en el JSON SSE (milisegundos).
+- Usar solo `getHudSession` — no hay merge con `getHudPlayer` en el path SSE.
+- `hud_error` con `reason: user_invalidated` → ocultar perfil y **expulsar del servidor** (telemetry-data comprueba `ac:user:invalidated:{steamId}` en Redis al conectar y escucha pub/sub `ac:user:invalidated` para kick en todos los servidores). El overlay recibe el SSE vía `POST /hud/worker/refresh-user` (Convex → ac-data) o en el próximo `player_join` / `lap_completed`.
+- Ban + caché HUD al join: una query Convex `getPlayerJoinContext` (`CONVEX_PLAYER_JOIN_QUERY`) — ver [`docs/CONVEX_PLAYER_JOIN_CONTEXT.md`](CONVEX_PLAYER_JOIN_CONTEXT.md).
 
 ## Actualización automática
 
 | Evento telemetry | Push SSE |
 |------------------|----------|
-| `lap_completed` | `board:` bump → `session:update` (rivals). Si PB → refresh perfil → otro `session:update`. |
-| `battle_finished` | Refresh elo + `battle:update` + `session:update` |
+| `player_join` | Invalida caché + `hud_version` + `hud_session` |
+| `lap_completed` | Invalida caché + push inmediato; refresh debounced para elo/rivals |
+| `battle_finished` | `battle` + `hud_version` + `hud_session` para ambos jugadores |
 
-Delays: `HUD_LAP_REFRESH_DELAY_MS` (400), `HUD_BATTLE_REFRESH_DELAY_MS` (800), debounce `HUD_LAP_REFRESH_DEBOUNCE_MS` (1500).
+Delays refresh debounced: `HUD_LAP_REFRESH_DELAY_MS` (800), `HUD_BATTLE_REFRESH_DELAY_MS` (400), debounce `HUD_LAP_REFRESH_DEBOUNCE_MS` (1500).
+
+Diagnóstico en VPS: `./scripts/verify-hud-lap-pipeline.sh [steamId]`
+
+Si rivals siguen mal tras una vuelta: `./scripts/verify-convex-hud-session.sh [steamId]` — confirma `getHudSession` en Convex.
 
 ## Errores de presencia
 
 | `reason` | Significado |
 |----------|-------------|
-| `player_not_connected` | Sin presencia Redis/SSE **o** no está en `live_players` en Convex (worker debe enviar `player_join` / `server_status`) |
+| `player_not_connected` | **404 al abrir SSE** si no hay presencia Redis. En mid-session → `hud_error`. |
 | `not_managed_server` | Lobby no gestionado (no ProjectD en config) |
 
-Presencia se renueva en `server_status`, `player_join`, keepalive SSE (~30 s).
+**Carrera al conectar:** Redis puede marcar presencia antes de que Convex tenga `live_players` (p. ej. `server_status` local vs ingest pendiente). El overlay puede recibir un `hud_error` transitorio; ac-data **no cachea** `player_not_connected` y envía `hud_session` tras `player_join` exitoso. Si persiste: `DEL ac:hud:session:{steamId}` y reconectar, o revisar `XPENDING` / logs `[redis-bridge] convex batch ingest failed`.
+
+**Mid-session:** ac-data empuja datos solo por eventos (`player_join`, `lap_completed`, `battle_finished`, conexión SSE). El overlay **no debe vaciar la UI** ante un `hud_error` transitorio si ya tiene datos; mantener last-good hasta el próximo `hud_session`.
+
+Presencia se renueva en `server_status`, `player_join`, keepalive SSE (~30 s). El keepalive SSE **no** refresca perfil; solo mantiene la conexión y renueva presencia Redis.
 
 ## Variables de entorno (ac-data)
 
 | Variable | Descripción |
 |----------|-------------|
-| `CONVEX_HUD_PLAYER_QUERY` | Query Convex player |
-| `CONVEX_HUD_SESSION_QUERY` | Query Convex session |
+| `CONVEX_HUD_SESSION_QUERY` | Query Convex session (`hud:getHudSession`) |
+| `CONVEX_PLAYER_JOIN_QUERY` | Query unificada al join (`workerPlayers:getPlayerJoinContext`) — ban + seed caché |
+| `CONVEX_HUD_VERSION_QUERY` | Query Convex version (`hud:getHudVersion`) — usada en pushes event-driven |
 | `HUD_SSE_ENABLED` | SSE `/hud/stream` (default true) |
 | `HUD_SSE_KEEPALIVE_MS` | Keepalive SSE (default 30000) |
 | `HUD_PRESENCE_TTL_SEC` | TTL presencia (default 180s) |
 | `HUD_PRESENCE_JOIN_TTL_SEC` | TTL al join (default 600s) |
-| `HUD_PLAYER_TTL_SEC` / `HUD_SESSION_TTL_SEC` | TTL caché Redis |
+| `HUD_PLAYER_TTL_SEC` / `HUD_SESSION_TTL_SEC` | TTL caché Redis (player default **10s**; session 300s) |
+| `HUD_TRANSIENT_ERROR_TTL_SEC` | TTL caché errores transitorios Convex (default 10s; `player_not_connected` no se cachea) |
+| `HUD_LAP_REFRESH_DELAY_MS` | Espera post-debounce antes de refrescar tras `lap_completed` (default 800) |
+| `HUD_BATTLE_REFRESH_DELAY_MS` | Espera antes de refrescar tras `battle_finished` (default 400) |
+| `HUD_SESSION_RIVALS_RETRY_ATTEMPTS` | Reintentos de `getHudSession` si rivals/rank no cambian tras vuelta (default 3) |
+| `HUD_SESSION_RIVALS_RETRY_MS` | Delay entre reintentos de rivals (default 300) |
+| `HUD_SESSION_FETCH_RETRY_ATTEMPTS` | Reintentos de `getHudSession` si `player_not_connected` con presencia OK (default 3; alias `HUD_PLAYER_FETCH_RETRY_ATTEMPTS`) |
+| `HUD_SESSION_FETCH_RETRY_MS` | Delay entre reintentos session fetch (default 400; alias `HUD_PLAYER_FETCH_RETRY_MS`) |
+| `HUD_BATTLE_ELO_RETRY_ATTEMPTS` | Reintentos post-batalla hasta que `elo` cambie vs caché previa (default 3) |
+| `HUD_BATTLE_ELO_RETRY_MS` | Delay entre reintentos elo post-batalla (default 400) |
+| `REDIS_PENDING_RECLAIM_*` | Recuperación de mensajes XPENDING atascados en ingest |
+
+## Checklist overlay (rivals + tiempo)
+
+En cada `hud_session`, el overlay debe:
+
+1. Reemplazar **todo** el perfil local (no actualizar solo `elo` de batalla).
+2. Leer `profile.rivals.above` / `profile.rivals.below` (o `profile.rival` legacy).
+3. Mostrar `profile.best_lap_ms` (PB) y/o `profile.last_lap_ms` (última vuelta).
+4. No ignorar el evento si solo cambia `version` pero el perfil trae datos nuevos.
+
+Verificación SSE: `./scripts/verify-hud-overlay-contract.sh [steamId]`
 
 ## Relacionado
 

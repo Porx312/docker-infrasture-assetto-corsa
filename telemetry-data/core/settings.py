@@ -58,3 +58,17 @@ HUD_BATTLE_TTL_SEC = _env_int("HUD_BATTLE_TTL_SEC", "120")
 HUD_BATTLE_DEBOUNCE_MS = _env_int("HUD_BATTLE_DEBOUNCE_MS", "300")
 HUD_BATTLE_CLEAR_DELAY_SEC = _env_int("HUD_BATTLE_CLEAR_DELAY_SEC", "5")
 HUD_VER_TTL_SEC = _env_int("HUD_VER_TTL_SEC", "3600")
+
+USER_BAN_ENABLED = _env_bool("USER_BAN_ENABLED", "true")
+USER_INVALIDATED_REDIS_PREFIX = os.getenv(
+    "USER_INVALIDATED_REDIS_PREFIX", "ac:user:invalidated:"
+).strip()
+USER_INVALIDATED_CHANNEL = os.getenv("USER_INVALIDATED_CHANNEL", "ac:user:invalidated").strip()
+USER_INVALIDATED_TTL_SEC = _env_int("USER_INVALIDATED_TTL_SEC", "86400")
+USER_BAN_KICK_MESSAGE = os.getenv(
+    "USER_BAN_KICK_MESSAGE",
+    "Your account is not allowed on this server.",
+).strip()
+# Wait for ac-data player_join → Convex refresh before kicking on connect
+USER_BAN_DEFER_POLL_MS = _env_int("USER_BAN_DEFER_POLL_MS", "250")
+USER_BAN_DEFER_ATTEMPTS = _env_int("USER_BAN_DEFER_ATTEMPTS", "8")

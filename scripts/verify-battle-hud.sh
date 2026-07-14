@@ -21,4 +21,4 @@ echo "URL: $STREAM_URL"
 curl -sfN --max-time "$TIMEOUT_SEC" "$STREAM_URL" | head -n 20
 
 echo ""
-echo "OK: SSE stream reachable (session:update on connect; battle events when active)"
+echo "OK: SSE stream reachable (hud_session on connect; battle events when active)"

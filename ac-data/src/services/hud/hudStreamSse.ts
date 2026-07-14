@@ -16,12 +16,13 @@ import {
   resolvePlayerPresence,
   unregisterBattleSsePresence,
 } from './hudPlayerPresence.js';
-import { isHudRedisConfigured } from './hudRedis.js';
 import {
-  sendInitialSessionSnapshot,
-  subscribeSessionHudRooms,
-  type SessionHudRoomListener,
-} from './sessionHudPush.js';
+  registerHudSseConnection,
+  sendInitialHudSseSnapshot,
+  type HudSseConnection,
+} from './hudSsePush.js';
+import { isHudRedisConfigured } from './hudRedis.js';
+import { writeSseEvent } from './hudStreamSseFormat.js';
 
 const SSE_KEEPALIVE_MS = Number(process.env.HUD_SSE_KEEPALIVE_MS || 30_000);
 
@@ -31,14 +32,6 @@ function requireQueryString(value: unknown): string | null {
   }
   const trimmed = value.trim();
   return trimmed || null;
-}
-
-export function formatSseEvent(event: string, data: unknown): string {
-  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-}
-
-export function writeSseEvent(res: Response, event: string, data: unknown): void {
-  res.write(formatSseEvent(event, data));
 }
 
 export async function handleHudStreamSse(req: Request, res: Response): Promise<void> {
@@ -69,13 +62,6 @@ export async function handleHudStreamSse(req: Request, res: Response): Promise<v
   initHudPushHub();
 
   const battleRoom = battleRoomFromParams(resolved.presence.serverName, steamId);
-  const sessionParams = {
-    steamId,
-    serverName: resolved.presence.serverName,
-    track: resolved.presence.track,
-    trackConfig: resolved.presence.trackConfig ?? '',
-    carModel: resolved.presence.carModel,
-  };
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -83,19 +69,23 @@ export async function handleHudStreamSse(req: Request, res: Response): Promise<v
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
 
+  const hudConn: HudSseConnection = {
+    steamId,
+    lastVersionFingerprint: null,
+    listener: (event, payload) => {
+      writeSseEvent(res, event, payload);
+    },
+  };
+
+  const unregisterHud = registerHudSseConnection(hudConn);
+
   const battleListener: BattleHudRoomListener = (event, payload) => {
     writeSseEvent(res, event, payload);
   };
 
-  const sessionListener: SessionHudRoomListener = (event, payload) => {
-    writeSseEvent(res, event, payload);
-  };
-
   subscribeBattleHudRoom(battleRoom, battleListener);
-  const unsubscribeSession = subscribeSessionHudRooms(sessionParams, sessionListener);
-
-  void sendInitialSessionSnapshot(sessionParams, sessionListener);
   void sendInitialBattleSnapshot(battleRoom, battleListener);
+  void sendInitialHudSseSnapshot(hudConn);
 
   const keepalive = setInterval(() => {
     res.write(': keepalive\n\n');
@@ -104,8 +94,8 @@ export async function handleHudStreamSse(req: Request, res: Response): Promise<v
 
   req.on('close', () => {
     clearInterval(keepalive);
+    unregisterHud();
     unregisterBattleSsePresence(steamId);
     unsubscribeBattleHudRoom(battleRoom, battleListener);
-    unsubscribeSession();
   });
 }

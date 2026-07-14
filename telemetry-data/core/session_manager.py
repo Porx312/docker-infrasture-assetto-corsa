@@ -68,7 +68,7 @@ class ServerState:
         return runtime_config.get_mode_for_state(self) or ""
 
     def handle_battle_start(self, car1_guid, car2_guid):
-        if self._get_server_mode() != "battle":
+        if not runtime_config.battle_enabled(self._get_server_mode()):
             return None
         return f"battle-{uuid4().hex[:12]}"
 
@@ -125,7 +125,7 @@ class ServerState:
             )
             return
         mode = self._get_server_mode()
-        if mode != "battle" or not battle_id:
+        if not runtime_config.battle_enabled(mode) or not battle_id:
             log.warning(
                 "battle score dispatch skipped: mode=%s battle_id=%s folder=%s",
                 mode,
@@ -217,18 +217,32 @@ def send_chat(server_state, car_id, message):
         log.error("error sending chat: %s", e)
 
 
-def send_admin_command(server_state, command):
-    """Executes a command natively via ACSP_ADMIN_COMMAND (208) which server plugins intercept."""
-    if not server_state.last_server_addr: return
+def send_kick_user(server_state, car_id):
+    """Kicks a player via ACSP_KICK_USER (206): [206][car_id]."""
+    if not server_state.last_server_addr:
+        return
     try:
         sock = server_state.sock
         target = (server_state.last_server_addr[0], server_state.server_cmd_port)
-        
+        packet = struct.pack("<BB", 206, car_id)
+        sock.sendto(packet, target)
+    except Exception as e:
+        log.error("error sending kick user: %s", e)
+
+
+def send_admin_command(server_state, command):
+    """Executes a command via ACSP_ADMIN_COMMAND (209)."""
+    if not server_state.last_server_addr:
+        return
+    try:
+        sock = server_state.sock
+        target = (server_state.last_server_addr[0], server_state.server_cmd_port)
+
         # Format: [byte id] [byte len] [wstring command encoded in utf-32le]
-        cmd_bytes = command.encode('utf-32le')
+        cmd_bytes = command.encode("utf-32le")
         cmd_len = len(command)
-        
-        packet = struct.pack(f'<BB{len(cmd_bytes)}s', 208, cmd_len, cmd_bytes)
+
+        packet = struct.pack(f"<BB{len(cmd_bytes)}s", 209, cmd_len, cmd_bytes)
         sock.sendto(packet, target)
     except Exception as e:
         log.error("error sending admin command: %s", e)

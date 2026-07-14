@@ -64,14 +64,9 @@ async function enrichBattlePlayer(
   player: HudBattlePlayerSnapshot,
 ): Promise<HudBattlePlayer> {
   const base = normalizeBattlePlayerSnapshot(player);
-  const carModel = snapshotCarId(player);
 
   const profileResult = await getPlayerCached({
     steamId: player.steamId,
-    serverName: battle.serverName,
-    track: battle.track,
-    trackConfig: battle.trackConfig,
-    carModel,
   });
 
   if (!profileResult.ok || isProfileInvalidated(profileResult.profile)) {
