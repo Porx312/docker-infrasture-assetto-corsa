@@ -328,9 +328,9 @@ def _ban_subscriber_loop() -> None:
         return
 
     try:
-        from core.redis_client import get_redis_client
+        from core.redis_client import get_redis_blocking_client
 
-        redis = get_redis_client()
+        redis = get_redis_blocking_client()
         pubsub = redis.pubsub(ignore_subscribe_messages=True)
         pubsub.subscribe(settings.USER_INVALIDATED_CHANNEL)
         log.info("user ban subscriber listening on %s", settings.USER_INVALIDATED_CHANNEL)
@@ -361,9 +361,3 @@ def start_user_ban_subscriber() -> None:
 
     thread = threading.Thread(target=_ban_subscriber_loop, name="user-ban-subscriber", daemon=True)
     thread.start()
-
-
-def reset_ban_subscriber_for_tests() -> None:
-    global _subscriber_started
-    with _subscriber_lock:
-        _subscriber_started = False

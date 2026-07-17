@@ -164,17 +164,3 @@ def dispatch_battle_webhook(
             winner_guid,
             payload.get("status"),
         )
-
-
-def shutdown_publish_workers() -> None:
-    """Drain and stop publish workers (tests / graceful shutdown)."""
-    global _started, _publish_queue, _executor
-    with _start_lock:
-        if not _started or _publish_queue is None or _executor is None:
-            return
-        for _ in range(max(1, settings.REDIS_PUBLISH_WORKERS)):
-            _publish_queue.put(None)
-        _executor.shutdown(wait=True, cancel_futures=False)
-        _started = False
-        _publish_queue = None
-        _executor = None

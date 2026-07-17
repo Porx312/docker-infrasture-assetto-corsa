@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterable, Iterator
+from typing import TYPE_CHECKING, Iterator
 
 if TYPE_CHECKING:
     from core.session_manager import DriverInfo, ServerState
@@ -12,10 +12,6 @@ _servers: dict[int, ServerState] = {}
 
 def register_server(server_state: ServerState) -> None:
     _servers[server_state.port] = server_state
-
-
-def unregister_server(port: int) -> None:
-    _servers.pop(port, None)
 
 
 def all_servers() -> list[ServerState]:
@@ -73,7 +69,3 @@ def find_driver_by_steam_id(steam_id: str) -> list[tuple[ServerState, DriverInfo
 
 def reset_registry_for_tests() -> None:
     _servers.clear()
-
-
-def iter_servers() -> Iterable[ServerState]:
-    return _servers.values()

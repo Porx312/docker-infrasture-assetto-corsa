@@ -23,6 +23,12 @@ REDIS_USERNAME = os.getenv("REDIS_USERNAME", "").strip() or None
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "").strip() or None
 REDIS_DB = _env_int("REDIS_DB", "0")
 REDIS_SSL = _env_bool("REDIS_SSL", "false")
+# Normal commands (GET/XADD). 0 = no socket read timeout.
+REDIS_SOCKET_TIMEOUT_SEC = _env_int("REDIS_SOCKET_TIMEOUT_SEC", "10")
+# Blocking consumers (XREADGROUP BLOCK, pub/sub). Must stay 0 (unlimited) for long BLOCK waits.
+REDIS_BLOCKING_SOCKET_TIMEOUT_SEC = _env_int("REDIS_BLOCKING_SOCKET_TIMEOUT_SEC", "0")
+REDIS_HEALTH_CHECK_INTERVAL_SEC = _env_int("REDIS_HEALTH_CHECK_INTERVAL_SEC", "30")
+REDIS_CONFIG_XREAD_BLOCK_MS = _env_int("REDIS_CONFIG_XREAD_BLOCK_MS", "5000")
 
 REDIS_STREAM_KEY = os.getenv("REDIS_STREAM_KEY", "ac:events").strip()
 REDIS_CONFIG_STREAM_KEY = os.getenv("REDIS_CONFIG_STREAM_KEY", "ac:config").strip() or REDIS_STREAM_KEY
@@ -34,8 +40,6 @@ REDIS_CONFIG_CONSUMER_GROUP = os.getenv("REDIS_CONFIG_CONSUMER_GROUP", "ac-confi
 REDIS_CONFIG_CONSUMER_NAME = os.getenv(
     "REDIS_CONFIG_CONSUMER_NAME", f"py-{AC_INSTANCE_ID}"
 ).strip()
-# When false (default), Python only updates in-memory runtime_config; ac-data writes INI + restarts.
-REDIS_CONFIG_INI_WRITE_ENABLED = _env_bool("REDIS_CONFIG_INI_WRITE_ENABLED", "false")
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").strip().upper()
 
@@ -58,6 +62,10 @@ HUD_BATTLE_TTL_SEC = _env_int("HUD_BATTLE_TTL_SEC", "120")
 HUD_BATTLE_DEBOUNCE_MS = _env_int("HUD_BATTLE_DEBOUNCE_MS", "300")
 HUD_BATTLE_CLEAR_DELAY_SEC = _env_int("HUD_BATTLE_CLEAR_DELAY_SEC", "5")
 HUD_VER_TTL_SEC = _env_int("HUD_VER_TTL_SEC", "3600")
+
+# Require overlay SSE (/hud/stream) for battle matchmaking when true.
+BATTLE_REQUIRE_HUD_SSE = _env_bool("BATTLE_REQUIRE_HUD_SSE", "false")
+HUD_SSE_REDIS_PREFIX = os.getenv("HUD_SSE_REDIS_PREFIX", "ac:hud:sse:").strip()
 
 USER_BAN_ENABLED = _env_bool("USER_BAN_ENABLED", "true")
 USER_INVALIDATED_REDIS_PREFIX = os.getenv(

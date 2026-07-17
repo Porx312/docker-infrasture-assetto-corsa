@@ -72,9 +72,16 @@ Set `SKIP_LEGACY_SERVER_CFG=true` (default) to omit `{SERVERS_PATH}/server_cfg.i
 | `REDIS_HOST` / `REDIS_PORT` | Redis connection | (required) |
 | `REDIS_STREAM_MAXLEN` | `ac:events` trim size | `200000` |
 | `REDIS_CONFIG_CONSUMER_ENABLED` | Consume `ac:config` for modes | `true` |
-| `REDIS_CONFIG_INI_WRITE_ENABLED` | Python writes INI (legacy) | `false` |
 | `LOG_LEVEL` | Logging level | `INFO` |
+| `GHOST_DRIVER_TIMEOUT_MS` | Remove stale drivers from status | `90000` |
+| `GHOST_CARINFO_DEBOUNCE_MS` | Debounce CAR_INFO ghost recovery | `2000` |
+| `CAR_UPDATE_WATCHDOG_MS` | Re-register if no CAR_UPDATE | `3000` |
+| `MIN_VALID_LAP_MS` | Minimum lap time for `lap_completed` | `10000` |
+| `BATTLE_REQUIRE_HUD_SSE` | Require overlay SSE for battle pairing | `false` |
+| `HUD_SSE_REDIS_PREFIX` | Redis prefix for overlay SSE heartbeat | `ac:hud:sse:` |
+| `BATTLE_HUD_ENABLED` | Publish battle state to Redis HUD keys | `true` |
 | `SERVER_STATUS_*` | Status poll / publish / heartbeat | see repo root [`.env.example`](../.env.example) |
+| Battle tuning (`BATTLE_*`, `OVERTAKE_*`) | Touge thresholds | see [docs/BATTLE_MODE.md](docs/BATTLE_MODE.md) |
 
 ## Tests
 
@@ -88,12 +95,11 @@ pytest -q
 
 Full documentation (architecture, state machine, scoring, Redis events): **[docs/BATTLE_MODE.md](docs/BATTLE_MODE.md)**.
 
-Summary: 1v1 touge pairs matched automatically when close and fast; states `IDLE` → `ARMED` → `LAUNCHING` → `ACTIVE` → `FINISHED`; run ends when the lead completes the lap; **5 s** sustained proximity before ARMED with `X vs Y — BATTLE ARM` countdown chat (`BATTLE_ARM_SUSTAINED_PROXIMITY_SEC`); ARMED/GO messages also show the matchup; **20 s** post-finish rematch cooldown (`BATTLE_FINISHED_COOLDOWN_SEC`).
+Summary: 1v1 touge pairs matched automatically when close and fast; states `IDLE` → `ARMED` → `LAUNCHING` → `ACTIVE` → `FINISHED`; run ends when the lead completes the lap; battle UI via Redis HUD + SSE overlay (no in-game chat). See [docs/BATTLE_MODE.md](docs/BATTLE_MODE.md) for thresholds.
  
 ## Event Types Published
 
 - `player_join`, `player_leave`, `lap_completed`, `server_status`
 - `battle_update`, `battle_finished`
-- `server_config_applied` (only if `REDIS_CONFIG_INI_WRITE_ENABLED=true`)
 
 See [REDIS_CONTRACT.md](REDIS_CONTRACT.md) for the full stream schema.

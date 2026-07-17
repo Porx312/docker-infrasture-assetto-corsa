@@ -5,7 +5,6 @@ from __future__ import annotations
 import math
 import time
 
-from core import settings
 from core.logging_config import get_logger
 from engines.battlesystem.config import (
     ARM_SUSTAINED_PROXIMITY_SEC,
@@ -14,12 +13,6 @@ from engines.battlesystem.config import (
     PAIR_IDLE_SEPARATED_RELEASE_SEC,
     PAIR_MAX_PREACTIVE_LOCK_SEC,
     PAIR_STICKY_TIMEOUT_SEC,
-)
-from engines.battlesystem.chat import (
-    format_matchup,
-    notify_arming_cancelled,
-    notify_arming_countdown,
-    notify_position_fallback_mode,
 )
 from engines.battlesystem.rules import arming, finish, overtake
 from engines.battlesystem.rules.proximity import distance_3d
@@ -41,14 +34,12 @@ def process_pair_logic(manager):
 
     if len(active_guids) < 2:
         if manager.state not in ("IDLE", "FINISHED"):
-            manager._notify_battle_cancelled("not enough players")
             log.info("not enough players (%d), resetting", len(active_guids))
             manager._reset_to_idle(full_reset=True)
         return
 
     if not p1 or not p2:
         if manager.state not in ("IDLE", "FINISHED"):
-            manager._notify_battle_cancelled("pair missing")
             log.warning("active pair missing from car state, resetting")
         manager._reset_to_idle(full_reset=True)
         manager.battle = None
@@ -66,7 +57,6 @@ def process_pair_logic(manager):
             if remaining_guid and manager._finalize_abandon(remaining_guid, "opponent_disconnected"):
                 return
         if manager.state not in ("IDLE", "FINISHED"):
-            manager._notify_battle_cancelled("pair stale")
             log.info("pair stale timeout, resetting")
         _dissolve_pair(manager, reason="pair stale")
         return
@@ -177,7 +167,6 @@ def _maybe_notify_arming_countdown(manager, now: float) -> None:
     if sec == announced:
         return
     manager._arming_countdown_announced_sec = sec
-    notify_arming_countdown(manager, sec)
     manager._publish_hud(hud_state="arming", force=True)
 
 
@@ -187,7 +176,6 @@ def _clear_arming_countdown(manager, *, notify_cancel: bool = False) -> None:
     manager.arm_proximity_since = 0.0
     manager._arming_countdown_announced_sec = -1
     if notify_cancel and was_arming and had_announced:
-        notify_arming_cancelled(manager)
         from network.battle_hud_publisher import format_cancel_label, make_hud_event
 
         cancel_label = format_cancel_label("arming_aborted")
@@ -229,16 +217,6 @@ def _handle_idle(manager, car1, car2, distance: float, now: float) -> None:
     manager.state = "ARMED"
     manager.condition_start_time = now
     log.info("ARMED %s vs %s gap=%.1fm", car1.guid, car2.guid, distance)
-    cooldown = getattr(manager, "ARMED_CHAT_COOLDOWN", 15.0)
-    if (
-        not settings.BATTLE_HUD_ENABLED
-        and manager.on_chat_message
-        and (now - manager.last_armed_chat_time) >= cooldown
-    ):
-        msg = f"{format_matchup(manager)} — ARMED"
-        manager.on_chat_message(car1.guid, msg)
-        manager.on_chat_message(car2.guid, msg)
-        manager.last_armed_chat_time = now
     if manager.battle_id is None and manager.on_battle_start:
         manager.battle_id = manager.on_battle_start(manager.battle.car1_guid, manager.battle.car2_guid)
     manager._publish_hud(hud_state="armed", force=True)
@@ -256,11 +234,6 @@ def _handle_armed(manager, car1, car2, distance: float, now: float) -> None:
         manager.state = "LAUNCHING"
         manager.launch_trigger_time = now
         log.info("LAUNCHING gap=%.1fm both > %.0f km/h", distance, BATTLE_ARM_MIN_SPEED_KMH)
-        if not settings.BATTLE_HUD_ENABLED and manager.on_chat_message:
-            speed = int(BATTLE_ARM_MIN_SPEED_KMH)
-            msg = f"{format_matchup(manager)} — GO — both over {speed} km/h"
-            manager.on_chat_message(car1.guid, msg)
-            manager.on_chat_message(car2.guid, msg)
         manager._publish_hud(hud_state="launching", force=True)
     elif manager.launch_trigger_time and (now - manager.launch_trigger_time) > LAUNCH_TIMEOUT_SEC:
         log.info("launch timeout in ARMED, resetting")
@@ -296,11 +269,6 @@ def _handle_launching(manager, car1, car2, distance: float, now: float) -> None:
         chase_car.spline_reliable,
         getattr(manager, "_position_fallback", False),
     )
-    if getattr(manager, "_position_fallback", False):
-        notify_position_fallback_mode(manager)
-    if not settings.BATTLE_HUD_ENABLED and manager.on_chat_message:
-        manager.on_chat_message(manager.battle.lead_guid, "You are LEAD")
-        manager.on_chat_message(manager.battle.chase_guid, "You are CHASE")
     manager._publish_hud(
         hud_state="active",
         force=True,
@@ -339,5 +307,8 @@ def _handle_active(manager, car1, car2, distance: float, now: float) -> None:
             log.info("FINISH DRAW gap=%.1fm — no finish point", finish_gap_m)
         else:
             log.info("FINISH POINT lead gap=%.1fm", finish_gap_m)
-            manager._award_point(point_winner, reason="finish_outrun", skip_chat=True)
+            manager._award_point(point_winner, reason="finish_outrun")
         manager._finalize_single_session_result(finish_gap_m, is_draw)
+
+# Public alias for orchestrator HUD disconnect handling.
+dissolve_pair = _dissolve_pair

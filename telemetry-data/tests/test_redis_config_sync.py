@@ -1,8 +1,10 @@
-import os
-import tempfile
-
 from core import runtime_config, settings
-from core.redis_config_sync import _write_server_cfg, apply_snapshot
+from core.redis_config_sync import _is_transient_redis_loop_error, apply_snapshot
+
+try:
+    import redis.exceptions as redis_exceptions
+except Exception:
+    redis_exceptions = None
 
 
 class _FakeState:
@@ -16,7 +18,6 @@ class _FakeState:
 def test_apply_snapshot_runtime_only(monkeypatch, tmp_path):
     versions_file = str(tmp_path / "versions.json")
     monkeypatch.setattr(settings, "AC_INSTANCE_ID", "test-instance")
-    monkeypatch.setattr(settings, "REDIS_CONFIG_INI_WRITE_ENABLED", False)
     monkeypatch.setattr("core.redis_config_sync._VERSIONS_FILE", versions_file)
 
     runtime_config.set_server_modes([])
@@ -42,38 +43,9 @@ def test_apply_snapshot_runtime_only(monkeypatch, tmp_path):
     ) == "battle"
 
 
-def test_write_server_cfg_updates_track():
-    with tempfile.TemporaryDirectory() as tmp:
-        cfg_path = os.path.join(tmp, "server_cfg.ini")
-        with open(cfg_path, "w", encoding="utf-8") as f:
-            f.write("[SERVER]\nNAME=Old\nTRACK=old_track\n")
-        changed = _write_server_cfg(
-            cfg_path,
-            {"displayName": "NewName", "track": "new_track", "trackConfig": "cfg"},
-        )
-        assert "TRACK" in changed
-        content = open(cfg_path, encoding="utf-8").read()
-        assert "TRACK=new_track" in content
-        assert "NAME=NewName" in content
-
-
-def test_write_server_cfg_config_track_default_becomes_empty():
-    with tempfile.TemporaryDirectory() as tmp:
-        cfg_path = os.path.join(tmp, "server_cfg.ini")
-        with open(cfg_path, "w", encoding="utf-8") as f:
-            f.write("[SERVER]\nCONFIG_TRACK=default\n")
-        changed = _write_server_cfg(cfg_path, {"trackConfig": "default"})
-        assert "CONFIG_TRACK" in changed
-        content = open(cfg_path, encoding="utf-8").read()
-        assert "CONFIG_TRACK=\n" in content or content.rstrip().endswith("CONFIG_TRACK=")
-        assert "CONFIG_TRACK=default" not in content
-
-
-def test_write_server_cfg_config_track_layout_preserved():
-    with tempfile.TemporaryDirectory() as tmp:
-        cfg_path = os.path.join(tmp, "server_cfg.ini")
-        with open(cfg_path, "w", encoding="utf-8") as f:
-            f.write("[SERVER]\nCONFIG_TRACK=\n")
-        _write_server_cfg(cfg_path, {"trackConfig": "  akina_downhill  "})
-        content = open(cfg_path, encoding="utf-8").read()
-        assert "CONFIG_TRACK=akina_downhill" in content
+def test_transient_redis_loop_error_detects_timeout():
+    if redis_exceptions is None:
+        return
+    assert _is_transient_redis_loop_error(redis_exceptions.TimeoutError("timed out"))
+    assert _is_transient_redis_loop_error(redis_exceptions.ConnectionError("reset"))
+    assert not _is_transient_redis_loop_error(ValueError("bad payload"))

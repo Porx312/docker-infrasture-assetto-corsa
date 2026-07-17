@@ -10,6 +10,7 @@ import {
   sessionRedisKey,
   presenceRedisKey,
   presenceRosterRedisKey,
+  ssePresenceRedisKey,
 } from './hudCacheKeys.js';
 
 test('normalizeHudKeyPart lowercases and replaces spaces', () => {
@@ -69,5 +70,9 @@ test('presence redis key prefixes', () => {
   assert.equal(
     presenceRosterRedisKey('project_d'),
     'ac:hud:presence:roster:project_d',
+  );
+  assert.equal(
+    ssePresenceRedisKey('76561199000000001'),
+    'ac:hud:sse:76561199000000001',
   );
 });

@@ -1,20 +1,18 @@
 import os
 
+from core import settings
+
 # ── Arming / pair lock ──
 BATTLE_ARM_MAX_GAP_METERS = float(os.getenv("BATTLE_ARM_MAX_GAP_METERS", "15.0"))
 BATTLE_ARM_MIN_SPEED_KMH = float(os.getenv("BATTLE_ARM_MIN_SPEED_KMH", "40.0"))
 ARM_SUSTAINED_PROXIMITY_SEC = float(
     os.getenv("BATTLE_ARM_SUSTAINED_PROXIMITY_SEC", "5.0")
 )
-# Legacy aliases used by orchestrator imports
-PAIR_LOCK_MAX_DISTANCE_METERS = BATTLE_ARM_MAX_GAP_METERS
-PAIR_LOCK_MIN_SPEED_KMH = BATTLE_ARM_MIN_SPEED_KMH
 
 MAX_BATTLE_GAP_METERS = float(os.getenv("MAX_BATTLE_GAP_METERS", "80.0"))
 PRESTART_GAP_ABORT_GRACE_SEC = float(os.getenv("BATTLE_PRESTART_GAP_ABORT_GRACE_SEC", "2.0"))
 GAP_ABORT_MIN_BOTH_SPEED_KMH = float(os.getenv("BATTLE_GAP_ABORT_MIN_BOTH_SPEED_KMH", "20.0"))
 LAUNCH_TIMEOUT_SEC = float(os.getenv("BATTLE_LAUNCH_TIMEOUT_SEC", "8.0"))
-ARMED_CHAT_COOLDOWN_SEC = float(os.getenv("BATTLE_ARMED_CHAT_COOLDOWN_SEC", "15.0"))
 FINISHED_COOLDOWN_SEC = float(os.getenv("BATTLE_FINISHED_COOLDOWN_SEC", "20.0"))
 
 # ── Run end / scoring ──
@@ -28,8 +26,6 @@ MIN_LAP_PROGRESS_BEFORE_FINISH = float(
         os.getenv("RUN_END_SPLINE_FRACTION", "0.30"),
     )
 )
-# Legacy alias (was misread as “100% of track”; now only minimum progress before finish counts).
-RUN_END_SPLINE_FRACTION = MIN_LAP_PROGRESS_BEFORE_FINISH
 FINISH_POINT_MIN_GAP_METERS = float(os.getenv("BATTLE_FINISH_POINT_MIN_GAP_METERS", "20.0"))
 DISAPPEAR_GAP_METERS = float(os.getenv("BATTLE_DISAPPEAR_GAP_METERS", "250.0"))
 # Opponent in pits / stopped: abandon after this many seconds below GAP_ABORT speed (any 3D gap).
@@ -86,3 +82,6 @@ PAIR_IDLE_SEPARATED_RELEASE_SEC = float(
 )
 # Safety: dissolve pre-ACTIVE pair lock if no battle starts within this window.
 PAIR_MAX_PREACTIVE_LOCK_SEC = float(os.getenv("BATTLE_PAIR_MAX_PREACTIVE_LOCK_SEC", "120.0"))
+
+# ── HUD SSE gate (overlay must connect to /hud/stream) ──
+BATTLE_REQUIRE_HUD_SSE = settings.BATTLE_REQUIRE_HUD_SSE

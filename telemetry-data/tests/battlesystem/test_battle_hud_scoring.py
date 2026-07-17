@@ -18,7 +18,6 @@ from tests.battlesystem.conftest import seed_car
 def hud_pair_manager(pair_manager):
     hud_calls = []
     pair_manager._publish_hud = lambda **kwargs: hud_calls.append(kwargs)
-    pair_manager.on_chat_message = None
     pair_manager.on_score_update = None
     return pair_manager, hud_calls
 
@@ -75,7 +74,7 @@ def test_award_point_publishes_last_event(hud_pair_manager):
     mgr, calls = hud_pair_manager
     mgr.state = "ACTIVE"
 
-    award_point(mgr, "guid_a", reason="position_recovery", skip_chat=True)
+    award_point(mgr, "guid_a", reason="position_recovery")
     assert len(calls) == 1
     assert calls[0]["hud_state"] == "active"
     assert calls[0]["last_event"]["reason"] == "position_recovery"

@@ -4,18 +4,26 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from core import runtime_config, settings
 from core.logging_config import get_logger
-from core.redis_client import get_redis_client
-from core.cm_name import display_server_name, strip_cm_name_suffix
-from network.event_dispatcher import send_server_event
+from core.redis_client import get_redis_blocking_client
 
 log = get_logger("config_sync")
+
+try:
+    import redis.exceptions as redis_exceptions
+except Exception:  # pragma: no cover
+    redis_exceptions = None
+
+
+def _is_transient_redis_loop_error(exc: BaseException) -> bool:
+    if redis_exceptions is None:
+        return False
+    return isinstance(exc, (redis_exceptions.TimeoutError, redis_exceptions.ConnectionError))
 
 _VERSIONS_FILE = os.path.join(os.getcwd(), "redis_applied_config_versions.json")
 _versions_lock = threading.Lock()
@@ -39,142 +47,13 @@ def _save_versions(data: Dict[str, str]) -> None:
         log.warning("could not save versions file: %s", e)
 
 
-def _normalize_track_config_for_ini(value: Any) -> Optional[str]:
-    """Empty CONFIG_TRACK means the track's built-in default layout; never write literal 'default'."""
-    if value is None:
-        return None
-    text = str(value).strip()
-    if text == "" or text.lower() == "default":
-        return ""
-    return text
-
-
-def _replace_or_append(content: str, key: str, value: str) -> str:
-    line = f"{key}={value}"
-    pattern = rf"(?m)^{re.escape(key)}=.*$"
-    if re.search(pattern, content):
-        return re.sub(pattern, line, content)
-    return content.rstrip() + f"\n{line}\n"
-
-
-def _write_server_cfg(cfg_path: str, cfg: Dict[str, Any]) -> list[str]:
-    with open(cfg_path, "rb") as f:
-        raw = f.read()
-    try:
-        content = raw.decode("utf-8")
-    except UnicodeDecodeError:
-        content = raw.decode("utf-16le", errors="ignore")
-
-    changed: list[str] = []
-    mappings = [
-        ("NAME", cfg.get("displayName")),
-        ("PASSWORD", cfg.get("password")),
-        ("TRACK", cfg.get("track")),
-        ("CONFIG_TRACK", _normalize_track_config_for_ini(cfg.get("trackConfig"))),
-        ("MAX_CLIENTS", cfg.get("maxClients")),
-    ]
-    for key, value in mappings:
-        if value is None:
-            continue
-        next_content = _replace_or_append(content, key, str(value))
-        if next_content != content:
-            changed.append(key)
-            content = next_content
-
-    entries = cfg.get("entries")
-    if isinstance(entries, list):
-        car_models = []
-        for entry in entries:
-            model = str((entry or {}).get("model") or "").strip()
-            if not model:
-                continue
-            count = int((entry or {}).get("count") or 1)
-            for _ in range(max(1, count)):
-                car_models.append(model)
-        if car_models:
-            cars_value = ";".join(sorted(set(car_models)))
-            next_content = _replace_or_append(content, "CARS", cars_value)
-            if next_content != content:
-                changed.append("CARS")
-                content = next_content
-
-    with open(cfg_path, "w", encoding="utf-8", newline="\n") as f:
-        f.write(content)
-    return changed
-
-
-def _write_entry_list(cfg_path: str, cfg: Dict[str, Any]) -> bool:
-    entries = cfg.get("entries")
-    if not isinstance(entries, list):
-        return False
-    cfg_dir = os.path.dirname(cfg_path)
-    entry_list_path = os.path.join(cfg_dir, "entry_list.ini")
-
-    blocks = []
-    idx = 0
-    for entry in entries:
-        model = str((entry or {}).get("model") or "").strip()
-        if not model:
-            continue
-        skin = str((entry or {}).get("skin") or "0_default")
-        count = int((entry or {}).get("count") or 1)
-        for _ in range(max(1, count)):
-            blocks.append(
-                "\n".join(
-                    [
-                        f"[CAR_{idx}]",
-                        f"MODEL={model}",
-                        f"SKIN={skin}",
-                        "SPECTATOR_MODE=0",
-                        "DRIVERNAME=",
-                        "TEAM=",
-                        "GUID=",
-                        "BALLAST=0",
-                        "RESTRICTOR=0",
-                        "",
-                    ]
-                )
-            )
-            idx += 1
-
-    with open(entry_list_path, "w", encoding="utf-8", newline="\n") as f:
-        f.write("\n".join(blocks).rstrip() + "\n")
-    return True
-
-
-def _find_state_by_server_name(
-    servers: Dict[int, Any], server_name: str, display_name: str = ""
-) -> Optional[Any]:
-    targets = []
-    for value in (server_name, display_name):
-        text = strip_cm_name_suffix((value or "").strip()).lower()
-        if text and text not in targets:
-            targets.append(text)
-    if not targets:
-        return None
-    for state in servers.values():
-        candidates = [
-            (getattr(state, "server_folder_id", "") or "").strip().lower(),
-            strip_cm_name_suffix(
-                (getattr(state, "config_server_name", "") or "").strip()
-            ).lower(),
-            strip_cm_name_suffix(
-                (getattr(state, "server_name", "") or "").strip()
-            ).lower(),
-        ]
-        for target in targets:
-            if target in candidates:
-                return state
-    return None
-
-
 def apply_snapshot(servers: Dict[int, Any], payload: Dict[str, Any]) -> tuple[int, int]:
     """
     Apply a server_config_snapshot payload.
 
-    Always updates runtime_config (modes + event constraints).
-    Writes INI files only when REDIS_CONFIG_INI_WRITE_ENABLED=true (legacy).
+    Updates runtime_config (modes + event constraints) only. INI writes are owned by ac-data.
     """
+    del servers  # kept for call-site compatibility
     data = payload.get("data") or {}
     if not isinstance(data, dict):
         return 0, 0
@@ -199,68 +78,15 @@ def apply_snapshot(servers: Dict[int, Any], payload: Dict[str, Any]) -> tuple[in
         versions = _load_versions()
         if versions.get(instance_id) == version:
             return 0, 0
+        versions[instance_id] = version
+        _save_versions(versions)
 
-    if not settings.REDIS_CONFIG_INI_WRITE_ENABLED:
-        with _versions_lock:
-            versions = _load_versions()
-            versions[instance_id] = version
-            _save_versions(versions)
-        log.info(
-            "runtime_config updated version=%s servers=%d (ini write disabled)",
-            version,
-            len(rows),
-        )
-        return len(rows), 0
-
-    applied = 0
-    errors = 0
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        state = _find_state_by_server_name(
-            servers,
-            str(row.get("serverName") or ""),
-            str(row.get("displayName") or ""),
-        )
-        if not state or not getattr(state, "cfg_path", None):
-            continue
-        server_label = display_server_name(state) or "unknown"
-        try:
-            changed = _write_server_cfg(state.cfg_path, row)
-            entry_written = _write_entry_list(state.cfg_path, row)
-            applied += 1
-            send_server_event(
-                "server_config_applied",
-                server_label,
-                {
-                    "instanceId": settings.AC_INSTANCE_ID,
-                    "version": version,
-                    "serverName": row.get("serverName"),
-                    "updatedKeys": changed,
-                    "entryListUpdated": entry_written,
-                    "ok": True,
-                },
-            )
-        except Exception as e:
-            errors += 1
-            send_server_event(
-                "server_config_applied",
-                server_label,
-                {
-                    "instanceId": settings.AC_INSTANCE_ID,
-                    "version": version,
-                    "serverName": row.get("serverName"),
-                    "ok": False,
-                    "error": str(e),
-                },
-            )
-
-    if applied > 0 and errors == 0:
-        with _versions_lock:
-            versions = _load_versions()
-            versions[instance_id] = version
-            _save_versions(versions)
-    return applied, errors
+    log.info(
+        "runtime_config updated version=%s servers=%d",
+        version,
+        len(rows),
+    )
+    return len(rows), 0
 
 
 def bootstrap_runtime_config_from_stream(client) -> bool:
@@ -318,7 +144,7 @@ def start_redis_config_consumer(servers: Dict[int, Any]) -> None:
         log.warning("REDIS_HOST missing, consumer disabled")
         return
 
-    client = get_redis_client()
+    client = get_redis_blocking_client()
     try:
         client.xgroup_create(
             settings.REDIS_CONFIG_STREAM_KEY,
@@ -333,12 +159,11 @@ def start_redis_config_consumer(servers: Dict[int, Any]) -> None:
         bootstrap_runtime_config_from_stream(client)
 
     log.info(
-        "listening stream=%s group=%s consumer=%s instance=%s ini_write=%s modes_loaded=%s",
+        "listening stream=%s group=%s consumer=%s instance=%s modes_loaded=%s",
         settings.REDIS_CONFIG_STREAM_KEY,
         settings.REDIS_CONFIG_CONSUMER_GROUP,
         settings.REDIS_CONFIG_CONSUMER_NAME,
         settings.AC_INSTANCE_ID,
-        settings.REDIS_CONFIG_INI_WRITE_ENABLED,
         runtime_config.has_data(),
     )
     while True:
@@ -348,7 +173,7 @@ def start_redis_config_consumer(servers: Dict[int, Any]) -> None:
                 settings.REDIS_CONFIG_CONSUMER_NAME,
                 {settings.REDIS_CONFIG_STREAM_KEY: ">"},
                 count=25,
-                block=5000,
+                block=settings.REDIS_CONFIG_XREAD_BLOCK_MS,
             )
             if not res:
                 continue
@@ -387,5 +212,8 @@ def start_redis_config_consumer(servers: Dict[int, Any]) -> None:
                     except Exception as e:
                         log.exception("message error: %s", e)
         except Exception as e:
-            log.exception("loop error: %s", e)
+            if _is_transient_redis_loop_error(e):
+                log.warning("redis transient error in config consumer (%s); retrying", e)
+            else:
+                log.exception("loop error: %s", e)
             time.sleep(1)

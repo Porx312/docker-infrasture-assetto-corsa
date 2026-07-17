@@ -1,16 +1,19 @@
 import time
 
 from core.logging_config import get_logger
+from core.hud_sse_presence import filter_hud_eligible, is_hud_sse_active
 from engines.battlesystem.models import CarState, TougeBattle
 from engines.battlesystem.pair_manager import PairBattleManager
 from engines.battlesystem.config import (
     BATTLE_ARM_MAX_GAP_METERS,
     BATTLE_ARM_MIN_SPEED_KMH,
+    BATTLE_REQUIRE_HUD_SSE,
     FINISHED_COOLDOWN_SEC,
     LAUNCH_TIMEOUT_SEC,
     SPLINE_STUCK_MIN_SPEED_KMH,
 )
 from engines.battlesystem.rules.proximity import distance_3d, is_within_battle_gap
+from engines.battlesystem.state_machine import dissolve_pair
 
 log = get_logger("battlesystem.orchestrator")
 
@@ -32,7 +35,6 @@ class BattleManager:
         # External callbacks (same contract as legacy manager).
         self.on_battle_start = None
         self.on_score_update = None
-        self.on_chat_message = None
         self.on_hud_update = None
 
     @staticmethod
@@ -66,7 +68,6 @@ class BattleManager:
         # Callbacks are proxied to server_state handlers.
         mgr.on_battle_start = self.on_battle_start
         mgr.on_score_update = self.on_score_update
-        mgr.on_chat_message = self.on_chat_message
         mgr.on_hud_update = self.on_hud_update
         return mgr
 
@@ -101,6 +102,12 @@ class BattleManager:
             free.append(g)
         if len(free) < 2:
             return
+
+        if BATTLE_REQUIRE_HUD_SSE:
+            eligible = filter_hud_eligible(free)
+            free = [g for g in free if g in eligible]
+            if len(free) < 2:
+                return
 
         # Greedy nearest-neighbor matching under lock constraints.
         while len(free) >= 2:
@@ -186,6 +193,18 @@ class BattleManager:
         if not mgr:
             self.guid_to_pair.pop(driver_guid, None)
             return
+
+        if BATTLE_REQUIRE_HUD_SSE and mgr.battle:
+            g1, g2 = mgr.battle.car1_guid, mgr.battle.car2_guid
+            if not is_hud_sse_active(g1) or not is_hud_sse_active(g2):
+                log.info(
+                    "pair dissolved (hud_disconnected) %s vs %s",
+                    mgr._display_name(g1),
+                    mgr._display_name(g2),
+                )
+                dissolve_pair(mgr, reason="hud_disconnected")
+                self._release_pair(key)
+                return
 
         # Mirror both participants latest telemetry into pair manager.
         b = mgr.battle

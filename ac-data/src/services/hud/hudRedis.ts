@@ -18,6 +18,8 @@ export const HUD_PRESENCE_TTL_SEC = Number(process.env.HUD_PRESENCE_TTL_SEC || 1
 export const HUD_PRESENCE_JOIN_TTL_SEC = Number(
   process.env.HUD_PRESENCE_JOIN_TTL_SEC || 600,
 );
+/** Refreshed on SSE connect and keepalive; telemetry-data uses this for battle matchmaking. */
+export const HUD_SSE_PRESENCE_TTL_SEC = Number(process.env.HUD_SSE_PRESENCE_TTL_SEC || 45);
 
 let client: RedisClientType | null = null;
 let connectPromise: Promise<RedisClientType> | null = null;

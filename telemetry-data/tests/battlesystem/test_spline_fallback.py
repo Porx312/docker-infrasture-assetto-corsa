@@ -114,6 +114,5 @@ def test_driven_distance_progress_for_abandon_win(pair_manager):
     chase.driven_distance_m = 50.0
 
     assert abandon_should_award_win(pair_manager) is True
-    pair_manager.on_chat_message = None
     assert finalize_abandon(pair_manager, "guid_a", "gap_disappeared") is True
     assert pair_manager.battle.winner == "guid_a"

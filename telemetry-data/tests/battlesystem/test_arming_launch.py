@@ -3,7 +3,6 @@ from unittest.mock import patch
 
 from engines.battlesystem.config import (
     ARM_SUSTAINED_PROXIMITY_SEC,
-    BATTLE_ARM_MAX_GAP_METERS,
     BATTLE_ARM_MIN_SPEED_KMH,
     POSITION_ROLE_ASSIGN_WAIT_SEC,
 )
@@ -30,10 +29,8 @@ def test_can_launch_uses_inclusive_speed_threshold(pair_manager):
 
 def test_idle_starts_proximity_timer_without_armed(pair_manager):
     pair_manager.state = "IDLE"
-    messages = []
-    pair_manager.on_chat_message = lambda _g, msg, **_: messages.append(msg)
-    pair_manager.set_driver_name("guid_a", "Alice")
-    pair_manager.set_driver_name("guid_b", "Bob")
+    hud_calls = []
+    pair_manager.on_hud_update = lambda _mgr, **kwargs: hud_calls.append(kwargs)
     seed_car(pair_manager, "guid_a", pos=(0, 0, 0), speed=50.0)
     seed_car(pair_manager, "guid_b", pos=(10, 0, 0), speed=50.0)
 
@@ -41,14 +38,7 @@ def test_idle_starts_proximity_timer_without_armed(pair_manager):
 
     assert pair_manager.state == "IDLE"
     assert pair_manager.arm_proximity_since > 0.0
-    gap_hint = f"{int(BATTLE_ARM_MAX_GAP_METERS)}m"
-    assert any(
-        "Alice vs Bob" in m
-        and "BATTLE ARM 5" in m
-        and "brake: cancel" in m
-        and gap_hint in m
-        for m in messages
-    )
+    assert any(call.get("hud_state") == "arming" for call in hud_calls)
 
 
 def test_idle_requires_sustained_proximity_before_armed(pair_manager):
@@ -68,10 +58,8 @@ def test_idle_requires_sustained_proximity_before_armed(pair_manager):
 
 def test_idle_resets_proximity_timer_when_cars_separate(pair_manager):
     pair_manager.state = "IDLE"
-    messages = []
-    pair_manager.on_chat_message = lambda _g, msg, **_: messages.append(msg)
-    pair_manager.set_driver_name("guid_a", "Alice")
-    pair_manager.set_driver_name("guid_b", "Bob")
+    hud_calls = []
+    pair_manager.on_hud_update = lambda _mgr, **kwargs: hud_calls.append(kwargs)
     seed_car(pair_manager, "guid_a", pos=(0, 0, 0), speed=50.0)
     seed_car(pair_manager, "guid_b", pos=(10, 0, 0), speed=50.0)
 
@@ -83,7 +71,7 @@ def test_idle_resets_proximity_timer_when_cars_separate(pair_manager):
 
     assert pair_manager.state == "IDLE"
     assert pair_manager.arm_proximity_since == 0.0
-    assert any("Alice vs Bob" in m and "BATTLE CANCELLED" in m for m in messages)
+    assert any(call.get("hud_state") == "cancelled" for call in hud_calls)
 
 
 def test_can_assign_roles_position_fallback_after_short_wait(pair_manager):
@@ -103,8 +91,6 @@ def test_launching_reaches_active_when_speed_dips_after_go(pair_manager):
     pair_manager.launch_trigger_time = time.time() - 1.0
     pair_manager.battle.lead_guid = None
     pair_manager.battle.chase_guid = None
-    messages = []
-    pair_manager.on_chat_message = lambda _g, msg, **_: messages.append(msg)
 
     lead = seed_car(pair_manager, "guid_a", spline=0.0, speed=15.0, pos=(0, 0, 0))
     chase = seed_car(pair_manager, "guid_b", spline=0.0, speed=15.0, pos=(10, 0, 0))
@@ -120,13 +106,9 @@ def test_launching_reaches_active_when_speed_dips_after_go(pair_manager):
     assert pair_manager.battle.chase_guid is not None
 
 
-def test_go_message_uses_config_speed(pair_manager):
+def test_armed_transitions_to_launching(pair_manager):
     pair_manager.state = "ARMED"
     pair_manager.condition_start_time = time.time()
-    messages = []
-    pair_manager.on_chat_message = lambda _g, msg, **_: messages.append(msg)
-    pair_manager.set_driver_name("guid_a", "Alice")
-    pair_manager.set_driver_name("guid_b", "Bob")
     seed_car(pair_manager, "guid_a", pos=(0, 0, 0), speed=50.0)
     seed_car(pair_manager, "guid_b", pos=(10, 0, 0), speed=50.0)
 
@@ -137,6 +119,3 @@ def test_go_message_uses_config_speed(pair_manager):
         process_pair_logic(pair_manager)
 
     assert pair_manager.state == "LAUNCHING"
-    assert any(
-        "Alice vs Bob" in m and "GO — both over 22 km/h" in m for m in messages
-    )

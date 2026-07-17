@@ -13,7 +13,7 @@ via direct admin mutations.
   sole writer of local INI files and restarts AC processes
   (`redisConfigApplier.ts`). **telemetry-data** consumes the same stream only
   to update in-memory `runtime_config` (server modes + event constraints) via
-  `core/redis_config_sync.py` unless `REDIS_CONFIG_INI_WRITE_ENABLED=true`.
+  `core/redis_config_sync.py`.
 
 Both streams use `XADD` with approximate `MAXLEN` trim
 (`REDIS_STREAM_MAXLEN`, default `200000`) so they cannot grow unbounded.
@@ -53,8 +53,6 @@ Generic server lifecycle (`network/event_dispatcher.send_server_event`):
 - `player_leave`
 - `lap_completed` — on managed servers with time-attack or **unified** mode (legacy: `type=time-attack`; default when `type` omitted is unified)
 - `server_status` (heartbeat every ~15 s; intentional, used for liveness)
-- `server_config_applied` (only when `REDIS_CONFIG_INI_WRITE_ENABLED=true`
-  and Python writes local cfg files; default is ac-data-only INI writes).
 
 Battle events (`network/event_dispatcher.dispatch_battle_webhook`):
 
@@ -69,8 +67,7 @@ Battle events (`network/event_dispatcher.dispatch_battle_webhook`):
 
 - `server_config_snapshot` — produced by the Node.js bridge after detecting a
   new `version` in Convex. Consumed by the Python config consumer to update
-  `core/runtime_config` (server modes) and rewrite local `server_cfg.ini` /
-  `entry_list.ini` as needed.
+  `core/runtime_config` (server modes + event constraints) only.
 
 ## Worker expectations (Redis → Convex)
 
@@ -100,6 +97,17 @@ Each SSE `battle:update` enriches players from `ac:hud:player:*` (derived locall
 - Both players in a pair receive the same snapshot under their respective `steamId` keys.
 - Pub/sub channel `ac:hud:updates` notifies clients (same as time-attack HUD).
 - **ac-data** fan-out vía **SSE** (`GET /hud/battle/stream`) cuando `HUD_SSE_ENABLED=true`.
+
+## HUD SSE presence (battle matchmaking gate)
+
+Written by **ac-data** when the overlay connects to `GET /hud/stream?steamId=…`.
+Read by **telemetry-data** when `BATTLE_REQUIRE_HUD_SSE=true` to gate matchmaking.
+
+| Key | Writer | Reader | TTL |
+|-----|--------|--------|-----|
+| `ac:hud:sse:{steamId}` | ac-data (`hudSsePresence.ts`) on SSE connect; renewed on keepalive; deleted on disconnect | telemetry-data `core/hud_sse_presence.py` | `HUD_SSE_PRESENCE_TTL_SEC` (default 45) |
+
+Env: `BATTLE_REQUIRE_HUD_SSE` (default false), `HUD_SSE_PRESENCE_TTL_SEC`, `HUD_SSE_REDIS_PREFIX`.
 
 ## User invalidation / global ban (not streams)
 

@@ -22,6 +22,11 @@ import {
   type HudSseConnection,
 } from './hudSsePush.js';
 import { isHudRedisConfigured } from './hudRedis.js';
+import {
+  clearHudSsePresence,
+  markHudSseConnected,
+  renewHudSsePresence,
+} from './hudSsePresence.js';
 import { writeSseEvent } from './hudStreamSseFormat.js';
 
 const SSE_KEEPALIVE_MS = Number(process.env.HUD_SSE_KEEPALIVE_MS || 30_000);
@@ -59,6 +64,7 @@ export async function handleHudStreamSse(req: Request, res: Response): Promise<v
   }
 
   registerBattleSsePresence(resolved.presence);
+  await markHudSseConnected(steamId);
   initHudPushHub();
 
   const battleRoom = battleRoomFromParams(resolved.presence.serverName, steamId);
@@ -90,12 +96,14 @@ export async function handleHudStreamSse(req: Request, res: Response): Promise<v
   const keepalive = setInterval(() => {
     res.write(': keepalive\n\n');
     void refreshPlayerPresence(resolved.presence);
+    void renewHudSsePresence(steamId);
   }, SSE_KEEPALIVE_MS);
 
   req.on('close', () => {
     clearInterval(keepalive);
     unregisterHud();
     unregisterBattleSsePresence(steamId);
+    void clearHudSsePresence(steamId);
     unsubscribeBattleHudRoom(battleRoom, battleListener);
   });
 }

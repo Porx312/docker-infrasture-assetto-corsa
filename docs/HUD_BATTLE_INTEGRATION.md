@@ -227,6 +227,10 @@ Push en tiempo real vía **Server-Sent Events** (`EventSource`). HTTP GET largo 
 | Auth opcional | `api_key` en query si `HUD_API_KEY` está definido |
 | Desactivar | `HUD_SSE_ENABLED=false` en ac-data |
 
+### Requisito HUD para batallas (`BATTLE_REQUIRE_HUD_SSE`)
+
+Con `BATTLE_REQUIRE_HUD_SSE=true` en telemetry-data, solo pueden emparejarse pilotos cuyo overlay tenga **SSE activo** (`GET /hud/stream`). ac-data escribe `ac:hud:sse:{steamId}` al conectar y lo renueva en cada keepalive (~30 s, TTL 45 s). El overlay debe conectarse **antes** de acercarse a otro piloto. Si el SSE se cae mid-batalla, la pareja se cancela (`cancelReason: hud_disconnected`).
+
 ### Conexión (cliente nativo)
 
 ```javascript

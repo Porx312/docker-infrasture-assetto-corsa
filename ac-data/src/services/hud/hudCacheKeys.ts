@@ -25,6 +25,11 @@ export const HUD_SESSION_PREFIX = 'ac:hud:session:';
 export const HUD_BATTLE_PREFIX = 'ac:hud:battle:';
 export const HUD_PRESENCE_PREFIX = 'ac:hud:presence:';
 export const HUD_PRESENCE_ROSTER_PREFIX = 'ac:hud:presence:roster:';
+export const HUD_SSE_PRESENCE_PREFIX = 'ac:hud:sse:';
+
+export function ssePresenceRedisKey(steamId: string): string {
+  return `${HUD_SSE_PRESENCE_PREFIX}${steamId}`;
+}
 
 export function presenceRedisKey(steamId: string): string {
   return `${HUD_PRESENCE_PREFIX}${steamId}`;

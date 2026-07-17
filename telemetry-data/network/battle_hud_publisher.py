@@ -47,13 +47,14 @@ def format_point_label(reason: str) -> str:
 
 
 def format_cancel_label(reason: str | None) -> str:
-    """One-word HUD cancel/end toast (chat uses engines/battlesystem/chat.py)."""
+    """One-word HUD cancel/end toast for the overlay."""
     if reason == "opponent_stalled":
         return "stopped"
     if reason in ("arming_aborted", "prestart_gap"):
         return "cancel"
     if reason in (
         "gap_disappeared",
+        "hud_disconnected",
         "opponent_disconnected",
         "opponent_inactive",
         "pair stale",
