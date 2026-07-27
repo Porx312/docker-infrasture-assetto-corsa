@@ -8,6 +8,21 @@ import {
     ADMIN_TOKEN_COOKIE_OPTIONS,
 } from '../middleware/adminAuth.js';
 import { listContent, deleteContent, uploadSingleFile, extractZip, getContentSummary, type ContentType } from '../services/contentManager.js';
+import {
+    listContentVariants,
+    previewContentType,
+    resolveVariantPreviewPath,
+} from '../services/contentPreviews.js';
+import {
+    buildCmDescription,
+    readServerBranding,
+    saveAndApplyBranding,
+    summarizeServers,
+} from '../services/serverBranding.js';
+import {
+    readServerInstanceConfig,
+    updateServerInstanceConfig,
+} from '../services/serverInstanceConfig.js';
 
 export async function adminLogin(req: Request, res: Response): Promise<void> {
     const { username, password } = req.body;
@@ -75,10 +90,49 @@ export async function getContentItems(req: Request, res: Response): Promise<void
 
     try {
         const items = await listContent(type);
+        if (type === 'cars' || type === 'tracks') {
+            const enriched = await Promise.all(
+                items.map(async (item) => {
+                    if (!item.isDirectory) {
+                        return { ...item, variants: [] as { name: string }[] };
+                    }
+                    const variants = await listContentVariants(type, item.name);
+                    return { ...item, variants };
+                }),
+            );
+            res.json({ ok: true, type, items: enriched });
+            return;
+        }
         res.json({ ok: true, type, items });
     } catch (err: any) {
         res.status(500).json({ error: 'Server error', message: err.message });
     }
+}
+
+export async function getContentPreview(req: Request, res: Response): Promise<void> {
+    const type = req.params.type as 'cars' | 'tracks';
+    const itemName = String(req.params.name || '');
+    const variantName = String(req.params.variant || '');
+
+    if (!['cars', 'tracks'].includes(type)) {
+        res.status(400).json({ error: 'Bad request', message: 'Invalid content type' });
+        return;
+    }
+
+    if (!itemName || !variantName) {
+        res.status(400).json({ error: 'Bad request', message: 'Item and variant name required' });
+        return;
+    }
+
+    const previewPath = resolveVariantPreviewPath(type, itemName, variantName);
+    if (!previewPath) {
+        res.status(404).json({ error: 'Not found', message: 'Preview not found' });
+        return;
+    }
+
+    res.setHeader('Content-Type', previewContentType(previewPath));
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.sendFile(previewPath);
 }
 
 export async function deleteContentItem(req: Request, res: Response): Promise<void> {
@@ -166,4 +220,83 @@ export async function uploadMultipleContent(req: Request, res: Response): Promis
     }
 
     res.json({ ok: true, results });
+}
+
+export async function getServerBrandingHandler(req: Request, res: Response): Promise<void> {
+    try {
+        const branding = await readServerBranding();
+        const servers = summarizeServers();
+        res.json({
+            ok: true,
+            branding,
+            cmDescriptionPreview: buildCmDescription(branding),
+            servers,
+            serverCount: servers.length,
+        });
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        res.status(500).json({ ok: false, message });
+    }
+}
+
+export async function getServerInstanceConfigHandler(req: Request, res: Response): Promise<void> {
+    try {
+        const serverName = String(req.params.name || '');
+        const config = readServerInstanceConfig(serverName);
+        res.json({
+            ok: true,
+            config,
+            cmDescriptionPreview: buildCmDescription({
+                description: config.description,
+                webLink: config.webLink,
+                cmDescriptionBody: config.cmDescriptionBody,
+                bannerImageUrl: config.bannerImageUrl,
+                loadingImageUrl: config.loadingImageUrl,
+            }),
+        });
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        res.status(400).json({ ok: false, message });
+    }
+}
+
+export async function updateServerInstanceConfigHandler(req: Request, res: Response): Promise<void> {
+    try {
+        const serverName = String(req.params.name || '');
+        const config = await updateServerInstanceConfig(serverName, req.body ?? {});
+        res.json({
+            ok: true,
+            message: `Updated ${serverName}`,
+            config,
+            cmDescriptionPreview: buildCmDescription({
+                description: config.description,
+                webLink: config.webLink,
+                cmDescriptionBody: config.cmDescriptionBody,
+                bannerImageUrl: config.bannerImageUrl,
+                loadingImageUrl: config.loadingImageUrl,
+            }),
+            servers: summarizeServers(),
+        });
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        res.status(400).json({ ok: false, message });
+    }
+}
+
+export async function updateServerBrandingHandler(req: Request, res: Response): Promise<void> {
+    try {
+        const result = await saveAndApplyBranding(req.body ?? {});
+        res.json({
+            ok: true,
+            message: `Branding applied to ${result.updatedIni} servers (${result.updatedWrapper} CM wrappers restarted)`,
+            branding: result.branding,
+            cmDescriptionPreview: buildCmDescription(result.branding),
+            updatedIni: result.updatedIni,
+            updatedWrapper: result.updatedWrapper,
+            servers: summarizeServers(),
+        });
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        res.status(500).json({ ok: false, message });
+    }
 }

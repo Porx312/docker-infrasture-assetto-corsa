@@ -15,7 +15,11 @@ import {
   type ManagedServerRow,
 } from './hud/hudManagedServers.js';
 import { refreshHudAfterPlayerJoin } from './hud/hudAfterPlayerJoin.js';
-import { invalidateHudCachesForSteamId } from './hud/lapCompletedHudRefresh.js';
+import {
+  invalidateHudCachesForSteamId,
+  isLapPersonalBest,
+  patchLastLapInCaches,
+} from './hud/lapCompletedHudRefresh.js';
 import { pushHudUpdateForSteamId } from './hud/hudSsePush.js';
 import {
   noteHudPlayerJoin,
@@ -341,11 +345,25 @@ async function flushIngestChunk(
     if (event === 'lap_completed') {
       const lapData = (payload.data ?? {}) as Record<string, unknown>;
       const lapSteamId = typeof lapData.steamId === 'string' ? lapData.steamId.trim() : '';
+      const lapTimeMs =
+        typeof lapData.lapTime === 'number' ? lapData.lapTime : Number(lapData.lapTime);
       if (lapSteamId) {
-        await invalidateHudCachesForSteamId(lapSteamId);
-        void pushHudUpdateForSteamId(lapSteamId, true);
+        const isPersonalBest = Number.isFinite(lapTimeMs)
+          ? await isLapPersonalBest({ steamId: lapSteamId }, lapTimeMs)
+          : true;
+        if (isPersonalBest) {
+          await invalidateHudCachesForSteamId(lapSteamId);
+          void pushHudUpdateForSteamId(lapSteamId, true);
+        } else if (Number.isFinite(lapTimeMs) && lapTimeMs > 0) {
+          await patchLastLapInCaches({ steamId: lapSteamId }, lapTimeMs);
+        }
+        scheduleHudRefreshAfterLap({
+          ...payload,
+          data: { ...lapData, isPersonalBest },
+        });
+      } else {
+        scheduleHudRefreshAfterLap(payload);
       }
-      scheduleHudRefreshAfterLap(payload);
     } else if (event === 'battle_finished') {
       scheduleHudRefreshAfterBattleFinished(payload);
     }

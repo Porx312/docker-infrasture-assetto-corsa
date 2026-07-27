@@ -115,10 +115,13 @@ Reemplazar estado local completo en cada `hud_session`.
 | Evento telemetry | Push SSE |
 |------------------|----------|
 | `player_join` | Invalida caché + `hud_version` + `hud_session` |
-| `lap_completed` | Invalida caché + push inmediato; refresh debounced para elo/rivals |
+| `lap_completed` (PB) | Invalida caché + push inmediato al autor; refresh debounced con rivals retry; **fan-out SSE** a rivales con overlay conectado si rank/rivals cambian |
+| `lap_completed` (no PB) | Solo `last_lap_ms` en caché Redis; **sin** push inmediato, **sin** refresh debounced, **sin** fan-out a rivales |
 | `battle_finished` | `battle` + `hud_version` + `hud_session` para ambos jugadores |
 
-Delays refresh debounced: `HUD_LAP_REFRESH_DELAY_MS` (800), `HUD_BATTLE_REFRESH_DELAY_MS` (400), debounce `HUD_LAP_REFRESH_DEBOUNCE_MS` (1500).
+**PB vs no-PB:** ac-data compara `lapTime` con el `best_lap_ms` en caché (`isLapPersonalBest`). Si minty repite su PB (ej. 4:41 otra vez), prox y el resto de rivales **no** reciben `hud_session`. El fingerprint de sesión (`rank` + `rivals.above/below.lap_ms`) evita pushes SSE redundantes.
+
+Delays refresh debounced (solo vueltas PB): `HUD_LAP_REFRESH_DELAY_MS` (800), `HUD_BATTLE_REFRESH_DELAY_MS` (400), debounce `HUD_LAP_REFRESH_DEBOUNCE_MS` (1500). Para pruebas locales más rápidas: `HUD_LAP_REFRESH_DEBOUNCE_MS=400` y `HUD_LAP_REFRESH_DELAY_MS=300`.
 
 Diagnóstico en VPS: `./scripts/verify-hud-lap-pipeline.sh [steamId]`
 
@@ -158,6 +161,7 @@ Presencia se renueva en `server_status`, `player_join`, keepalive SSE (~30 s). E
 | `HUD_SESSION_FETCH_RETRY_MS` | Delay entre reintentos session fetch (default 400; alias `HUD_PLAYER_FETCH_RETRY_MS`) |
 | `HUD_BATTLE_ELO_RETRY_ATTEMPTS` | Reintentos post-batalla hasta que `elo` cambie vs caché previa (default 3) |
 | `HUD_BATTLE_ELO_RETRY_MS` | Delay entre reintentos elo post-batalla (default 400) |
+| `HUD_LAP_RIVAL_FANOUT_ENABLED` | Tras `lap_completed` **PB**, refrescar SSE de rivales en el mismo server/track si rank/rivals cambian (default true) |
 | `REDIS_PENDING_RECLAIM_*` | Recuperación de mensajes XPENDING atascados en ingest |
 
 ## Checklist overlay (rivals + tiempo)
@@ -168,6 +172,7 @@ En cada `hud_session`, el overlay debe:
 2. Leer `profile.rivals.above` / `profile.rivals.below` (o `profile.rival` legacy).
 3. Mostrar `profile.best_lap_ms` (PB) y/o `profile.last_lap_ms` (última vuelta).
 4. No ignorar el evento si solo cambia `version` pero el perfil trae datos nuevos.
+5. **Overlay Lua (ProjectD-HUD):** no re-animar rank/rivals si el fingerprint (`rank` + `rivals.*.lap_ms`) no cambió; ac-data ya omite SSE redundante en el backend.
 
 Verificación SSE: `./scripts/verify-hud-overlay-contract.sh [steamId]`
 

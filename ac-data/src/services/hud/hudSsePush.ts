@@ -4,6 +4,7 @@ import {
   getSessionCached,
   invalidateSessionCache,
   refreshSessionCached,
+  sessionLeaderboardFingerprint,
 } from './lapCompletedHudRefresh.js';
 import { markUserInvalidated } from './hudUserInvalidation.js';
 import type { HudSessionResult, HudVersionOk, HudVersionResult } from './hudTypes.js';
@@ -11,6 +12,8 @@ import type { HudSessionResult, HudVersionOk, HudVersionResult } from './hudType
 export type PushHudUpdateOptions = {
   /** After player_join: emit session/version from Redis cache without extra Convex HUD fetches. */
   preferCachedSession?: boolean;
+  /** Skip emit when session rank/rivals fingerprint matches last push to this connection. */
+  skipIfSessionUnchanged?: boolean;
 };
 
 export type HudSseListener = (event: string, data: unknown) => void;
@@ -19,6 +22,7 @@ export type HudSseConnection = {
   steamId: string;
   listener: HudSseListener;
   lastVersionFingerprint: string | null;
+  lastSessionLeaderboardFingerprint?: string | null;
 };
 
 const connectionsBySteamId = new Map<string, Set<HudSseConnection>>();
@@ -94,6 +98,14 @@ export function resetHudSseConnectionsForTests(): void {
   connectionsBySteamId.clear();
 }
 
+/** Steam IDs with at least one active HUD SSE connection. */
+export function listConnectedHudSteamIds(): string[] {
+  return [...connectionsBySteamId.keys()].filter((steamId) => {
+    const listeners = connectionsBySteamId.get(steamId);
+    return Boolean(listeners && listeners.size > 0);
+  });
+}
+
 function emitToSteamId(steamId: string, event: string, data: unknown): void {
   const listeners = connectionsBySteamId.get(steamId);
   if (!listeners) {
@@ -115,6 +127,41 @@ function emitHudVersionToSteamId(steamId: string, version: HudVersionOk): void {
     conn.lastVersionFingerprint = fingerprint;
     conn.listener('hud_version', versionEvent);
   }
+}
+
+function emitHudSessionToSteamId(steamId: string, session: HudSessionResult): void {
+  const sessionEvent = buildHudSessionEvent(steamId, session);
+  const sessionFingerprint = session.ok ? sessionLeaderboardFingerprint(session) : '';
+  const listeners = connectionsBySteamId.get(steamId);
+  if (!listeners) {
+    return;
+  }
+  for (const conn of listeners) {
+    if (sessionFingerprint !== '') {
+      conn.lastSessionLeaderboardFingerprint = sessionFingerprint;
+    }
+    conn.listener('hud_session', sessionEvent);
+  }
+}
+
+function shouldSkipSessionPush(steamId: string, session: HudSessionResult): boolean {
+  if (!session.ok) {
+    return false;
+  }
+  const fingerprint = sessionLeaderboardFingerprint(session);
+  if (fingerprint === '') {
+    return false;
+  }
+  const listeners = connectionsBySteamId.get(steamId);
+  if (!listeners) {
+    return false;
+  }
+  for (const conn of listeners) {
+    if (conn.lastSessionLeaderboardFingerprint !== fingerprint) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export async function loadHudSessionForSse(
@@ -150,6 +197,9 @@ export async function pushHudUpdateForSteamId(
       emitToSteamId(steamId, 'hud_error', buildHudErrorEvent(steamId, session.reason));
       return;
     }
+    if (options?.skipIfSessionUnchanged && shouldSkipSessionPush(steamId, session)) {
+      return;
+    }
     const versionFromSession: HudVersionOk = {
       ok: true,
       version: session.version,
@@ -157,7 +207,7 @@ export async function pushHudUpdateForSteamId(
       playerVersion: Date.now(),
     };
     emitHudVersionToSteamId(steamId, versionFromSession);
-    emitToSteamId(steamId, 'hud_session', buildHudSessionEvent(steamId, session));
+    emitHudSessionToSteamId(steamId, session);
     return;
   }
 
@@ -177,8 +227,6 @@ export async function pushHudUpdateForSteamId(
     return;
   }
 
-  emitHudVersionToSteamId(steamId, versionResult);
-
   const session = testHooks?.loadSession
     ? await testHooks.loadSession(steamId, bypassCache)
     : await loadHudSessionForSse(steamId, bypassCache);
@@ -190,7 +238,12 @@ export async function pushHudUpdateForSteamId(
     return;
   }
 
-  emitToSteamId(steamId, 'hud_session', buildHudSessionEvent(steamId, session));
+  if (options?.skipIfSessionUnchanged && shouldSkipSessionPush(steamId, session)) {
+    return;
+  }
+
+  emitHudVersionToSteamId(steamId, versionResult);
+  emitHudSessionToSteamId(steamId, session);
 }
 
 export async function sendInitialHudSseSnapshot(conn: HudSseConnection): Promise<void> {

@@ -75,6 +75,66 @@ test('pushHudUpdateForSteamId emits hud_version before hud_session', async () =>
   }
 });
 
+test('pushHudUpdateForSteamId skips emit when skipIfSessionUnchanged and fingerprint matches', async () => {
+  const events: Array<{ event: string; data: unknown }> = [];
+
+  const unregister = registerHudSseConnection({
+    steamId,
+    lastVersionFingerprint: null,
+    lastSessionLeaderboardFingerprint: '1::::',
+    listener: (event, data) => {
+      events.push({ event, data });
+    },
+  });
+
+  const version: HudVersionOk = {
+    ok: true,
+    version: 'srv:track:layout:car:1',
+    lbVersion: 'srv:track:layout:car',
+    playerVersion: 42,
+  };
+
+  const session: HudSessionOk = {
+    ok: true,
+    version: version.version,
+    context: {
+      server_id: 's1',
+      server_name: 'test',
+      track_id: 'pk_akina',
+      track_name: 'Akina',
+      layout_id: 'downhill',
+      layout_name: 'Downhill',
+      car_id: 'ae86',
+      car_name: 'AE86',
+      player_steam_id: steamId,
+    },
+    profile: {
+      name: 'Pilot',
+      rank: 1,
+      tier: 5,
+      best_lap_ms: 120_000,
+      car_name: 'AE86',
+      car_id: 'ae86',
+      steam_id: steamId,
+      rivals: { above: null, below: null },
+    },
+  };
+
+  setHudSsePushTestHooks({
+    fetchVersion: async () => version,
+    loadSession: async () => session,
+  });
+
+  try {
+    await pushHudUpdateForSteamId(steamId, false, { skipIfSessionUnchanged: true });
+    assert.equal(events.length, 0);
+  } finally {
+    setHudSsePushTestHooks(null);
+    unregister();
+    resetHudSseConnectionsForTests();
+  }
+});
+
 test('pushHudUpdateForSteamId emits hud_error when version fetch fails', async () => {
   const events: Array<{ event: string; data: unknown }> = [];
 

@@ -11,11 +11,15 @@ import {
   getSessionCached,
   hudErrorCacheTtlSec,
   isLapPersonalBest,
+  patchLastLapInCaches,
   readCachedProfileBestLapMs,
+  readCachedSessionFingerprint,
   refreshSessionCached,
   refreshPlayerHudCache,
   refreshPlayerHudCacheForLap,
   invalidateHudCachesForSteamId,
+  sessionHudUnchanged,
+  sessionLeaderboardFingerprint,
   setFetchHudSessionForTests,
 } from './lapCompletedHudRefresh.js';
 import { USER_INVALIDATED_TTL_SEC } from './hudUserInvalidation.js';
@@ -322,4 +326,89 @@ test('invalidateHudCachesForSteamId clears player and session redis keys', async
 
   assert.equal(await hudRedisGet(playerKey), null);
   assert.equal(await hudRedisGet(sessionKey), null);
+});
+
+test('sessionLeaderboardFingerprint encodes rank and rivals lap times', () => {
+  const session: HudSessionOk = {
+    ok: true,
+    version: 'v1',
+    context: {
+      server_id: 's1',
+      server_name: 'test',
+      track_id: 'pk_akina',
+      track_name: 'Akina',
+      layout_id: 'downhill',
+      layout_name: 'Downhill',
+      car_id: 'ae86',
+      car_name: 'AE86',
+      player_steam_id: params.steamId,
+    },
+    profile: {
+      name: 'Pilot',
+      rank: 3,
+      tier: 2,
+      best_lap_ms: 130_000,
+      car_name: 'GT86',
+      car_id: 'ks_toyota_gt86',
+      steam_id: params.steamId,
+      rivals: {
+        above: { rank: 2, name: 'Rival', tier: 3, lap_ms: 125_000, car_name: 'GT86' },
+        below: { rank: 4, name: 'Below', tier: 1, lap_ms: 135_000, car_name: 'GT86' },
+      },
+    },
+  };
+
+  assert.equal(sessionLeaderboardFingerprint(session), '3:2:125000:4:135000');
+  assert.equal(sessionHudUnchanged('3:2:125000:4:135000', '3:2:125000:4:135000'), true);
+  assert.equal(sessionHudUnchanged('3:2:125000:4:135000', '2:1:120000:3:130000'), false);
+  assert.equal(sessionHudUnchanged(null, '3:2:125000:4:135000'), false);
+});
+
+test('patchLastLapInCaches updates last_lap_ms without invalidating session', async () => {
+  if (!isHudRedisConfigured()) {
+    return;
+  }
+
+  const steamId = '76561199000000008';
+  const playerKey = playerRedisKey(buildPlayerCacheKey({ steamId }));
+  const sessionKey = sessionRedisKey(buildSessionCacheKey({ steamId }));
+  const session: HudSessionOk = {
+    ok: true,
+    version: 'v1',
+    context: {
+      server_id: 's1',
+      server_name: 'test',
+      track_id: 'pk_akina',
+      track_name: 'Akina',
+      layout_id: 'downhill',
+      layout_name: 'Downhill',
+      car_id: 'ae86',
+      car_name: 'AE86',
+      player_steam_id: steamId,
+    },
+    profile: {
+      name: 'Pilot',
+      rank: 5,
+      tier: 2,
+      best_lap_ms: 281_000,
+      car_name: 'GT86',
+      car_id: 'ks_toyota_gt86',
+      steam_id: steamId,
+      rivals: { above: null, below: null },
+    },
+  };
+  await hudRedisSet(sessionKey, JSON.stringify(session), HUD_SESSION_TTL_SEC);
+
+  const patched = await patchLastLapInCaches({ steamId }, 282_500);
+  assert.equal(patched, true);
+
+  const fingerprint = await readCachedSessionFingerprint(steamId);
+  assert.equal(fingerprint, '5::::');
+
+  const cached = JSON.parse((await hudRedisGet(sessionKey)) ?? '{}') as HudSessionOk;
+  assert.equal(cached.profile?.last_lap_ms, 282_500);
+  assert.equal(cached.profile?.best_lap_ms, 281_000);
+
+  await hudRedisDel(playerKey);
+  await hudRedisDel(sessionKey);
 });

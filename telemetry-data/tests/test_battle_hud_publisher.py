@@ -64,6 +64,7 @@ def _pair_manager():
     return mgr
 
 
+@patch.object(publisher.settings, "AC_INSTANCE_ID", "default")
 @patch.object(publisher.settings, "BATTLE_HUD_ENABLED", True)
 @patch.object(publisher.settings, "REDIS_HOST", "localhost")
 @patch.object(publisher, "get_redis_client")
@@ -75,8 +76,8 @@ def test_publish_writes_both_player_keys(mock_get_redis):
 
     publisher.publish_battle_hud(server, mgr, hud_state="active", force=True)
 
-    key_a = publisher._battle_cache_key("battle_test", "steam-a")
-    key_b = publisher._battle_cache_key("battle_test", "steam-b")
+    key_a = publisher._battle_cache_key("default_battle_test", "steam-a")
+    key_b = publisher._battle_cache_key("default_battle_test", "steam-b")
     assert key_a in redis.store
     assert key_b in redis.store
     payload_a = json.loads(redis.store[key_a])
@@ -91,6 +92,7 @@ def test_publish_writes_both_player_keys(mock_get_redis):
     assert len(redis.published) == 2
 
 
+@patch.object(publisher.settings, "AC_INSTANCE_ID", "default")
 @patch.object(publisher.settings, "BATTLE_HUD_ENABLED", True)
 @patch.object(publisher.settings, "REDIS_HOST", "localhost")
 @patch.object(publisher, "get_redis_client")
@@ -98,7 +100,7 @@ def test_clear_removes_player_keys(mock_get_redis):
     redis = _FakeRedis()
     mock_get_redis.return_value = redis
     server = _FakeServerState()
-    key_a = publisher._battle_cache_key("battle_test", "steam-a")
+    key_a = publisher._battle_cache_key("default_battle_test", "steam-a")
     redis.store[key_a] = "{}"
 
     publisher.clear_battle_hud(server, ["steam-a", "steam-b"])
@@ -108,6 +110,12 @@ def test_clear_removes_player_keys(mock_get_redis):
 
 def test_normalize_hud_key_part():
     assert publisher.normalize_hud_key_part("Project D") == "project_d"
+
+
+def test_battle_server_key_includes_instance():
+    server = _FakeServerState()
+    with patch.object(publisher.settings, "AC_INSTANCE_ID", "vps-eu-2"):
+        assert publisher.battle_server_key(server) == "vps-eu-2_battle_test"
 
 
 def test_format_point_label():
@@ -173,6 +181,7 @@ def test_format_cancel_and_abandon_labels():
     assert publisher.format_finish_session_label(mgr, 50.0, is_draw=False, winner_guid="steam-a") == "win"
 
 
+@patch.object(publisher.settings, "AC_INSTANCE_ID", "default")
 @patch.object(publisher.settings, "BATTLE_HUD_ENABLED", True)
 @patch.object(publisher.settings, "REDIS_HOST", "localhost")
 @patch.object(publisher.settings, "HUD_BATTLE_CLEAR_DELAY_SEC", 0)
@@ -183,7 +192,7 @@ def test_schedule_clear_battle_hud_deletes_after_delay(mock_get_redis):
     redis = _FakeRedis()
     mock_get_redis.return_value = redis
     server = _FakeServerState()
-    key_a = publisher._battle_cache_key("battle_test", "steam-a")
+    key_a = publisher._battle_cache_key("default_battle_test", "steam-a")
     redis.store[key_a] = "{}"
 
     publisher.schedule_clear_battle_hud(server, ["steam-a"])

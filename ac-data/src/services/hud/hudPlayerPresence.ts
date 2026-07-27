@@ -119,6 +119,20 @@ export async function refreshPlayerPresence(presence: ResolvedPlayerPresence): P
   registerBattleSsePresence({ ...presence, updatedAt: record.updatedAt });
 }
 
+export async function readPlayerPresenceRecord(
+  steamId: string,
+): Promise<PlayerPresenceRecord | null> {
+  const trimmed = steamId.trim();
+  const redisRecord = await readPresenceRecord(trimmed);
+  return redisRecord ?? battleSsePresenceRecord(trimmed);
+}
+
+export async function readServerPresenceRoster(
+  normalizedServerName: string,
+): Promise<string[]> {
+  return readRoster(normalizedServerName.trim());
+}
+
 async function readPresenceRecord(steamId: string): Promise<PlayerPresenceRecord | null> {
   if (!isHudRedisConfigured()) {
     return null;

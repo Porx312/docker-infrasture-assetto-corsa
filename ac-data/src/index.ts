@@ -2,6 +2,7 @@ import './config/loadEnv.js';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import acServerRoutes from './routes/acServerRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import hudRoutes from './routes/hudRoutes.js';
@@ -21,20 +22,30 @@ if (!SERVERS_PATH) {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://13.140.160.131:3000';
+const CORS_ORIGIN = process.env.CORS_ORIGIN || `http://localhost:${PORT}`;
+const CORS_ORIGINS = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean);
+
+function isAllowedCorsOrigin(origin: string | undefined): boolean {
+  if (!origin) {
+    return false;
+  }
+  if (origin === CORS_ORIGIN) {
+    return true;
+  }
+  return CORS_ORIGINS.includes(origin);
+}
 
 // ------------------------ MIDDLEWARE ------------------------
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  console.log(`[CORS] Origin: ${origin}, Path: ${req.path}`);
-  if (origin === CORS_ORIGIN || origin === `http://176.57.150.251:${PORT}`) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
+  if (isAllowedCorsOrigin(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin as string);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    console.log('[CORS] Allowed');
-  } else {
-    console.log('[CORS] Not allowed');
   }
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
@@ -63,8 +74,9 @@ const apiKeyMiddleware = (req: express.Request, res: express.Response, next: exp
   next();
 };
 
-const ADMIN_VIEWS_PATH = '/home/jose/assetto-infra/ac-data/views';
-const ADMIN_PUBLIC_PATH = '/home/jose/assetto-infra/ac-data/public';
+const acDataRoot = path.dirname(fileURLToPath(import.meta.url));
+const ADMIN_VIEWS_PATH = process.env.ADMIN_VIEWS_PATH || path.join(acDataRoot, '..', 'views');
+const ADMIN_PUBLIC_PATH = process.env.ADMIN_PUBLIC_PATH || path.join(acDataRoot, '..', 'public');
 
 app.use('/ac-server', apiKeyMiddleware, acServerRoutes);
 app.use('/hud', ...hudMiddleware, hudRoutes);

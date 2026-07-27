@@ -3,282 +3,145 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AC Admin - Dashboard</title>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #f5f5f5;
-        }
-        header {
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            color: #fff;
-            padding: 20px 30px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        header h1 { font-size: 24px; }
-        .logout-btn {
-            background: rgba(255,255,255,0.1);
-            color: #fff;
-            border: 1px solid rgba(255,255,255,0.3);
-            padding: 8px 20px;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: background 0.3s;
-        }
-        .logout-btn:hover { background: rgba(255,255,255,0.2); }
-        .tabs {
-            background: #fff;
-            display: flex;
-            border-bottom: 2px solid #e1e1e1;
-        }
-        .tab {
-            padding: 15px 30px;
-            cursor: pointer;
-            border: none;
-            background: none;
-            font-size: 16px;
-            font-weight: 500;
-            color: #666;
-            transition: all 0.3s;
-        }
-        .tab:hover { background: #f9f9f9; }
-        .tab.active {
-            color: #4a90d9;
-            border-bottom: 3px solid #4a90d9;
-            margin-bottom: -2px;
-        }
-        .content { padding: 30px; }
-        .section { display: none; }
-        .section.active { display: block; }
-        .section-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-            gap: 15px;
-        }
-        .section-header h2 { color: #333; }
-        .section-header .search-box {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .search-box input {
-            padding: 8px 16px;
-            border: 2px solid #e1e1e1;
-            border-radius: 8px;
-            font-size: 14px;
-            width: 250px;
-        }
-        .search-box input:focus {
-            outline: none;
-            border-color: #4a90d9;
-        }
-        .search-box span {
-            color: #666;
-            font-size: 14px;
-        }
-        .upload-area {
-            border: 2px dashed #ccc;
-            border-radius: 12px;
-            padding: 30px;
-            text-align: center;
-            margin-bottom: 20px;
-            transition: border-color 0.3s;
-        }
-        .upload-area:hover { border-color: #4a90d9; }
-        .upload-area.dragover { border-color: #4a90d9; background: #f0f7ff; }
-        .upload-area input { display: none; }
-        .upload-btn {
-            background: #4a90d9;
-            color: #fff;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 500;
-            margin-top: 10px;
-        }
-        .upload-btn:hover { background: #3a7fc8; }
-        .items-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 15px;
-        }
-        .item-card {
-            background: #fff;
-            border: 1px solid #e1e1e1;
-            border-radius: 10px;
-            padding: 15px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            transition: box-shadow 0.3s;
-        }
-        .item-card:hover { box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
-        .item-info { flex: 1; min-width: 0; }
-        .item-name { font-weight: 600; color: #333; margin-bottom: 5px; word-break: break-all; }
-        .item-meta { font-size: 12px; color: #888; }
-        .delete-btn {
-            background: #e74c3c;
-            color: #fff;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 13px;
-            flex-shrink: 0;
-        }
-        .delete-btn:hover { background: #c0392b; }
-        .empty {
-            text-align: center;
-            padding: 60px;
-            color: #888;
-        }
-        .alert {
-            padding: 12px 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-        }
-        .alert-success { background: #d4edda; color: #155724; }
-        .alert-error { background: #f8d7da; color: #721c24; }
-        .progress-bar {
-            width: 100%;
-            height: 4px;
-            background: #e1e1e1;
-            border-radius: 2px;
-            margin-top: 10px;
-            overflow: hidden;
-            display: none;
-        }
-        .progress-bar.show { display: block; }
-        .progress-bar-fill {
-            height: 100%;
-            background: #4a90d9;
-            transition: width 0.3s;
-        }
-        .uploading-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.5);
-            display: none;
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-        }
-        .uploading-overlay.show { display: flex; }
-        .uploading-box {
-            background: #fff;
-            padding: 40px;
-            border-radius: 12px;
-            text-align: center;
-        }
-        .uploading-box .spinner {
-            width: 40px;
-            height: 40px;
-            border: 4px solid #e1e1e1;
-            border-top-color: #4a90d9;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 20px;
-        }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-    </style>
+    <title>Content Manager</title>
+    <link rel="stylesheet" href="/admin/css/admin.css">
 </head>
-<body>
-    <header>
-        <h1>AC Admin - Content Manager</h1>
-        <button class="logout-btn" onclick="logout()">Logout</button>
+<body class="admin-layout">
+    <header class="admin-header">
+        <h1>Content Manager</h1>
+        <button type="button" class="btn btn-ghost" id="logoutBtn">Sign out</button>
     </header>
 
-    <div class="tabs">
-        <button class="tab active" onclick="switchTab('cars')">Cars</button>
-        <button class="tab" onclick="switchTab('tracks')">Tracks</button>
-        <button class="tab" onclick="switchTab('weather')">Weather</button>
-    </div>
+    <nav class="admin-toolbar" id="tabNav" aria-label="Content types"></nav>
 
-    <div class="content">
-        <div id="alertContainer"></div>
+    <main class="content">
+        <div id="panelContainer"></div>
+    </main>
 
-        <div id="carsSection" class="section active">
-            <div class="section-header">
-                <h2>Cars</h2>
-                <div class="search-box">
-                    <input type="text" id="carsSearch" placeholder="Search cars..." oninput="filterItems('cars')">
-                    <span id="carsFiltered"></span>
-                </div>
-            </div>
-            <div class="upload-area" id="carsUpload" ondrop="handleDrop(event, 'cars')" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)">
-                <p>Drag & drop files, folders or ZIP archives here</p>
-                <p style="font-size: 12px; color: #888; margin-top: 5px;">Supported: .kn5, .acd, .ini, .zip, folders</p>
-                <input type="file" id="carsFileInput" multiple onchange="handleFileSelect(event, 'cars')">
-                <button class="upload-btn" onclick="document.getElementById('carsFileInput').click()">Select Files</button>
-                <div class="progress-bar" id="carsProgress">
-                    <div class="progress-bar-fill" id="carsProgressFill"></div>
-                </div>
-            </div>
-            <div id="carsList" class="items-grid"></div>
-        </div>
+    <div id="toastStack" class="toast-stack" aria-live="polite"></div>
 
-        <div id="tracksSection" class="section">
-            <div class="section-header">
-                <h2>Tracks</h2>
-                <div class="search-box">
-                    <input type="text" id="tracksSearch" placeholder="Search tracks..." oninput="filterItems('tracks')">
-                    <span id="tracksFiltered"></span>
-                </div>
+    <div id="confirmModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+        <div class="modal">
+            <h3 id="confirmTitle">Confirm</h3>
+            <p id="confirmMessage"></p>
+            <div class="modal-actions">
+                <button type="button" class="btn" id="confirmCancel">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirmOk">Delete</button>
             </div>
-            <div class="upload-area" id="tracksUpload" ondrop="handleDrop(event, 'tracks')" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)">
-                <p>Drag & drop files, folders or ZIP archives here</p>
-                <p style="font-size: 12px; color: #888; margin-top: 5px;">Supported: .kn5, .acd, .ini, .zip, folders</p>
-                <input type="file" id="tracksFileInput" multiple onchange="handleFileSelect(event, 'tracks')">
-                <button class="upload-btn" onclick="document.getElementById('tracksFileInput').click()">Select Files</button>
-                <div class="progress-bar" id="tracksProgress">
-                    <div class="progress-bar-fill" id="tracksProgressFill"></div>
-                </div>
-            </div>
-            <div id="tracksList" class="items-grid"></div>
-        </div>
-
-        <div id="weatherSection" class="section">
-            <div class="section-header">
-                <h2>Weather</h2>
-                <div class="search-box">
-                    <input type="text" id="weatherSearch" placeholder="Search weather..." oninput="filterItems('weather')">
-                    <span id="weatherFiltered"></span>
-                </div>
-            </div>
-            <div class="upload-area" id="weatherUpload" ondrop="handleDrop(event, 'weather')" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)">
-                <p>Drag & drop files, folders or ZIP archives here</p>
-                <p style="font-size: 12px; color: #888; margin-top: 5px;">Supported: .ini, .zip, folders</p>
-                <input type="file" id="weatherFileInput" multiple onchange="handleFileSelect(event, 'weather')">
-                <button class="upload-btn" onclick="document.getElementById('weatherFileInput').click()">Select Files</button>
-                <div class="progress-bar" id="weatherProgress">
-                    <div class="progress-bar-fill" id="weatherProgressFill"></div>
-                </div>
-            </div>
-            <div id="weatherList" class="items-grid"></div>
         </div>
     </div>
 
-    <div class="uploading-overlay" id="uploadingOverlay">
-        <div class="uploading-box">
+    <div id="modModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modTitle">
+        <div class="modal modal-mod">
+            <header class="modal-mod-header">
+                <div>
+                    <h3 id="modTitle"></h3>
+                    <p id="modMeta" class="modal-mod-meta"></p>
+                </div>
+                <button type="button" class="btn btn-ghost btn-icon" id="modCloseBtn" aria-label="Close">✕</button>
+            </header>
+            <div id="modVariants" class="modal-mod-body"></div>
+            <footer class="modal-mod-footer">
+                <button type="button" class="btn btn-danger" id="modDeleteBtn">Delete mod</button>
+            </footer>
+        </div>
+    </div>
+
+    <div id="serverConfigModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="serverConfigTitle">
+        <div class="modal modal-server">
+            <header class="modal-mod-header">
+                <div>
+                    <h3 id="serverConfigTitle">Server config</h3>
+                    <p id="serverConfigMeta" class="modal-mod-meta"></p>
+                </div>
+                <button type="button" class="btn btn-ghost btn-icon" id="serverConfigCloseBtn" aria-label="Close">✕</button>
+            </header>
+            <form id="serverConfigForm" class="modal-server-body">
+                <p class="modal-mod-section">Server</p>
+                <div class="branding-grid modal-server-grid">
+                    <div class="form-group">
+                        <label for="scDisplayName">Display name</label>
+                        <input class="input" type="text" id="scDisplayName" autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label for="scPassword">Password</label>
+                        <input class="input" type="text" id="scPassword" autocomplete="off" placeholder="Empty = open">
+                    </div>
+                    <div class="form-group">
+                        <label for="scMaxClients">Max clients</label>
+                        <input class="input" type="number" id="scMaxClients" min="1" max="64">
+                    </div>
+                    <div class="form-group">
+                        <label for="scCars">Cars</label>
+                        <input class="input" type="text" id="scCars" placeholder="car1;car2">
+                    </div>
+                    <div class="form-group">
+                        <label for="scTrack">Track</label>
+                        <input class="input" type="text" id="scTrack">
+                    </div>
+                    <div class="form-group">
+                        <label for="scConfigTrack">Layout</label>
+                        <input class="input" type="text" id="scConfigTrack" placeholder="Optional CONFIG_TRACK">
+                    </div>
+                    <div class="form-group branding-full">
+                        <label class="filter-toggle">
+                            <input type="checkbox" id="scRegisterLobby">
+                            <span>Register to lobby</span>
+                        </label>
+                    </div>
+                </div>
+                <p class="modal-mod-section">Branding (this instance only)</p>
+                <div class="branding-grid modal-server-grid">
+                    <div class="form-group">
+                        <label for="scDescription">Lobby description</label>
+                        <textarea class="input branding-textarea" id="scDescription" rows="2"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="scWebLink">Website URL</label>
+                        <input class="input" type="url" id="scWebLink">
+                    </div>
+                    <div class="form-group branding-full">
+                        <label for="scCmBody">CM description body</label>
+                        <textarea class="input branding-textarea" id="scCmBody" rows="4"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="scBannerUrl">Banner image</label>
+                        <input class="input" type="url" id="scBannerUrl">
+                    </div>
+                    <div class="form-group">
+                        <label for="scLoadingUrl">Loading screen</label>
+                        <input class="input" type="url" id="scLoadingUrl">
+                    </div>
+                </div>
+                <div class="branding-preview modal-server-preview">
+                    <div class="branding-preview-block">
+                        <span class="branding-preview-label">Banner</span>
+                        <div class="branding-preview-img" id="scBannerPreview"></div>
+                    </div>
+                    <div class="branding-preview-block">
+                        <span class="branding-preview-label">Loading</span>
+                        <div class="branding-preview-img" id="scLoadingPreview"></div>
+                    </div>
+                    <div class="branding-preview-block branding-full">
+                        <span class="branding-preview-label">CM description</span>
+                        <pre class="branding-preview-text" id="scCmPreview"></pre>
+                    </div>
+                </div>
+            </form>
+            <footer class="modal-mod-footer">
+                <button type="button" class="btn" id="serverConfigCancelBtn">Cancel</button>
+                <button type="submit" form="serverConfigForm" class="btn btn-primary" id="serverConfigSaveBtn">Save instance</button>
+            </footer>
+        </div>
+    </div>
+
+    <div id="uploadOverlay" class="modal-overlay hidden">
+        <div class="modal modal-upload">
             <div class="spinner"></div>
-            <p id="uploadingStatus">Uploading...</p>
+            <p id="uploadingStatus">Uploading…</p>
         </div>
     </div>
 
-    <script src="/admin/js/dashboard.js"></script>
+    <script type="module" src="/admin/js/dashboard.js"></script>
 </body>
 </html>

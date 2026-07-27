@@ -1,9 +1,13 @@
 import {
   bumpBoardVersionsForLap,
+  patchLastLapInCaches,
+  readCachedSessionFingerprint,
   refreshPlayerHudCache,
   refreshPlayerHudCacheForLap,
+  sessionHudUnchanged,
 } from './lapCompletedHudRefresh.js';
 import { isHudConvexConfigured } from './hudConvex.js';
+import { refreshHudForRivalLapObservers } from './hudRivalFanout.js';
 import { isHudRedisConfigured } from './hudRedis.js';
 
 const HUD_LAP_REFRESH_DEBOUNCE_MS = Number(process.env.HUD_LAP_REFRESH_DEBOUNCE_MS || 1500);
@@ -20,6 +24,10 @@ type PlayerJob = {
   carModel: string;
   source: 'lap' | 'battle';
   lapTimeMs?: number;
+  /** False when lap time does not beat cached PB — skip full refresh and fan-out. */
+  isPersonalBest?: boolean;
+  /** Set after debounced refresh when SSE push is needed. */
+  pushAfterRefresh?: boolean;
 };
 
 type BoardJob = {
@@ -81,6 +89,9 @@ export function scheduleHudRefreshAfterLap(payload: Record<string, unknown>): vo
   const carModel = typeof data.carModel === 'string' ? data.carModel : '';
   const steamId = typeof data.steamId === 'string' ? data.steamId : '';
   const lapTimeMs = typeof data.lapTime === 'number' ? data.lapTime : Number(data.lapTime);
+  const isPersonalBestRaw = data.isPersonalBest;
+  const isPersonalBest =
+    isPersonalBestRaw === false || isPersonalBestRaw === 'false' ? false : true;
 
   if (!serverName || !track) {
     return;
@@ -102,6 +113,7 @@ export function scheduleHudRefreshAfterLap(payload: Record<string, unknown>): vo
       carModel,
       source: 'lap',
       lapTimeMs: Number.isFinite(lapTimeMs) ? lapTimeMs : undefined,
+      isPersonalBest,
     });
   }
 
@@ -164,11 +176,38 @@ async function repushSessionForPlayers(jobs: PlayerJob[]): Promise<void> {
 
   const { pushHudUpdateForSteamId } = await import('./hudSsePush.js');
 
-  await Promise.all(jobs.map((job) => pushHudUpdateForSteamId(job.steamId, false)));
+  const toPush = jobs.filter((job) => job.source !== 'lap' || job.pushAfterRefresh !== false);
+  await Promise.all(
+    toPush.map((job) =>
+      pushHudUpdateForSteamId(job.steamId, false, { skipIfSessionUnchanged: true }),
+    ),
+  );
 }
 
-async function repushSessionForBoards(_boardJobs: BoardJob[]): Promise<void> {
-  // Board bumps do not push SSE; rivals refresh on lap/battle/connect for the local player.
+function dedupeBoardJobs(boardJobs: BoardJob[]): BoardJob[] {
+  const seen = new Map<string, BoardJob>();
+  for (const job of boardJobs) {
+    seen.set(boardJobKey(job), job);
+  }
+  return [...seen.values()];
+}
+
+async function repushSessionForBoards(
+  boardJobs: BoardJob[],
+  playerJobs: PlayerJob[],
+): Promise<number> {
+  const lapAuthors = playerJobs
+    .filter((job) => job.source === 'lap' && job.isPersonalBest !== false)
+    .map((job) => job.steamId);
+  if (lapAuthors.length === 0) {
+    return 0;
+  }
+
+  let total = 0;
+  for (const board of dedupeBoardJobs(boardJobs)) {
+    total += await refreshHudForRivalLapObservers(board, lapAuthors);
+  }
+  return total;
 }
 
 async function repushBattleHudForPlayers(jobs: PlayerJob[]): Promise<void> {
@@ -213,12 +252,24 @@ async function flushHudRefreshQueue(): Promise<void> {
 
       for (const job of playerJobs) {
         if (job.source === 'lap') {
+          if (job.isPersonalBest === false) {
+            if (job.lapTimeMs !== undefined) {
+              await patchLastLapInCaches({ steamId: job.steamId }, job.lapTimeMs);
+            }
+            continue;
+          }
+
+          const beforeFingerprint = await readCachedSessionFingerprint(job.steamId);
           await refreshPlayerHudCacheForLap({
             steamId: job.steamId,
             lastLapMs: job.lapTimeMs,
             source: 'lap',
           });
-          refreshedPlayers.push(job);
+          const afterFingerprint = await readCachedSessionFingerprint(job.steamId);
+          refreshedPlayers.push({
+            ...job,
+            pushAfterRefresh: !sessionHudUnchanged(beforeFingerprint, afterFingerprint),
+          });
           continue;
         }
 
@@ -227,15 +278,15 @@ async function flushHudRefreshQueue(): Promise<void> {
           source: 'battle',
           retryEloUntilChange: true,
         });
-        refreshedPlayers.push(job);
+        refreshedPlayers.push({ ...job, pushAfterRefresh: true });
       }
 
       await repushBattleHudForPlayers(refreshedPlayers);
       await repushSessionForPlayers(refreshedPlayers);
-      await repushSessionForBoards(boardJobs);
+      const rivalFanout = await repushSessionForBoards(boardJobs, playerJobs);
 
       console.log(
-        `[hud-refresh] boards=${boardJobs.length} players=${refreshedPlayers.length}/${playerJobs.length}`,
+        `[hud-refresh] boards=${boardJobs.length} players=${refreshedPlayers.length}/${playerJobs.length} rival-fanout=${rivalFanout}`,
       );
     } catch (err) {
       console.error('[hud-refresh] flush error:', err);
@@ -263,4 +314,13 @@ export function resetHudRefreshSchedulerForTests(): void {
 /** Test helper: pending job counts after scheduling. */
 export function getHudRefreshQueueSizeForTests(): { players: number; boards: number } {
   return { players: pendingPlayers.size, boards: pendingBoards.size };
+}
+
+/** Test helper: run debounced flush immediately. */
+export async function flushHudRefreshQueueForTests(): Promise<void> {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+  await flushHudRefreshQueue();
 }

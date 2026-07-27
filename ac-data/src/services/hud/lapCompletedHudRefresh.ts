@@ -57,7 +57,8 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function sessionLeaderboardFingerprint(result: HudSessionResult): string {
+/** Stable fingerprint for rank + rivals window (used to skip redundant SSE pushes). */
+export function sessionLeaderboardFingerprint(result: HudSessionResult): string {
   if (!result.ok || !result.profile) {
     return '';
   }
@@ -69,6 +70,23 @@ function sessionLeaderboardFingerprint(result: HudSessionResult): string {
     rivals.below?.rank ?? '',
     rivals.below?.lap_ms ?? '',
   ].join(':');
+}
+
+export function sessionHudUnchanged(before: string | null, after: string | null): boolean {
+  if (before === null || after === null || before === '' || after === '') {
+    return false;
+  }
+  return before === after;
+}
+
+export async function readCachedSessionFingerprint(steamId: string): Promise<string | null> {
+  const redisKey = sessionRedisKey(buildSessionCacheKey({ steamId }));
+  const cached = await readCachedSessionResult(redisKey);
+  if (!cached?.ok) {
+    return null;
+  }
+  const fingerprint = sessionLeaderboardFingerprint(cached);
+  return fingerprint === '' ? null : fingerprint;
 }
 
 function applyLastLapToPlayerResult(
@@ -368,6 +386,38 @@ export async function isLapPersonalBest(
     return true;
   }
   return lapTimeMs < previousBest;
+}
+
+/** Update last_lap_ms in Redis player+session caches without Convex fetch or invalidation. */
+export async function patchLastLapInCaches(
+  params: PlayerCacheParams,
+  lapTimeMs: number,
+): Promise<boolean> {
+  if (!Number.isFinite(lapTimeMs) || lapTimeMs <= 0) {
+    return false;
+  }
+
+  const sessionKey = sessionRedisKey(buildSessionCacheKey(params));
+  const playerKey = playerRedisKey(buildPlayerCacheKey(params));
+  const sessionCached = await readCachedSessionResult(sessionKey);
+  if (!sessionCached?.ok) {
+    return false;
+  }
+
+  const updatedSession: HudSessionResult = {
+    ...sessionCached,
+    profile: sessionCached.profile
+      ? { ...sessionCached.profile, last_lap_ms: lapTimeMs }
+      : null,
+  };
+  const updatedPlayer = applyLastLapToPlayerResult(
+    normalizePlayerResult(playerResultFromSession(updatedSession)),
+    lapTimeMs,
+  );
+
+  await persistSessionCacheResult(sessionKey, updatedSession);
+  await persistPlayerCacheResult(playerKey, updatedPlayer);
+  return true;
 }
 
 export async function readCachedProfileElo(params: PlayerCacheParams): Promise<number | null> {

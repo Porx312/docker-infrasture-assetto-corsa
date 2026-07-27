@@ -2,11 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  flushHudRefreshQueueForTests,
   getHudRefreshQueueSizeForTests,
   resetHudRefreshSchedulerForTests,
   scheduleHudRefreshAfterBattleFinished,
   scheduleHudRefreshAfterLap,
 } from './hudRefreshScheduler.js';
+import { setRivalFanoutHandlerForTests } from './hudRivalFanout.js';
 
 test('scheduleHudRefreshAfterLap queues board and player without top10', () => {
   resetHudRefreshSchedulerForTests();
@@ -70,4 +72,80 @@ test('scheduleHudRefreshAfterBattleFinished ignores unknown steam ids', () => {
 
   const { players } = getHudRefreshQueueSizeForTests();
   assert.equal(players, 0);
+});
+
+test('flushHudRefreshQueueForTests invokes rival fan-out for lap boards', async () => {
+  resetHudRefreshSchedulerForTests();
+  const fanoutCalls: Array<{ serverName: string; authors: string[] }> = [];
+  setRivalFanoutHandlerForTests(async (board, authors) => {
+    fanoutCalls.push({
+      serverName: board.serverName,
+      authors: [...authors],
+    });
+    return 1;
+  });
+
+  process.env.HUD_LAP_REFRESH_DELAY_MS = '0';
+  process.env.HUD_BATTLE_REFRESH_DELAY_MS = '0';
+
+  try {
+    scheduleHudRefreshAfterLap({
+      serverName: 'Akina TA',
+      data: {
+        trackName: 'pk_akina',
+        trackConfig: 'akina_downhill',
+        carModel: 'ks_mazda_gt86',
+        steamId: '76561199000000001',
+        lapTime: 272150,
+        isPersonalBest: true,
+      },
+    });
+
+    await flushHudRefreshQueueForTests();
+
+    assert.equal(fanoutCalls.length, 1);
+    assert.equal(fanoutCalls[0]?.serverName, 'Akina TA');
+    assert.deepEqual(fanoutCalls[0]?.authors, ['76561199000000001']);
+  } finally {
+    delete process.env.HUD_LAP_REFRESH_DELAY_MS;
+    delete process.env.HUD_BATTLE_REFRESH_DELAY_MS;
+    setRivalFanoutHandlerForTests(null);
+    resetHudRefreshSchedulerForTests();
+  }
+});
+
+test('flushHudRefreshQueueForTests skips rival fan-out for non-PB laps', async () => {
+  resetHudRefreshSchedulerForTests();
+  const fanoutCalls: Array<{ serverName: string; authors: string[] }> = [];
+  setRivalFanoutHandlerForTests(async (board, authors) => {
+    fanoutCalls.push({
+      serverName: board.serverName,
+      authors: [...authors],
+    });
+    return 0;
+  });
+
+  process.env.HUD_LAP_REFRESH_DELAY_MS = '0';
+
+  try {
+    scheduleHudRefreshAfterLap({
+      serverName: 'Akina TA',
+      data: {
+        trackName: 'pk_akina',
+        trackConfig: 'akina_downhill',
+        carModel: 'ks_mazda_gt86',
+        steamId: '76561199000000001',
+        lapTime: 281_000,
+        isPersonalBest: false,
+      },
+    });
+
+    await flushHudRefreshQueueForTests();
+
+    assert.equal(fanoutCalls.length, 0);
+  } finally {
+    delete process.env.HUD_LAP_REFRESH_DELAY_MS;
+    setRivalFanoutHandlerForTests(null);
+    resetHudRefreshSchedulerForTests();
+  }
 });

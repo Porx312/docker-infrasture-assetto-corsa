@@ -8,16 +8,32 @@ import {
   parseBattleScopeKey,
 } from './hudBattleRooms.js';
 
+function withInstanceId(instanceId: string, fn: () => void): void {
+  const prev = process.env.AC_INSTANCE_ID;
+  process.env.AC_INSTANCE_ID = instanceId;
+  try {
+    fn();
+  } finally {
+    if (prev === undefined) {
+      delete process.env.AC_INSTANCE_ID;
+    } else {
+      process.env.AC_INSTANCE_ID = prev;
+    }
+  }
+}
+
 test('battleRoomFromParams matches telemetry scopeKey format', () => {
-  const room = battleRoomFromParams('Battle Test', '76561199000000001');
-  assert.equal(room, 'battle:battle_test:76561199000000001');
+  withInstanceId('vps-eu-1', () => {
+    const room = battleRoomFromParams('Battle Test', '76561199000000001');
+    assert.equal(room, 'battle:vps-eu-1_battle_test:76561199000000001');
+  });
 });
 
 test('parseBattleScopeKey round-trips cache params', () => {
-  const room = battleRoomFromCacheKey('testing:76561199000000001');
+  const room = battleRoomFromCacheKey('vps-eu-1_testing:76561199000000001');
   assert.ok(isBattleScopeKey(room));
   assert.deepEqual(parseBattleScopeKey(room), {
-    serverName: 'testing',
+    serverName: 'vps-eu-1_testing',
     steamId: '76561199000000001',
   });
 });

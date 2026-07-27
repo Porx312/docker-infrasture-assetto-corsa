@@ -1,16 +1,16 @@
 import { buildBattleCacheKey } from './hudCacheKeys.js';
-import { normalizeHudServerName } from './hudQueryNormalize.js';
+import { buildBattleServerKey } from './hudBattleServerKey.js';
 import type { BattleCacheParams } from './hudTypes.js';
 
 /** Socket.io room / Redis scopeKey prefix for battle HUD. */
 export const BATTLE_SCOPE_PREFIX = 'battle:';
 
 /**
- * Room name matches telemetry `scopeKey`: `battle:{normalizedServerKey}:{steamId}`.
+ * Room name matches telemetry `scopeKey`: `battle:{instance}_{display}:{steamId}`.
  */
 export function battleRoomFromParams(serverName: string, steamId: string): string {
   const cacheKey = buildBattleCacheKey({
-    serverName: normalizeHudServerName(serverName),
+    serverName: buildBattleServerKey(serverName),
     steamId: steamId.trim(),
   });
   return `${BATTLE_SCOPE_PREFIX}${cacheKey}`;

@@ -9,12 +9,21 @@ import {
     adminCheck,
     getContent,
     getContentItems,
+    getContentPreview,
     deleteContentItem,
     uploadContent,
     uploadMultipleContent,
+    getServerBrandingHandler,
+    updateServerBrandingHandler,
+    getServerInstanceConfigHandler,
+    updateServerInstanceConfigHandler,
 } from '../controller/adminController.js';
 
+import { fileURLToPath } from 'url';
+
 const router = Router();
+const acDataRoot = path.dirname(fileURLToPath(import.meta.url));
+const VIEWS_PATH = process.env.ADMIN_VIEWS_PATH || path.join(acDataRoot, '..', '..', 'views');
 
 const uploadDir = process.env.ADMIN_UPLOAD_DIR || '/tmp/ac-admin-uploads';
 fs.mkdirSync(uploadDir, { recursive: true });
@@ -36,8 +45,6 @@ const upload = multer({
     },
 });
 
-const VIEWS_PATH = '/home/jose/assetto-infra/ac-data/views';
-
 router.get('/login', (_req, res) => {
     res.sendFile(path.join(VIEWS_PATH, 'login.html'));
 });
@@ -52,6 +59,7 @@ router.get('/check', adminCheck);
 
 router.get('/content', adminAuth, getContent);
 router.get('/content/:type', adminAuth, getContentItems);
+router.get('/preview/:type/:name/:variant', adminAuth, getContentPreview);
 router.delete('/content/:type/:name', adminAuth, deleteContentItem);
 function handleMulterUpload(
     uploadMiddleware: ReturnType<typeof upload.single> | ReturnType<typeof upload.array>,
@@ -80,5 +88,10 @@ router.post(
     handleMulterUpload(upload.array('files', 20)),
     uploadMultipleContent,
 );
+
+router.get('/branding', adminAuth, getServerBrandingHandler);
+router.put('/branding', adminAuth, updateServerBrandingHandler);
+router.get('/servers/:name/config', adminAuth, getServerInstanceConfigHandler);
+router.put('/servers/:name/config', adminAuth, updateServerInstanceConfigHandler);
 
 export default router;

@@ -27,6 +27,13 @@ _LAST_PUBLISH_BY_PAIR: dict[tuple[str, str], float] = {}
 _PENDING_CLEAR_TIMERS: dict[tuple[str, str], threading.Timer] = {}
 
 
+def battle_server_key(server_state) -> str:
+    """Fleet-scoped Redis key: {AC_INSTANCE_ID}_{display_name}."""
+    instance = normalize_hud_key_part(settings.AC_INSTANCE_ID or "default")
+    display = normalize_hud_key_part(display_server_name(server_state))
+    return f"{instance}_{display}"
+
+
 def normalize_hud_key_part(value: str) -> str:
     """Match ac-data normalizeHudKeyPart: trim, lower, spaces -> underscores."""
     return re.sub(r"\s+", "_", value.strip().lower())
@@ -336,7 +343,7 @@ def publish_battle_hud(
     version = str(int(time.time() * 1000))
     snapshot["version"] = version
 
-    server_key = normalize_hud_key_part(display_server_name(server_state))
+    server_key = battle_server_key(server_state)
     g1 = manager.battle.car1_guid
     g2 = manager.battle.car2_guid
     ttl = max(
@@ -372,7 +379,7 @@ def clear_battle_hud(server_state, steam_ids: list[str]) -> None:
     if not steam_ids:
         return
 
-    server_key = normalize_hud_key_part(display_server_name(server_state))
+    server_key = battle_server_key(server_state)
     try:
         redis = get_redis_client()
         for steam_id in steam_ids:
@@ -402,7 +409,7 @@ def schedule_clear_battle_hud(
         return
 
     delay = delay_sec if delay_sec is not None else settings.HUD_BATTLE_CLEAR_DELAY_SEC
-    server_key = normalize_hud_key_part(display_server_name(server_state))
+    server_key = battle_server_key(server_state)
 
     def _run_clear() -> None:
         clear_battle_hud(server_state, steam_ids)

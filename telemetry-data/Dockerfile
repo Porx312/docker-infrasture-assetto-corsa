@@ -11,11 +11,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-ENV SERVERS_PATH=/opt/assetto/servers
-ENV AC_INSTANCE_ID=vps-1
-ENV REDIS_HOST=redis-12827.c99.us-east-1-4.ec2.cloud.redislabs.com
-ENV REDIS_PORT=12827
-ENV REDIS_USERNAME=default
-ENV REDIS_SSL=false
-
+# Runtime config comes from env_file in docker-compose (see .env.production).
 CMD ["python", "main.py"]

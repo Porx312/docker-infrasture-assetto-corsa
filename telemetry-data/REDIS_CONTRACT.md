@@ -93,7 +93,8 @@ Redis snapshot players (telemetry): `steamId`, `name`, `car_id`, `score`, option
 Each SSE `battle:update` enriches players from `ac:hud:player:*` (derived locally from `ac:hud:session:*` profile):
 `name`, `tier`, `avatar_url`, `car_name`, `car_id` — profile wins over snapshot; legacy snapshots with `car` are still accepted.
 
-- `serverKey` = normalized AC display name (lowercase, spaces → `_`, CM suffix stripped).
+- `serverKey` = `{AC_INSTANCE_ID}_{normalizedDisplayName}` (lowercase, spaces → `_`, hyphens preserved, CM suffix stripped). Example: `vps-eu-2_battle_test`.
+- Legacy keys without instance prefix only occur when `AC_INSTANCE_ID` is unset (defaults to `default`).
 - Both players in a pair receive the same snapshot under their respective `steamId` keys.
 - Pub/sub channel `ac:hud:updates` notifies clients (same as time-attack HUD).
 - **ac-data** fan-out vía **SSE** (`GET /hud/battle/stream`) cuando `HUD_SSE_ENABLED=true`.

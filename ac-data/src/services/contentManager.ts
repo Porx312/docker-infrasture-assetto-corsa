@@ -17,9 +17,9 @@ export interface ContentItem {
     isDirectory: boolean;
 }
 
-const ALLOWED_EXTENSIONS: Record<ContentType, string[]> = {
-    cars: ['.kn5', '.acd', '.ini', '.zip'],
-    tracks: ['.kn5', '.acd', '.ini', '.zip'],
+const ALLOWED_ROOT_EXTENSIONS: Record<ContentType, string[]> = {
+    cars: ['.kn5', '.acd', '.ini', '.zip', '.bank'],
+    tracks: ['.kn5', '.acd', '.ini', '.zip', '.bank'],
     weather: ['.ini', '.zip'],
 };
 
@@ -27,11 +27,42 @@ function getContentDir(type: ContentType): string {
     return path.join(CONTENT_BASE_PATH, type);
 }
 
-function isAllowedFile(filePath: string, type: ContentType): boolean {
-    const ext = path.extname(filePath).toLowerCase();
-    if (!ext || ext.length === 0) return false;
-    const allowed = ALLOWED_EXTENSIONS[type] || [];
-    return allowed.includes(ext);
+export function resolveSafeContentPath(contentDir: string, relativePath: string): string | null {
+    const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+/, '');
+    if (!normalized || normalized.includes('..')) {
+        return null;
+    }
+
+    const targetPath = path.join(contentDir, normalized);
+    const resolvedContent = path.resolve(contentDir);
+    const resolvedTarget = path.resolve(targetPath);
+    const contentPrefix = `${resolvedContent}${path.sep}`;
+
+    if (resolvedTarget !== resolvedContent && !resolvedTarget.startsWith(contentPrefix)) {
+        return null;
+    }
+
+    return resolvedTarget;
+}
+
+export function isAllowedUpload(relativePath: string, type: ContentType): boolean {
+    const normalized = relativePath.replace(/\\/g, '/');
+    if (normalized.includes('/')) {
+        return true;
+    }
+
+    const ext = path.extname(normalized).toLowerCase();
+    if (!ext) {
+        return false;
+    }
+
+    return (ALLOWED_ROOT_EXTENSIONS[type] ?? []).includes(ext);
+}
+
+async function ensureContentDir(type: ContentType): Promise<string> {
+    const contentDir = getContentDir(type);
+    await fs.promises.mkdir(contentDir, { recursive: true });
+    return contentDir;
 }
 
 export async function listContent(type: ContentType): Promise<ContentItem[]> {
@@ -110,28 +141,32 @@ export async function deleteContent(type: ContentType, name: string): Promise<{ 
 }
 
 export async function uploadSingleFile(type: ContentType, file: Express.Multer.File): Promise<{ ok: boolean; message: string }> {
-    const contentDir = getContentDir(type);
-    const targetPath = path.join(contentDir, file.originalname);
+    const contentDir = await ensureContentDir(type);
+    const relativePath = file.originalname.replace(/\\/g, '/');
+    const targetPath = resolveSafeContentPath(contentDir, relativePath);
 
-    if (!targetPath.startsWith(contentDir)) {
+    if (!targetPath) {
         return { ok: false, message: 'Invalid path' };
     }
 
-    if (!isAllowedFile(file.originalname, type)) {
-        return { ok: false, message: `File type not allowed: ${path.extname(file.originalname)}` };
+    if (!isAllowedUpload(relativePath, type)) {
+        const ext = path.extname(relativePath);
+        return { ok: false, message: `File type not allowed: ${ext || '(no extension)'}` };
     }
 
     try {
+        await fs.promises.mkdir(path.dirname(targetPath), { recursive: true });
         await fs.promises.copyFile(file.path, targetPath);
         await fs.promises.unlink(file.path);
-        return { ok: true, message: `Uploaded ${file.originalname}` };
-    } catch (err: any) {
-        return { ok: false, message: err.message };
+        return { ok: true, message: `Uploaded ${relativePath}` };
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Upload failed';
+        return { ok: false, message };
     }
 }
 
 export async function extractZip(type: ContentType, zipPath: string): Promise<{ ok: boolean; message: string; extracted: string[]; errors: string[] }> {
-    const contentDir = getContentDir(type);
+    const contentDir = await ensureContentDir(type);
     const extracted: string[] = [];
     const errors: string[] = [];
 
