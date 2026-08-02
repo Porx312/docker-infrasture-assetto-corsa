@@ -1,12 +1,6 @@
 import '../../config/loadEnv.js';
-import { createClient, type RedisClientType } from 'redis';
-
-const REDIS_HOST = process.env.REDIS_HOST || '';
-const REDIS_PORT = Number(process.env.REDIS_PORT || 6379);
-const REDIS_USERNAME = process.env.REDIS_USERNAME || undefined;
-const REDIS_PASSWORD = process.env.REDIS_PASSWORD || undefined;
-const REDIS_DB = Number(process.env.REDIS_DB || 0);
-const REDIS_SSL = (process.env.REDIS_SSL || 'false').trim().toLowerCase() === 'true';
+import type { RedisClientType } from 'redis';
+import { createRedisClient, isRedisConfigured } from '../redisClient.js';
 
 export const HUD_PLAYER_TTL_SEC = Number(process.env.HUD_PLAYER_TTL_SEC || 10);
 export const HUD_SESSION_TTL_SEC = Number(process.env.HUD_SESSION_TTL_SEC || 300);
@@ -24,14 +18,8 @@ export const HUD_SSE_PRESENCE_TTL_SEC = Number(process.env.HUD_SSE_PRESENCE_TTL_
 let client: RedisClientType | null = null;
 let connectPromise: Promise<RedisClientType> | null = null;
 
-function createRedisSocket() {
-  return REDIS_SSL
-    ? { host: REDIS_HOST, port: REDIS_PORT, tls: true as const }
-    : { host: REDIS_HOST, port: REDIS_PORT };
-}
-
 export function isHudRedisConfigured(): boolean {
-  return Boolean(REDIS_HOST);
+  return isRedisConfigured();
 }
 
 export async function getHudRedisClient(): Promise<RedisClientType> {
@@ -42,19 +30,12 @@ export async function getHudRedisClient(): Promise<RedisClientType> {
     return connectPromise;
   }
 
-  if (!REDIS_HOST) {
+  if (!isRedisConfigured()) {
     throw new Error('REDIS_HOST missing for HUD cache');
   }
 
   connectPromise = (async () => {
-    const redisClient = createClient({
-      socket: createRedisSocket(),
-      ...(REDIS_USERNAME ? { username: REDIS_USERNAME } : {}),
-      ...(REDIS_PASSWORD ? { password: REDIS_PASSWORD } : {}),
-      database: REDIS_DB,
-    }) as RedisClientType;
-
-    redisClient.on('error', (err) => console.error('[hud-redis] redis error:', err));
+    const redisClient = createRedisClient('hud-redis');
     await redisClient.connect();
     client = redisClient;
     return redisClient;

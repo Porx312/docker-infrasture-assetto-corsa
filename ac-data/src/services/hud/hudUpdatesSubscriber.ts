@@ -1,9 +1,10 @@
-import { createClient, type RedisClientType } from 'redis';
+import type { RedisClientType } from 'redis';
 
 import { isBattleScopeKey } from './hudBattleRooms.js';
 import { isHudUpdateScopeKey, parseBoardScopeKey, parsePlayerScopeKey } from './hudScopeKeys.js';
 import { isHudRedisConfigured } from './hudRedis.js';
 import { HUD_UPDATES_CHANNEL } from './hudVersion.js';
+import { createRedisClient } from '../redisClient.js';
 
 export type HudUpdateMessage = {
   scopeKey: string;
@@ -52,23 +53,7 @@ function routeHudUpdate(update: HudUpdateMessage): void {
 }
 
 function createSubscriberClient(): RedisClientType {
-  const REDIS_HOST = process.env.REDIS_HOST || '';
-  const REDIS_PORT = Number(process.env.REDIS_PORT || 6379);
-  const REDIS_USERNAME = process.env.REDIS_USERNAME || undefined;
-  const REDIS_PASSWORD = process.env.REDIS_PASSWORD || undefined;
-  const REDIS_DB = Number(process.env.REDIS_DB || 0);
-  const REDIS_SSL = (process.env.REDIS_SSL || 'false').trim().toLowerCase() === 'true';
-
-  const socket = REDIS_SSL
-    ? { host: REDIS_HOST, port: REDIS_PORT, tls: true as const }
-    : { host: REDIS_HOST, port: REDIS_PORT };
-
-  return createClient({
-    socket,
-    ...(REDIS_USERNAME ? { username: REDIS_USERNAME } : {}),
-    ...(REDIS_PASSWORD ? { password: REDIS_PASSWORD } : {}),
-    database: REDIS_DB,
-  }) as RedisClientType;
+  return createRedisClient('hud-updates-subscriber');
 }
 
 export async function startHudUpdatesSubscriber(handlers: HudUpdateHandlers): Promise<void> {

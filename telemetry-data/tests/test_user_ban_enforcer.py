@@ -77,8 +77,7 @@ def test_is_steam_id_banned_ignores_stale_hud_player_cache(mock_get_client):
 @patch("core.user_ban_enforcer._schedule_ban_kick_retries")
 @patch("core.user_ban_enforcer.send_admin_command")
 @patch("core.user_ban_enforcer.send_kick_user")
-@patch("core.user_ban_enforcer.send_chat")
-def test_kick_driver_sends_chat_and_kick_packet(mock_chat, mock_kick, mock_admin, mock_retries):
+def test_kick_driver_silent_kick_packet_only(mock_kick, mock_admin, mock_retries):
     reset_registry_for_tests()
     server = ServerState(12001, 8081, "track", "layout", "Test Server")
     server.sock = MagicMock()
@@ -91,7 +90,6 @@ def test_kick_driver_sends_chat_and_kick_packet(mock_chat, mock_kick, mock_admin
 
     kick_driver(server, driver, "user_invalidated")
 
-    mock_chat.assert_called_once()
     mock_kick.assert_called_once_with(server, 3)
     assert mock_admin.call_count >= 1
     mock_retries.assert_called_once()

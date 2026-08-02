@@ -1,5 +1,5 @@
 import '../config/loadEnv.js';
-import { createClient } from 'redis';
+import type { RedisClientType } from 'redis';
 import {
   coalesceIngestBatch,
   shouldFlushIngestBuffer,
@@ -8,32 +8,18 @@ import {
   type PendingIngestMessage,
 } from './coalesceIngestBatch.js';
 import { ensureConvexClient, isConvexConfigured } from './convexClient.js';
-import { scheduleHudRefreshAfterBattleFinished, scheduleHudRefreshAfterLap } from './hud/hudRefreshScheduler.js';
 import { fetchWorkerSyncVersion } from './hud/hudConvex.js';
 import {
   updateManagedServersFromSnapshot,
   type ManagedServerRow,
 } from './hud/hudManagedServers.js';
-import { refreshHudAfterPlayerJoin } from './hud/hudAfterPlayerJoin.js';
+import { publishWorkerErrorEvent } from './activity/activityService.js';
 import {
-  invalidateHudCachesForSteamId,
-  isLapPersonalBest,
-  patchLastLapInCaches,
-} from './hud/lapCompletedHudRefresh.js';
-import { pushHudUpdateForSteamId } from './hud/hudSsePush.js';
-import {
-  noteHudPlayerJoin,
-  noteHudPlayerLeave,
-  noteHudServerStatus,
-} from './hud/hudPlayerPresence.js';
-import { noteServerStatus } from './serverPool.js';
+  handleEventAfterIngest,
+  handleEventBeforeIngest,
+} from './eventHandlers/index.js';
+import { connectRedisClient, createRedisClient, isRedisConfigured } from './redisClient.js';
 
-const REDIS_HOST = process.env.REDIS_HOST || '';
-const REDIS_PORT = Number(process.env.REDIS_PORT || 6379);
-const REDIS_USERNAME = process.env.REDIS_USERNAME || undefined;
-const REDIS_PASSWORD = process.env.REDIS_PASSWORD || undefined;
-const REDIS_DB = Number(process.env.REDIS_DB || 0);
-const REDIS_SSL = (process.env.REDIS_SSL || 'false').trim().toLowerCase() === 'true';
 const REDIS_STREAM_KEY = process.env.REDIS_STREAM_KEY || 'ac:events';
 const REDIS_CONFIG_STREAM_KEY = process.env.REDIS_CONFIG_STREAM_KEY || 'ac:config';
 const AC_INSTANCE_ID = process.env.AC_INSTANCE_ID || 'default';
@@ -179,7 +165,7 @@ async function forwardBatchToConvex(
 }
 
 async function publishConfigSnapshotToRedis(
-  client: ReturnType<typeof createClient>,
+  client: RedisClientType,
   snapshot: WorkerConfigSnapshotResult,
 ): Promise<void> {
   const now = Date.now();
@@ -221,7 +207,7 @@ async function publishConfigSnapshotToRedis(
   );
 }
 
-async function startConvexConfigPublisher(client: ReturnType<typeof createClient>): Promise<void> {
+async function startConvexConfigPublisher(client: RedisClientType): Promise<void> {
   if (!REDIS_CONFIG_SYNC_ENABLED) {
     console.log('[redis-config-sync] disabled');
     return;
@@ -296,32 +282,37 @@ function appendToIngestBuffer(state: IngestBufferState, items: PendingIngestMess
 }
 
 async function flushIngestChunk(
-  client: ReturnType<typeof createClient>,
+  client: RedisClientType,
   chunk: PendingIngestMessage[],
 ): Promise<boolean> {
   const coalesced = coalesceIngestBatch(chunk);
   const droppedStatus = chunk.length - coalesced.length;
 
   for (const { payload, event } of coalesced) {
-    if (event === 'server_status') {
-      const data = (payload.data ?? {}) as Record<string, unknown>;
-      const players = Array.isArray(data.players) ? data.players : [];
-      const statusName = typeof payload.serverName === 'string' ? payload.serverName : '';
-      noteServerStatus(statusName, players.length);
-      await noteHudServerStatus(payload);
-    }
+    await handleEventBeforeIngest(event, payload);
   }
 
   const ingestResult = await forwardBatchToConvex(coalesced.map((p) => p.payload));
   if (!ingestBatchSucceeded(ingestResult)) {
     const failed = ingestResult.results?.find((r) => r.ok !== true);
+    const errorMsg =
+      typeof failed?.error === 'string'
+        ? failed.error
+        : 'Convex ingest batch failed';
     console.error(
       '[redis-bridge] convex batch ingest failed (no ack):',
       coalesced.length,
       'events',
       droppedStatus > 0 ? `(coalesced ${droppedStatus} duplicate server_status)` : '',
-      failed?.error ?? ingestResult,
+      errorMsg,
     );
+    void publishWorkerErrorEvent({
+      error: errorMsg,
+      failed: coalesced.length,
+      eventTypes: [...new Set(coalesced.map((p) => p.event))],
+    }).catch((publishErr) => {
+      console.warn('[redis-bridge] worker_error publish failed:', publishErr);
+    });
     return false;
   }
 
@@ -332,41 +323,7 @@ async function flushIngestChunk(
   }
 
   for (const { msg, payload, event } of chunk) {
-    if (event === 'player_join') {
-      await noteHudPlayerJoin(payload);
-      const joinData = (payload.data ?? {}) as Record<string, unknown>;
-      const joinSteamId = typeof joinData.steamId === 'string' ? joinData.steamId.trim() : '';
-      if (joinSteamId) {
-        await refreshHudAfterPlayerJoin(joinSteamId);
-      }
-    } else if (event === 'player_leave') {
-      await noteHudPlayerLeave(payload);
-    }
-    if (event === 'lap_completed') {
-      const lapData = (payload.data ?? {}) as Record<string, unknown>;
-      const lapSteamId = typeof lapData.steamId === 'string' ? lapData.steamId.trim() : '';
-      const lapTimeMs =
-        typeof lapData.lapTime === 'number' ? lapData.lapTime : Number(lapData.lapTime);
-      if (lapSteamId) {
-        const isPersonalBest = Number.isFinite(lapTimeMs)
-          ? await isLapPersonalBest({ steamId: lapSteamId }, lapTimeMs)
-          : true;
-        if (isPersonalBest) {
-          await invalidateHudCachesForSteamId(lapSteamId);
-          void pushHudUpdateForSteamId(lapSteamId, true);
-        } else if (Number.isFinite(lapTimeMs) && lapTimeMs > 0) {
-          await patchLastLapInCaches({ steamId: lapSteamId }, lapTimeMs);
-        }
-        scheduleHudRefreshAfterLap({
-          ...payload,
-          data: { ...lapData, isPersonalBest },
-        });
-      } else {
-        scheduleHudRefreshAfterLap(payload);
-      }
-    } else if (event === 'battle_finished') {
-      scheduleHudRefreshAfterBattleFinished(payload);
-    }
+    await handleEventAfterIngest(event, payload);
     await client.xAck(REDIS_STREAM_KEY, GROUP, msg.id);
   }
   return true;
@@ -381,7 +338,7 @@ function formatFlushError(err: unknown): string {
 
 /** Reclaim stale XPENDING entries so fetch failures do not block the consumer forever. */
 async function reclaimStalePendingMessages(
-  client: ReturnType<typeof createClient>,
+  client: RedisClientType,
   buffer: IngestBufferState,
 ): Promise<number> {
   let reclaimed = 0;
@@ -442,7 +399,7 @@ async function reclaimStalePendingMessages(
 }
 
 async function flushIngestBuffer(
-  client: ReturnType<typeof createClient>,
+  client: RedisClientType,
   state: IngestBufferState,
 ): Promise<void> {
   while (
@@ -471,7 +428,7 @@ async function flushIngestBuffer(
   }
 }
 
-async function runEventsConsumerLoop(client: ReturnType<typeof createClient>): Promise<void> {
+async function runEventsConsumerLoop(client: RedisClientType): Promise<void> {
   try {
     await client.xGroupCreate(REDIS_STREAM_KEY, GROUP, '0', { MKSTREAM: true });
     console.log(`[redis-bridge] consumer group created: ${GROUP}`);
@@ -552,24 +509,12 @@ export async function startRedisConvexBridge(): Promise<void> {
     console.log('[redis-bridge] events bridge and config sync both disabled, skipping');
     return;
   }
-  if (!REDIS_HOST) {
+  if (!isRedisConfigured()) {
     console.log('[redis-bridge] REDIS_HOST missing, bridge disabled');
     return;
   }
 
-  const socket = REDIS_SSL
-    ? { host: REDIS_HOST, port: REDIS_PORT, tls: true as const }
-    : { host: REDIS_HOST, port: REDIS_PORT };
-
-  const client = createClient({
-    socket,
-    ...(REDIS_USERNAME ? { username: REDIS_USERNAME } : {}),
-    ...(REDIS_PASSWORD ? { password: REDIS_PASSWORD } : {}),
-    database: REDIS_DB,
-  });
-
-  client.on('error', (err) => console.error('[redis-bridge] redis error:', err));
-  await client.connect();
+  const client = await connectRedisClient(createRedisClient('redis-bridge'));
 
   if (REDIS_CONFIG_SYNC_ENABLED) {
     await startConvexConfigPublisher(client);

@@ -1,4 +1,4 @@
-/** @typedef {{ id: string; label: string; hint: string; kind: 'content' | 'servers' }} TabConfig */
+/** @typedef {{ id: string; label: string; hint: string; kind: 'content' | 'servers' | 'activity' }} TabConfig */
 
 /** @type {TabConfig[]} */
 export const TABS = [
@@ -25,6 +25,12 @@ export const TABS = [
     label: 'Servers',
     hint: '',
     kind: 'servers',
+  },
+  {
+    id: 'activity',
+    label: 'Activity',
+    hint: '',
+    kind: 'activity',
   },
 ];
 

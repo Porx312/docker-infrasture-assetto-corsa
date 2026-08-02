@@ -5,6 +5,7 @@ import {
   fillBranding,
   readBranding,
   setCmPreviewHtml,
+  seedLoadingUrlsList,
 } from '../lib/branding.js';
 import { closeModal, openModal } from '../lib/modal.js';
 import { showToast } from '../lib/toast.js';
@@ -17,6 +18,8 @@ import {
 /** @type {Array<{ name: string; displayName?: string; wrapperPort?: number | null }>} */
 let serverList = [];
 let activeServerName = null;
+/** Bumps when branding is saved so in-flight GET /branding cannot overwrite the form. */
+let brandingLoadSeq = 0;
 
 const SERVER_BRANDING_REFS = brandingRefs('sc');
 
@@ -26,6 +29,7 @@ const SERVER_BRANDING_REFS = brandingRefs('sc');
 export function mountServersPanel(container) {
   container.innerHTML = renderServersPanelHtml();
 
+  seedLoadingUrlsList(GLOBAL_BRANDING_REFS);
   bindBrandingPreview(GLOBAL_BRANDING_REFS);
   document.getElementById('brandingForm')?.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -44,8 +48,12 @@ export async function loadServersPanel() {
   const countEl = document.getElementById('serversCount');
   if (countEl) countEl.textContent = 'Loading…';
 
+  const seq = ++brandingLoadSeq;
+
   try {
     const { data } = await apiGet('/branding');
+    if (seq !== brandingLoadSeq) return;
+
     if (!data.ok) {
       showToast(data.message || 'Failed to load branding', 'error');
       return;
@@ -55,6 +63,7 @@ export async function loadServersPanel() {
     renderChips(data.servers);
     if (countEl) countEl.textContent = `${data.serverCount} servers`;
   } catch {
+    if (seq !== brandingLoadSeq) return;
     showToast('Connection error', 'error');
     if (countEl) countEl.textContent = '';
   }
@@ -64,14 +73,20 @@ async function saveGlobalBranding() {
   const btn = document.getElementById('brSaveBtn');
   if (!(btn instanceof HTMLButtonElement)) return;
 
+  const payload = readBranding(GLOBAL_BRANDING_REFS);
+  const saveSeq = ++brandingLoadSeq;
+
   btn.disabled = true;
   btn.textContent = 'Saving…';
 
   try {
-    const { data } = await apiPut('/branding', readBranding(GLOBAL_BRANDING_REFS));
+    const { data } = await apiPut('/branding', payload);
+    if (saveSeq !== brandingLoadSeq) return;
+
     if (data.ok) {
       showToast(data.message || 'Branding saved');
-      fillBranding(GLOBAL_BRANDING_REFS, data.branding);
+      fillBranding(GLOBAL_BRANDING_REFS, data.branding ?? payload);
+      brandingLoadSeq += 1;
       renderChips(data.servers);
       const countEl = document.getElementById('serversCount');
       if (countEl) countEl.textContent = `${data.servers?.length ?? 0} servers`;
@@ -79,10 +94,14 @@ async function saveGlobalBranding() {
       showToast(data.message || 'Save failed', 'error');
     }
   } catch {
-    showToast('Connection error', 'error');
+    if (saveSeq === brandingLoadSeq) {
+      showToast('Connection error', 'error');
+    }
   } finally {
-    btn.disabled = false;
-    btn.textContent = 'Save & apply to all servers';
+    if (saveSeq === brandingLoadSeq) {
+      btn.disabled = false;
+      btn.textContent = 'Save & apply to all servers';
+    }
   }
 }
 
@@ -136,25 +155,6 @@ export function closeServerConfig() {
 
 /** @param {Record<string, unknown>} config */
 function fillServerFields(config) {
-  const setValue = (id, value) => {
-    const el = document.getElementById(id);
-    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-      el.value = value ?? '';
-    }
-  };
-
-  setValue('scDisplayName', config.displayName);
-  setValue('scPassword', config.password);
-  setValue('scMaxClients', String(config.maxClients ?? 1));
-  setValue('scCars', config.cars);
-  setValue('scTrack', config.track);
-  setValue('scConfigTrack', config.configTrack);
-
-  const lobby = document.getElementById('scRegisterLobby');
-  if (lobby instanceof HTMLInputElement) {
-    lobby.checked = Boolean(config.registerToLobby);
-  }
-
   fillBranding(SERVER_BRANDING_REFS, {
     description: String(config.description ?? ''),
     webLink: String(config.webLink ?? ''),
@@ -165,23 +165,7 @@ function fillServerFields(config) {
 }
 
 function readServerFields() {
-  const getValue = (id) => {
-    const el = document.getElementById(id);
-    return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement ? el.value : '';
-  };
-
-  const lobby = document.getElementById('scRegisterLobby');
-
-  return {
-    displayName: getValue('scDisplayName'),
-    password: getValue('scPassword'),
-    maxClients: Number.parseInt(getValue('scMaxClients'), 10) || 1,
-    cars: getValue('scCars'),
-    track: getValue('scTrack'),
-    configTrack: getValue('scConfigTrack'),
-    registerToLobby: lobby instanceof HTMLInputElement ? lobby.checked : false,
-    ...readBranding(SERVER_BRANDING_REFS),
-  };
+  return readBranding(SERVER_BRANDING_REFS);
 }
 
 export async function saveServerConfig(e) {
@@ -201,15 +185,16 @@ export async function saveServerConfig(e) {
     );
 
     if (data.ok) {
-      showToast(data.message || 'Instance saved');
+      showToast(data.message || 'Branding saved');
       fillServerFields(data.config);
       if (data.servers) {
         renderChips(data.servers);
         const countEl = document.getElementById('serversCount');
         if (countEl) countEl.textContent = `${data.servers.length} servers`;
       }
+      const chip = serverList.find((s) => s.name === activeServerName);
       document.getElementById('serverConfigTitle').textContent =
-        data.config.displayName || activeServerName;
+        chip?.displayName || data.config?.displayName || activeServerName;
     } else {
       showToast(data.message || 'Save failed', 'error');
     }
@@ -217,7 +202,7 @@ export async function saveServerConfig(e) {
     showToast('Connection error', 'error');
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Save instance';
+    btn.textContent = 'Save branding';
   }
 }
 

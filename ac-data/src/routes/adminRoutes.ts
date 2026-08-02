@@ -18,6 +18,12 @@ import {
     getServerInstanceConfigHandler,
     updateServerInstanceConfigHandler,
 } from '../controller/adminController.js';
+import {
+    getActivityServersHandler,
+    getActivitySummaryHandler,
+    getActivityTimelineHandler,
+} from '../controller/activityController.js';
+import { getAdminHealthHandler } from '../controller/healthController.js';
 
 import { fileURLToPath } from 'url';
 
@@ -57,6 +63,8 @@ router.get('/dashboard', adminAuth, (_req, res) => {
 
 router.get('/check', adminCheck);
 
+router.get('/health', adminAuth, getAdminHealthHandler);
+
 router.get('/content', adminAuth, getContent);
 router.get('/content/:type', adminAuth, getContentItems);
 router.get('/preview/:type/:name/:variant', adminAuth, getContentPreview);
@@ -93,5 +101,9 @@ router.get('/branding', adminAuth, getServerBrandingHandler);
 router.put('/branding', adminAuth, updateServerBrandingHandler);
 router.get('/servers/:name/config', adminAuth, getServerInstanceConfigHandler);
 router.put('/servers/:name/config', adminAuth, updateServerInstanceConfigHandler);
+
+router.get('/activity/servers', adminAuth, getActivityServersHandler);
+router.get('/activity/summary', adminAuth, getActivitySummaryHandler);
+router.get('/activity/timeline', adminAuth, getActivityTimelineHandler);
 
 export default router;

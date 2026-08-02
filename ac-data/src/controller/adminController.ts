@@ -15,6 +15,7 @@ import {
 } from '../services/contentPreviews.js';
 import {
     buildCmDescription,
+    normalizeBranding,
     readServerBranding,
     saveAndApplyBranding,
     summarizeServers,
@@ -246,13 +247,15 @@ export async function getServerInstanceConfigHandler(req: Request, res: Response
         res.json({
             ok: true,
             config,
-            cmDescriptionPreview: buildCmDescription({
-                description: config.description,
-                webLink: config.webLink,
-                cmDescriptionBody: config.cmDescriptionBody,
-                bannerImageUrl: config.bannerImageUrl,
-                loadingImageUrl: config.loadingImageUrl,
-            }),
+            cmDescriptionPreview: buildCmDescription(
+                normalizeBranding({
+                    description: config.description,
+                    webLink: config.webLink,
+                    cmDescriptionBody: config.cmDescriptionBody,
+                    bannerImageUrl: config.bannerImageUrl,
+                    loadingImageUrl: config.loadingImageUrl,
+                }),
+            ),
         });
     } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Unknown error';
@@ -268,13 +271,15 @@ export async function updateServerInstanceConfigHandler(req: Request, res: Respo
             ok: true,
             message: `Updated ${serverName}`,
             config,
-            cmDescriptionPreview: buildCmDescription({
-                description: config.description,
-                webLink: config.webLink,
-                cmDescriptionBody: config.cmDescriptionBody,
-                bannerImageUrl: config.bannerImageUrl,
-                loadingImageUrl: config.loadingImageUrl,
-            }),
+            cmDescriptionPreview: buildCmDescription(
+                normalizeBranding({
+                    description: config.description,
+                    webLink: config.webLink,
+                    cmDescriptionBody: config.cmDescriptionBody,
+                    bannerImageUrl: config.bannerImageUrl,
+                    loadingImageUrl: config.loadingImageUrl,
+                }),
+            ),
             servers: summarizeServers(),
         });
     } catch (err: unknown) {

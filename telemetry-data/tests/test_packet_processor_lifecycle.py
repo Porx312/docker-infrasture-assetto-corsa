@@ -64,7 +64,7 @@ def server_state():
 
 @patch("core.packet_processor.schedule_deferred_ban_kick")
 @patch("core.packet_processor.is_steam_id_banned", return_value=False)
-@patch("core.packet_processor.send_server_event")
+@patch("core.handlers.new_connection.send_server_event")
 def test_new_connection_publishes_player_join(
     mock_send,
     _mock_banned,
@@ -79,12 +79,12 @@ def test_new_connection_publishes_player_join(
     assert server_state.guid_to_driver["76561199230780195"].car_id == 0
 
 
-@patch("core.packet_processor.send_server_event")
+@patch("core.driver_lifecycle.send_server_event")
 def test_connection_closed_publishes_player_leave(mock_send, server_state):
     with patch("core.packet_processor.schedule_deferred_ban_kick"), patch(
         "core.packet_processor.is_steam_id_banned",
         return_value=False,
-    ):
+    ), patch("core.handlers.new_connection.send_server_event"):
         process_packet(_new_connection_packet(), server_state, ("127.0.0.1", 12001))
     mock_send.reset_mock()
 
@@ -92,5 +92,7 @@ def test_connection_closed_publishes_player_leave(mock_send, server_state):
 
     mock_send.assert_called_once()
     assert mock_send.call_args.args[0] == "player_leave"
+    assert mock_send.call_args.args[2]["name"] == "Pilot"
+    assert mock_send.call_args.args[2]["steamId"] == "76561199230780195"
     server_state.battle_manager.remove_car.assert_called_once_with("76561199230780195")
     assert 0 not in server_state.active_drivers

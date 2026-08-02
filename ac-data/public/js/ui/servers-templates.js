@@ -7,7 +7,7 @@ import {
   renderBrandingFieldsHtml,
 } from '../lib/branding.js';
 
-export const GLOBAL_BRANDING_REFS = brandingRefs('br');
+export const GLOBAL_BRANDING_REFS = brandingRefs('br', { loadingListMode: true });
 
 export function renderServersPanelHtml() {
   return `
@@ -16,13 +16,14 @@ export function renderServersPanelHtml() {
         <h2>Server branding</h2>
         <span class="panel-count" id="serversCount"></span>
       </div>
-      <p class="panel-note">Global branding applies to all instances. Click an instance below to edit its individual <code>server_cfg.ini</code>.</p>
+      <p class="panel-note">Global branding applies to all instances. Click an instance below to override branding for that server only.</p>
       <form id="brandingForm" class="branding-form">
         ${renderBrandingFieldsHtml(GLOBAL_BRANDING_REFS, {
           descriptionRows: 3,
           cmBodyRows: 5,
           bannerLabel: 'Banner image (CM description)',
-          loadingLabel: 'Loading screen image',
+          loadingLabel: 'Loading screen images',
+          loadingListMode: true,
         })}
         <div class="branding-actions">
           <button type="submit" class="btn btn-primary" id="brSaveBtn">Save & apply to all servers</button>

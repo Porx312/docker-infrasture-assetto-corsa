@@ -129,6 +129,8 @@ On every `NEW_CONNECTION`, telemetry emits `player_join` **before** ban kick so 
 
 Enforcement reads **only** `ac:user:invalidated:{steamId}` (not HUD player cache).
 
-Env: `USER_BAN_ENABLED`, `USER_INVALIDATED_REDIS_PREFIX`, `USER_INVALIDATED_CHANNEL`, `USER_BAN_KICK_MESSAGE`, `USER_BAN_DEFER_POLL_MS`, `USER_BAN_DEFER_ATTEMPTS`.
+Ban kicks are **silent**: telemetry sends ACSP `KICK_USER` (206) and `/kick_id` only — no chat message (AC plugin chat is visible to all clients).
+
+Env: `USER_BAN_ENABLED`, `USER_INVALIDATED_REDIS_PREFIX`, `USER_INVALIDATED_CHANNEL`, `USER_BAN_DEFER_POLL_MS`, `USER_BAN_DEFER_ATTEMPTS`.
 
 Verify: `./scripts/verify-user-ban.sh [steamId]`

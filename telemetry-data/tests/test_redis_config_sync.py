@@ -18,7 +18,7 @@ class _FakeState:
 def test_apply_snapshot_runtime_only(monkeypatch, tmp_path):
     versions_file = str(tmp_path / "versions.json")
     monkeypatch.setattr(settings, "AC_INSTANCE_ID", "test-instance")
-    monkeypatch.setattr("core.redis_config_sync._VERSIONS_FILE", versions_file)
+    monkeypatch.setattr(settings, "REDIS_APPLIED_CONFIG_VERSIONS_FILE", versions_file)
 
     runtime_config.set_server_modes([])
     payload = {

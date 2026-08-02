@@ -1,27 +1,41 @@
 # ac-data
 
-Node.js service that bridges Redis and Convex for Assetto Corsa server configuration management.
+Node.js **host control plane** for Assetto Corsa: Redis↔Convex bridge, HUD API, admin UI, AC server lifecycle.
+
+**Full architecture, env vars, and deploy checklist:** [`docs/AC_DATA.md`](../docs/AC_DATA.md)
+
+## Quick start
+
+```bash
+# From repo root (loads .env.local)
+./start.sh dev
+
+# Or manually
+cd ac-data && npm run build && npm start
+```
+
+After code changes: **always rebuild + restart ac-data** (see deploy checklist in `docs/AC_DATA.md`).
 
 ## Purpose
 
-- Receives server configuration snapshots from Convex via Redis stream
-- Applies configuration changes (name, password, cars, track, trackConfig) to server_cfg.ini
-- Manages AC server lifecycle: stop → configure → restart
-- Publishes events to Redis for downstream consumers (telemetry)
+- Consumes `ac:events` from Redis → forwards to Convex; HUD/pool side effects via event handlers
+- Publishes Convex config snapshots to `ac:config` → applies INI + restart
+- Spawns native 32-bit AC server processes (must run on host, not Docker)
+- Admin panel: content, branding, activity timeline, server config
 
 ## Architecture
 
 ```
-Convex ──────► Redis Stream (ac:config) ──────► ac-data ──────► AC Servers
-                          │                        │
-                          │                        ▼
-                          │                 Modifies cfg files
-                          │                        │
-                          ▼                        ▼
-                    ac:events              restart server process
+Convex ──────► Redis (ac:config) ──────► ac-data ──────► AC Servers
+telemetry ───► Redis (ac:events) ──────► ac-data ──────► Convex ingest
                           │
-                          ▼
-                    telemetry (Python)
+                          └──► HUD cache / SSE / Admin Activity
+```
+
+## Health
+
+```bash
+curl -s -b "admin_token=..." http://127.0.0.1:3000/admin/health | jq
 ```
 
 ## Running on Host (Not Containerized)

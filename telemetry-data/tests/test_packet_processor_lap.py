@@ -39,7 +39,7 @@ def _reset_runtime_modes():
     runtime_config.set_server_modes([])
 
 
-@patch("core.packet_processor.send_server_event")
+@patch("core.handlers.lap_completed.send_server_event")
 def test_lap_completed_battle_does_not_publish(mock_send, server_state):
     runtime_config.set_server_modes(
         [{"serverName": "server", "displayName": "pord", "type": "battle"}]
@@ -51,14 +51,14 @@ def test_lap_completed_battle_does_not_publish(mock_send, server_state):
     )
 
 
-@patch("core.packet_processor.send_server_event")
+@patch("core.handlers.lap_completed.send_server_event")
 def test_lap_completed_unknown_mode_does_not_publish(mock_send, server_state):
     process_packet(_lap_completed_packet(), server_state, ("127.0.0.1", 12001))
     mock_send.assert_not_called()
     server_state.battle_manager.handle_lap_completed.assert_not_called()
 
 
-@patch("core.packet_processor.send_server_event")
+@patch("core.handlers.lap_completed.send_server_event")
 def test_lap_completed_time_attack_publishes(mock_send, server_state):
     runtime_config.set_server_modes(
         [{"serverName": "server", "displayName": "pord", "type": "time-attack"}]
@@ -70,7 +70,7 @@ def test_lap_completed_time_attack_publishes(mock_send, server_state):
     server_state.battle_manager.handle_lap_completed.assert_not_called()
 
 
-@patch("core.packet_processor.send_server_event")
+@patch("core.handlers.lap_completed.send_server_event")
 def test_lap_completed_unified_without_type_publishes(mock_send, server_state):
     runtime_config.set_server_modes(
         [{"serverName": "server", "displayName": "pord"}]

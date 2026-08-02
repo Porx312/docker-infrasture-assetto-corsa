@@ -5,5 +5,8 @@
   "downloadSpeedLimit": 0,
   "downloadPasswordOnly": false,
   "publishPasswordChecksum": true,
+  "loadingImageUrls": [
+    "https://res.cloudinary.com/dq0pfesxe/image/upload/v1783344583/image_z6uvgz.webp"
+  ],
   "loadingImageUrl": "https://res.cloudinary.com/dq0pfesxe/image/upload/v1783344583/image_z6uvgz.webp"
 }

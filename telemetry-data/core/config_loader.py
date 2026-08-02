@@ -1,6 +1,13 @@
 import os
 import re
 
+from core.ini_config import (
+    extract_config_track,
+    extract_server_name,
+    extract_track,
+    extract_udp_ports,
+    read_ini_file,
+)
 from core.logging_config import get_logger
 from core.server_identity import (
     cfg_path_priority,
@@ -66,39 +73,19 @@ def load_server_configs(ServerStateClass):
 
         for cfg_path in cfg_paths:
             try:
-                with open(cfg_path, "rb") as f:
-                    raw = f.read()
+                content = read_ini_file(cfg_path)
+                if content is None:
+                    log.warning("could not read %s", cfg_path)
+                    continue
 
-                try:
-                    content = raw.decode("utf-8")
-                except UnicodeDecodeError:
-                    content = raw.decode("utf-16le", errors="ignore")
-
-                plugin_port_m = re.search(r"^UDP_PLUGIN_LOCAL_PORT=(\d+)", content, re.MULTILINE)
-                udp_addr_m = re.search(r"^UDP_PLUGIN_ADDRESS=(?:[^:]+:)?(\d+)", content, re.MULTILINE)
-
-                if not plugin_port_m or not udp_addr_m:
+                listen_port, cmd_port = extract_udp_ports(content)
+                if listen_port is None or cmd_port is None:
                     log.warning("missing UDP ports in %s", cfg_path)
                     continue
 
-                server_name_m = re.search(r"^SERVER_NAME=(.+)", content, re.MULTILINE)
-                if not server_name_m:
-                    server_name_m = re.search(r"^NAME=(.+)", content, re.MULTILINE)
-
-                track_m = re.search(r"^TRACK=(.+)", content, re.MULTILINE)
-                config_m = re.search(r"^CONFIG_TRACK=(.*)", content, re.MULTILINE)
-
-                cmd_port = int(plugin_port_m.group(1).strip())
-                listen_port = int(udp_addr_m.group(1).strip())
-
-                name = "Events Server"
-                if server_name_m:
-                    from core.cm_name import strip_cm_name_suffix
-
-                    name = strip_cm_name_suffix(server_name_m.group(1).strip())
-
-                track = track_m.group(1).strip() if track_m else "Unknown"
-                config_track = config_m.group(1).strip() if config_m else ""
+                name = extract_server_name(content) or "Events Server"
+                track = extract_track(content) or "Unknown"
+                config_track = extract_config_track(content) or ""
                 folder_id = derive_server_folder_id(cfg_path)
 
                 if listen_port in servers:

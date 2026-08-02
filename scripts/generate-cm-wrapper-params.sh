@@ -29,7 +29,21 @@ else:
     print(body)
 PY
 )"
-LOADING_URL="$(python3 -c "import json; d=json.load(open('$BRANDING_FILE')); print(d.get('loadingImageUrl', ''))")"
+LOADING_URLS_JSON="$(python3 - "$BRANDING_FILE" <<'PY'
+import json, sys
+from pathlib import Path
+d = json.loads(Path(sys.argv[1]).read_text())
+urls = d.get("loadingImageUrls")
+if not isinstance(urls, list):
+    urls = []
+urls = [str(u).strip() for u in urls if str(u).strip()]
+legacy = str(d.get("loadingImageUrl", "")).strip()
+if not urls and legacy:
+    urls = [legacy]
+print(json.dumps(urls))
+PY
+)"
+LOADING_URL="$(python3 -c "import json; urls=json.loads('''$LOADING_URLS_JSON'''); print(urls[0] if urls else '')")"
 
 generate_one() {
   local cfg_ini="$1"
@@ -45,9 +59,10 @@ generate_one() {
     return
   fi
   local wrapper_port=$((http_port + OFFSET))
-  python3 - "$out_json" "$wrapper_port" "$CM_DESC" "$LOADING_URL" <<'PY'
+  python3 - "$out_json" "$wrapper_port" "$CM_DESC" "$LOADING_URL" "$LOADING_URLS_JSON" <<'PY'
 import json, sys
-out, port, desc, loading = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
+out, port, desc, loading, loading_urls_json = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4], sys.argv[5]
+loading_urls = json.loads(loading_urls_json)
 data = {
     "description": desc,
     "port": port,
@@ -56,6 +71,8 @@ data = {
     "downloadPasswordOnly": False,
     "publishPasswordChecksum": True,
 }
+if loading_urls:
+    data["loadingImageUrls"] = loading_urls
 if loading:
     data["loadingImageUrl"] = loading
 with open(out, "w", encoding="utf-8") as f:

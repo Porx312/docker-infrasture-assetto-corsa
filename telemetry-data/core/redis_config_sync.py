@@ -25,14 +25,18 @@ def _is_transient_redis_loop_error(exc: BaseException) -> bool:
         return False
     return isinstance(exc, (redis_exceptions.TimeoutError, redis_exceptions.ConnectionError))
 
-_VERSIONS_FILE = os.path.join(os.getcwd(), "redis_applied_config_versions.json")
 _versions_lock = threading.Lock()
 
 
+def _versions_file_path() -> str:
+    return settings.REDIS_APPLIED_CONFIG_VERSIONS_FILE
+
+
 def _load_versions() -> Dict[str, str]:
+    path = _versions_file_path()
     try:
-        if os.path.exists(_VERSIONS_FILE):
-            with open(_VERSIONS_FILE, "r", encoding="utf-8") as f:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
                 return json.load(f)
     except Exception:
         pass
@@ -40,8 +44,9 @@ def _load_versions() -> Dict[str, str]:
 
 
 def _save_versions(data: Dict[str, str]) -> None:
+    path = _versions_file_path()
     try:
-        with open(_VERSIONS_FILE, "w", encoding="utf-8") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception as e:
         log.warning("could not save versions file: %s", e)

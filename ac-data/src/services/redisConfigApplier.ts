@@ -1,8 +1,7 @@
 import '../config/loadEnv.js';
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createClient } from 'redis';
+import type { RedisClientType } from 'redis';
 import {
   activeServers,
   applyServerConfiguration,
@@ -14,17 +13,13 @@ import {
 } from '../controller/controller.js';
 import { normalizeTrackConfigForIni } from '../controller/trackConfig.js';
 import { shouldStartFromConfig } from './serverPool.js';
+import { buildConfigSignature } from './configApplierLogic.js';
 import {
   updateManagedServersFromSnapshot,
   type ManagedServerRow,
 } from './hud/hudManagedServers.js';
+import { connectRedisClient, createRedisClient, isRedisConfigured } from './redisClient.js';
 
-const REDIS_HOST = process.env.REDIS_HOST || '';
-const REDIS_PORT = Number(process.env.REDIS_PORT || 6379);
-const REDIS_USERNAME = process.env.REDIS_USERNAME || undefined;
-const REDIS_PASSWORD = process.env.REDIS_PASSWORD || undefined;
-const REDIS_DB = Number(process.env.REDIS_DB || 0);
-const REDIS_SSL = (process.env.REDIS_SSL || 'false').trim().toLowerCase() === 'true';
 const REDIS_CONFIG_STREAM_KEY = process.env.REDIS_CONFIG_STREAM_KEY || 'ac:config';
 const AC_INSTANCE_ID = process.env.AC_INSTANCE_ID || 'default';
 
@@ -81,20 +76,7 @@ function parsePayload(message: StreamMessage): Record<string, unknown> | null {
 }
 
 function buildSignature(row: ServerRow): string {
-  const normalized = {
-    displayName: row.displayName ?? '',
-    password: row.password ?? '',
-    track: row.track ?? '',
-    trackConfig: normalizeTrackConfigForIni(row.trackConfig) ?? '',
-    maxClients: row.maxClients ?? 0,
-    isActive: !!row.isActive,
-    entries: (row.entries ?? []).map((e) => ({
-      model: e.model,
-      skin: e.skin ?? '',
-      count: e.count ?? 1,
-    })),
-  };
-  return crypto.createHash('sha1').update(JSON.stringify(normalized)).digest('hex');
+  return buildConfigSignature(row);
 }
 
 function rowToConfigPayload(row: ServerRow): ServerConfigPayload {
@@ -259,23 +241,12 @@ export async function startRedisConfigApplier(): Promise<void> {
     console.log('[redis-config-applier] disabled');
     return;
   }
-  if (!REDIS_HOST) {
+  if (!isRedisConfigured()) {
     console.log('[redis-config-applier] REDIS_HOST missing, applier disabled');
     return;
   }
 
-  const socket = REDIS_SSL
-    ? { host: REDIS_HOST, port: REDIS_PORT, tls: true as const }
-    : { host: REDIS_HOST, port: REDIS_PORT };
-
-  const client = createClient({
-    socket,
-    ...(REDIS_USERNAME ? { username: REDIS_USERNAME } : {}),
-    ...(REDIS_PASSWORD ? { password: REDIS_PASSWORD } : {}),
-    database: REDIS_DB,
-  });
-  client.on('error', (err) => console.error('[redis-config-applier] redis error:', err));
-  await client.connect();
+  const client = await connectRedisClient(createRedisClient('redis-config-applier'));
 
   try {
     await client.xGroupCreate(REDIS_CONFIG_STREAM_KEY, APPLIER_GROUP, '$', { MKSTREAM: true });

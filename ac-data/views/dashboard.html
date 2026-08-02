@@ -51,45 +51,12 @@
         <div class="modal modal-server">
             <header class="modal-mod-header">
                 <div>
-                    <h3 id="serverConfigTitle">Server config</h3>
+                    <h3 id="serverConfigTitle">Instance branding</h3>
                     <p id="serverConfigMeta" class="modal-mod-meta"></p>
                 </div>
                 <button type="button" class="btn btn-ghost btn-icon" id="serverConfigCloseBtn" aria-label="Close">✕</button>
             </header>
             <form id="serverConfigForm" class="modal-server-body">
-                <p class="modal-mod-section">Server</p>
-                <div class="branding-grid modal-server-grid">
-                    <div class="form-group">
-                        <label for="scDisplayName">Display name</label>
-                        <input class="input" type="text" id="scDisplayName" autocomplete="off">
-                    </div>
-                    <div class="form-group">
-                        <label for="scPassword">Password</label>
-                        <input class="input" type="text" id="scPassword" autocomplete="off" placeholder="Empty = open">
-                    </div>
-                    <div class="form-group">
-                        <label for="scMaxClients">Max clients</label>
-                        <input class="input" type="number" id="scMaxClients" min="1" max="64">
-                    </div>
-                    <div class="form-group">
-                        <label for="scCars">Cars</label>
-                        <input class="input" type="text" id="scCars" placeholder="car1;car2">
-                    </div>
-                    <div class="form-group">
-                        <label for="scTrack">Track</label>
-                        <input class="input" type="text" id="scTrack">
-                    </div>
-                    <div class="form-group">
-                        <label for="scConfigTrack">Layout</label>
-                        <input class="input" type="text" id="scConfigTrack" placeholder="Optional CONFIG_TRACK">
-                    </div>
-                    <div class="form-group branding-full">
-                        <label class="filter-toggle">
-                            <input type="checkbox" id="scRegisterLobby">
-                            <span>Register to lobby</span>
-                        </label>
-                    </div>
-                </div>
                 <p class="modal-mod-section">Branding (this instance only)</p>
                 <div class="branding-grid modal-server-grid">
                     <div class="form-group">
@@ -130,7 +97,7 @@
             </form>
             <footer class="modal-mod-footer">
                 <button type="button" class="btn" id="serverConfigCancelBtn">Cancel</button>
-                <button type="submit" form="serverConfigForm" class="btn btn-primary" id="serverConfigSaveBtn">Save instance</button>
+                <button type="submit" form="serverConfigForm" class="btn btn-primary" id="serverConfigSaveBtn">Save branding</button>
             </footer>
         </div>
     </div>

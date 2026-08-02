@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 from core import settings
 from core.logging_config import get_logger
 from core.server_registry import all_servers, find_driver_by_steam_id
-from core.session_manager import send_admin_command, send_chat, send_kick_user
+from core.session_manager import send_admin_command, send_kick_user
 
 if TYPE_CHECKING:
     from core.session_manager import DriverInfo, ServerState
@@ -106,22 +106,15 @@ def _cleanup_driver(
         server_state.battle_manager.remove_car(guid)
 
 
-def _send_ban_kick_packets(
-    server_state: ServerState,
-    car_id: int,
-    driver_name: str | None = None,
-) -> None:
+def _send_ban_kick_packets(server_state: ServerState, car_id: int) -> None:
     send_kick_user(server_state, car_id)
     send_admin_command(server_state, f"/kick_id {car_id}")
-    if driver_name:
-        send_admin_command(server_state, f"/kick {driver_name}")
 
 
 def _schedule_ban_kick_retries(
     server_state: ServerState,
     car_id: int,
     guid: str,
-    driver_name: str | None = None,
 ) -> None:
     def _run() -> None:
         for delay in _BAN_KICK_RETRY_DELAYS_SEC:
@@ -145,16 +138,9 @@ def kick_banned_car(
     guid: str,
     driver_name: str,
     reason: str,
-    *,
-    send_message: bool = True,
 ) -> None:
-    if send_message:
-        message = settings.USER_BAN_KICK_MESSAGE.strip()
-        if message:
-            send_chat(server_state, car_id, message)
-
-    _send_ban_kick_packets(server_state, car_id, driver_name)
-    _schedule_ban_kick_retries(server_state, car_id, guid, driver_name)
+    _send_ban_kick_packets(server_state, car_id)
+    _schedule_ban_kick_retries(server_state, car_id, guid)
     log.info(
         "[%s] ban kick car=%s guid=%s name=%s reason=%s",
         server_state.port,
@@ -229,8 +215,6 @@ def kick_driver(
     server_state: ServerState,
     driver: DriverInfo,
     reason: str,
-    *,
-    send_message: bool = True,
 ) -> None:
     car_id = driver.car_id
     guid = driver.guid
@@ -238,7 +222,7 @@ def kick_driver(
         log.warning("[%s] kick skipped (no car_id) guid=%s reason=%s", server_state.port, guid, reason)
         return
 
-    kick_banned_car(server_state, car_id, guid, driver.name, reason, send_message=send_message)
+    kick_banned_car(server_state, car_id, guid, driver.name, reason)
     if guid:
         server_state.battle_manager.remove_car(guid)
 
@@ -267,12 +251,7 @@ def maybe_kick_banned_driver_on_car_update(
         guid,
         driver.car_id,
     )
-    kick_driver(
-        server_state,
-        driver,
-        "user_invalidated_mid_session",
-        send_message=False,
-    )
+    kick_driver(server_state, driver, "user_invalidated_mid_session")
 
 
 def kick_steam_id_everywhere(steam_id: str, reason: str = "user_invalidated") -> int:

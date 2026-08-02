@@ -20,6 +20,11 @@ import {
   mountServersPanel,
   openServerConfig,
 } from './panels/servers.js';
+import {
+  loadActivityPanel,
+  mountActivityPanel,
+  unmountActivityPanel,
+} from './panels/activity.js';
 
 let currentTab = 'cars';
 
@@ -40,7 +45,11 @@ function renderTabs() {
 /** @param {string} tabId */
 function switchTab(tabId) {
   if (!tabId) return;
+  const prevKind = getTab(currentTab).kind;
   currentTab = tabId;
+  if (prevKind === 'activity' && getTab(currentTab).kind !== 'activity') {
+    unmountActivityPanel();
+  }
   renderTabs();
   renderActivePanel();
   loadActivePanel();
@@ -53,14 +62,19 @@ function renderActivePanel() {
   const tab = getTab(currentTab);
   if (tab.kind === 'servers') {
     mountServersPanel(container);
+  } else if (tab.kind === 'activity') {
+    mountActivityPanel(container);
   } else {
     mountContentPanel(tab.id, container);
   }
 }
 
 function loadActivePanel() {
-  if (getTab(currentTab).kind === 'servers') {
+  const kind = getTab(currentTab).kind;
+  if (kind === 'servers') {
     loadServersPanel();
+  } else if (kind === 'activity') {
+    loadActivityPanel();
   } else {
     loadContent(currentTab);
   }

@@ -103,3 +103,7 @@ Summary: 1v1 touge pairs matched automatically when close and fast; states `IDLE
 - `battle_update`, `battle_finished`
 
 See [REDIS_CONTRACT.md](REDIS_CONTRACT.md) for the full stream schema.
+
+## Operations & architecture
+
+See **[docs/TELEMETRY_DATA.md](../docs/TELEMETRY_DATA.md)** for subsystem map, minimal env vars, and deploy/restart checklist.

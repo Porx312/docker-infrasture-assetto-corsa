@@ -111,6 +111,8 @@ Session-only HUD: no `getHudPlayer` / `CONVEX_HUD_PLAYER_QUERY`. See [`docs/CONV
 ## References
 
 - `README.md` — Quick start and architecture
+- `docs/AC_DATA.md` — Subsystem map, minimal env vars, deploy checklist, health endpoint
+- `docs/TELEMETRY_DATA.md` — telemetry-data subsystem map, env vars, deploy checklist
 - `SETUP_GUIDE.md` — Full setup with troubleshooting
 - `docs/VPS_FLEET_SETUP.md` — Multi-VPS clones: unique `AC_INSTANCE_ID`, Redis consumers, battle HUD keys
 - `docs/VPS_CAPACITY.md` — VPS sizing, 300 on-demand pool, hardware checklist

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { applyCmNameSuffix, readCmWrapperPort, stripCmNameSuffix } from '../controller/cmWrapper.js';
-import { buildCmDescription, type ServerBranding } from './serverBranding.js';
+import { buildCmDescription, normalizeBranding } from './serverBranding.js';
 import '../config/loadEnv.js';
 
 const execFileAsync = promisify(execFile);
@@ -172,13 +172,13 @@ export async function updateServerInstanceConfig(
 
   if (brandingTouched) {
     const current = readServerInstanceConfig(serverName);
-    const branding: ServerBranding = {
+    const branding = normalizeBranding({
       description: input.description ?? current.description,
       webLink: input.webLink ?? current.webLink,
       cmDescriptionBody: input.cmDescriptionBody ?? current.cmDescriptionBody,
       bannerImageUrl: input.bannerImageUrl ?? current.bannerImageUrl,
       loadingImageUrl: input.loadingImageUrl ?? current.loadingImageUrl,
-    };
+    });
 
     const wrapperPath = wrapperJsonPath(serverName);
     const existing = fs.existsSync(wrapperPath)
@@ -200,10 +200,12 @@ export async function updateServerInstanceConfig(
       description: buildCmDescription(branding),
       port: wrapperPort ?? existing.port,
     };
-    if (branding.loadingImageUrl) {
-      wrapperData.loadingImageUrl = branding.loadingImageUrl;
+    if (branding.loadingImageUrls.length > 0) {
+      wrapperData.loadingImageUrls = branding.loadingImageUrls;
+      wrapperData.loadingImageUrl = branding.loadingImageUrls[0];
     } else {
       delete wrapperData.loadingImageUrl;
+      delete wrapperData.loadingImageUrls;
     }
 
     fs.mkdirSync(path.dirname(wrapperPath), { recursive: true });

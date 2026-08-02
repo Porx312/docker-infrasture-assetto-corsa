@@ -33,12 +33,32 @@ const ini = fs.readFileSync(iniPath, 'utf8');
 const params = JSON.parse(fs.readFileSync(paramsPath, 'utf8'));
 const upstreamPort = Number(readIniValue(ini, 'HTTP_PORT'));
 const listenPort = Number(params.port);
-const description = params.description || '';
-const loadingImageUrl = params.loadingImageUrl || '';
 
 if (!upstreamPort || !listenPort) {
   console.error('Invalid HTTP_PORT or wrapper port');
   process.exit(1);
+}
+
+function readWrapperParams() {
+  return JSON.parse(fs.readFileSync(paramsPath, 'utf8'));
+}
+
+function pickLoadingImageUrl(paramsData) {
+  const urls = Array.isArray(paramsData.loadingImageUrls)
+    ? paramsData.loadingImageUrls.map((url) => String(url).trim()).filter(Boolean)
+    : [];
+  if (urls.length > 0) {
+    return urls[Math.floor(Math.random() * urls.length)];
+  }
+  return String(paramsData.loadingImageUrl || '').trim();
+}
+
+/** CM caches loading screens by URL; unique query per /api/details forces a fresh fetch. */
+function withLoadingImageCacheBust(url) {
+  if (!url) return '';
+  const sep = url.includes('?') ? '&' : '?';
+  const token = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  return `${url}${sep}pd=${token}`;
 }
 
 async function fetchInfo() {
@@ -66,11 +86,14 @@ async function fetchInfo() {
 }
 
 function buildDetails(info) {
+  const paramsData = readWrapperParams();
+  const description = paramsData.description || '';
+  const loadingImageUrl = pickLoadingImageUrl(paramsData);
   const details = { ...info };
   details.description = description;
   details.wrappedPort = listenPort;
   if (loadingImageUrl) {
-    details.loadingimageurl = loadingImageUrl;
+    details.loadingimageurl = withLoadingImageCacheBust(loadingImageUrl);
   }
   details.poweredby = details.poweredby || 'ProjectD CM proxy';
   return details;
@@ -86,7 +109,10 @@ const server = http.createServer(async (req, res) => {
   try {
     const info = await fetchInfo();
     const details = buildDetails(info);
-    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+    });
     res.end(JSON.stringify(details));
   } catch (err) {
     res.writeHead(502);

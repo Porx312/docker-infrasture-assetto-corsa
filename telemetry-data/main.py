@@ -16,6 +16,7 @@ from core.logging_config import get_logger, setup_logging  # noqa: E402
 from core.session_manager import ServerState, send_registration  # noqa: E402
 from core.packet_processor import process_packet  # noqa: E402
 from core.cm_name import display_server_name  # noqa: E402
+from core.driver_lifecycle import is_driver_stale, now_ms, purge_stale_drivers  # noqa: E402
 from network.event_dispatcher import send_server_event  # noqa: E402
 from core.redis_config_sync import (  # noqa: E402
     bootstrap_runtime_config_from_stream,
@@ -92,13 +93,14 @@ def server_status_loop(servers):
                     pass
                 time.sleep(0.01)
 
-            now_ms = int(time.time() * 1000)
+            current_ms = now_ms()
+            purged = purge_stale_drivers(state, current_ms, emit_leave=True)
+            if purged:
+                log.info("[%s] purged %d ghost driver(s)", state.port, purged)
+
             players = []
-            stale_car_ids = []
-            for car_id, d in list(state.active_drivers.items()):
-                last_seen = getattr(d, "last_seen_ms", 0)
-                if last_seen and (now_ms - last_seen) > settings.GHOST_DRIVER_TIMEOUT_MS:
-                    stale_car_ids.append(car_id)
+            for _car_id, d in list(state.active_drivers.items()):
+                if is_driver_stale(d, current_ms):
                     continue
                 if not d.guid.startswith("unknown_"):
                     players.append(
@@ -106,25 +108,6 @@ def server_status_loop(servers):
                     )
 
             server_label = display_server_name(state)
-            for car_id in stale_car_ids:
-                d = state.active_drivers.get(car_id)
-                if not d:
-                    continue
-                if d.guid in state.guid_to_driver:
-                    del state.guid_to_driver[d.guid]
-                del state.active_drivers[car_id]
-                if not d.guid.startswith("unknown_"):
-                    send_server_event(
-                        "player_leave",
-                        server_label,
-                        {
-                            "steamId": d.guid,
-                            "trackName": state.track,
-                            "trackConfig": state.config,
-                        },
-                    )
-            if stale_car_ids:
-                log.info("[%s] purged %d ghost driver(s)", state.port, len(stale_car_ids))
 
             signature = _build_server_status_signature(players, state.track, state.config)
             previous_sig = last_signatures.get(state.port)
