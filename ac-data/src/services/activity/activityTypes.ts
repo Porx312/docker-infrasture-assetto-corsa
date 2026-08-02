@@ -47,12 +47,22 @@ export type ActivitySummary = {
   pbs: number;
   battles: number;
   errors: number;
+  /** True when results are scoped by search query. */
+  filtered?: boolean;
+  /** Timeline items returned for the current feed page (when filtered). */
+  timelineEventCount?: number;
 };
 
 export type ActivityTimelineResult = {
   items: ActivityItem[];
   nextCursor: string | null;
   hasMore: boolean;
+};
+
+export type ActivityFeedQuery = ActivityTimelineQuery;
+
+export type ActivityFeedResult = ActivityTimelineResult & {
+  summary: ActivitySummary;
 };
 
 export type RedisStreamEnvelope = {

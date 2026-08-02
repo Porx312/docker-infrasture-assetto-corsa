@@ -19,6 +19,7 @@ import {
     updateServerInstanceConfigHandler,
 } from '../controller/adminController.js';
 import {
+    getActivityFeedHandler,
     getActivityServersHandler,
     getActivitySummaryHandler,
     getActivityTimelineHandler,
@@ -103,6 +104,7 @@ router.get('/servers/:name/config', adminAuth, getServerInstanceConfigHandler);
 router.put('/servers/:name/config', adminAuth, updateServerInstanceConfigHandler);
 
 router.get('/activity/servers', adminAuth, getActivityServersHandler);
+router.get('/activity/feed', adminAuth, getActivityFeedHandler);
 router.get('/activity/summary', adminAuth, getActivitySummaryHandler);
 router.get('/activity/timeline', adminAuth, getActivityTimelineHandler);
 

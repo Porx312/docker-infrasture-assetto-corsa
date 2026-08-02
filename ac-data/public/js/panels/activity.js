@@ -10,8 +10,10 @@ import {
   renderActivityDateFilterHtml,
   renderActivityPanelHtml,
   renderActivityPlayersHtml,
+  renderActivityPlayersSkeleton,
   renderActivityServerSelectHtml,
   renderActivityTimelineHtml,
+  renderActivityTimelineSkeleton,
 } from '../ui/activity-templates.js';
 
 const POLL_MS = 10_000;
@@ -32,6 +34,10 @@ let nextCursor = null;
 let hasMore = false;
 /** @type {boolean} */
 let loading = false;
+/** @type {boolean} */
+let uiLoading = false;
+/** @type {number | null} */
+let slowLoadTimer = null;
 /** @type {Array<{ steamId: string; name: string; firstJoinTs: number; serverName: string; carModel: string }>} */
 let dayPlayers = [];
 /** @type {Array<{ id: string; ts: number; category: string; kind: string; title: string; detail: string; serverName: string }>} */
@@ -94,14 +100,24 @@ export function mountActivityPanel(container) {
     window.clearTimeout(searchDebounce);
     searchDebounce = window.setTimeout(() => {
       searchQuery = searchEl instanceof HTMLInputElement ? searchEl.value.trim() : '';
-      renderPlayers();
+      updateFilterBackButton();
+      resetTimeline();
       void refreshActivity(false);
     }, 300);
+  });
+
+  document.getElementById('activityRefreshBtn')?.addEventListener('click', () => {
+    if (loading) return;
+    void refreshActivity(false);
   });
 
   document.getElementById('activityLoadMore')?.addEventListener('click', () => {
     if (!hasMore || !nextCursor || loading) return;
     void refreshActivity(true);
+  });
+
+  document.getElementById('activityBackBtn')?.addEventListener('click', () => {
+    clearActivityFilter();
   });
 
   document.getElementById('activityPlayersList')?.addEventListener('click', (e) => {
@@ -111,7 +127,7 @@ export function mountActivityPanel(container) {
     if (!name || !searchEl) return;
     searchEl.value = name;
     searchQuery = name;
-    renderPlayers();
+    updateFilterBackButton();
     resetTimeline();
     void refreshActivity(false);
   });
@@ -128,6 +144,7 @@ export function mountActivityPanel(container) {
 
   renderDateFilter();
   renderSummaryLabel();
+  renderCategoryFilters();
   startPoll();
 }
 
@@ -136,7 +153,7 @@ function onVisibilityChange() {
     stopPoll();
   } else {
     startPoll();
-    void refreshActivity(false);
+    void refreshActivity(false, { background: true });
   }
 }
 
@@ -171,19 +188,86 @@ function setStatus(text) {
   if (el) el.textContent = text;
 }
 
+function updateFilterBackButton() {
+  const bar = document.getElementById('activityPlayerFilterBar');
+  const nameEl = document.getElementById('activityFilterPlayerName');
+  const query = searchQuery.trim();
+  bar?.classList.toggle('hidden', !query);
+  if (nameEl) nameEl.textContent = query;
+}
+
+function clearActivityFilter() {
+  searchQuery = '';
+  const searchEl = document.getElementById('activitySearch');
+  if (searchEl instanceof HTMLInputElement) searchEl.value = '';
+  updateFilterBackButton();
+  resetTimeline();
+  void refreshActivity(false);
+}
+
+/**
+ * @param {boolean} isLoading
+ * @param {string} [message]
+ * @param {{ showSkeleton?: boolean }} [options]
+ */
+function setActivityLoading(isLoading, message = 'Loading…', options = {}) {
+  const { showSkeleton = false } = options;
+  uiLoading = isLoading;
+  document.getElementById('activityPanel')?.classList.toggle('is-loading', isLoading);
+
+  if (isLoading) {
+    setStatus(message);
+    if (showSkeleton) showActivitySkeletons();
+    window.clearTimeout(slowLoadTimer);
+    slowLoadTimer = window.setTimeout(() => {
+      if (uiLoading) setStatus('Still loading… (Redis scan)');
+    }, 3000);
+  } else {
+    window.clearTimeout(slowLoadTimer);
+    slowLoadTimer = null;
+  }
+}
+
+function showActivitySkeletons() {
+  const timeline = document.getElementById('activityTimeline');
+  const players = document.getElementById('activityPlayersList');
+  document.getElementById('activityEmpty')?.classList.add('hidden');
+  document.getElementById('activityPlayersEmpty')?.classList.add('hidden');
+  document.getElementById('activityLoadMore')?.classList.add('hidden');
+  if (timeline) timeline.innerHTML = renderActivityTimelineSkeleton();
+  if (players) players.innerHTML = renderActivityPlayersSkeleton();
+
+  for (const id of ['activityPlayers', 'activityLaps', 'activityPbs', 'activityBattles', 'activityErrors']) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = '—';
+  }
+  const badge = document.getElementById('activityPlayersBadge');
+  if (badge) badge.textContent = '…';
+}
+
 function appendDayParams(params) {
   if (activeDay) params.set('day', activeDay);
   params.set('tzOffset', String(browserTzOffsetMinutes()));
 }
 
-/** @param {{ playerCount?: number; players?: ActivityPlayerJoin[]; laps?: number; pbs?: number; battles?: number; errors?: number; joins?: number } | undefined} summary */
+/** @param {{ playerCount?: number; players?: ActivityPlayerJoin[]; laps?: number; pbs?: number; battles?: number; errors?: number; filtered?: boolean; timelineEventCount?: number } | undefined} summary */
 function renderSummary(summary) {
+  const summaryEl = document.getElementById('activitySummary');
+  const filteredBadge = document.getElementById('activitySummaryFiltered');
+  const filteredEvents = document.getElementById('activityFilteredEvents');
+  const eventCount = document.getElementById('activityEventCount');
   const playersEl = document.getElementById('activityPlayers');
   const badge = document.getElementById('activityPlayersBadge');
   const laps = document.getElementById('activityLaps');
   const pbs = document.getElementById('activityPbs');
   const battles = document.getElementById('activityBattles');
   const errors = document.getElementById('activityErrors');
+
+  const isFiltered = Boolean(summary?.filtered && searchQuery);
+  summaryEl?.classList.toggle('activity-summary-filtered-mode', isFiltered);
+  filteredBadge?.classList.toggle('hidden', !isFiltered);
+  filteredEvents?.classList.toggle('hidden', !isFiltered);
+
   const count = summary?.playerCount ?? dayPlayers.length;
   if (playersEl) playersEl.textContent = String(count);
   if (badge) badge.textContent = String(count);
@@ -191,6 +275,10 @@ function renderSummary(summary) {
   if (pbs) pbs.textContent = String(summary?.pbs ?? 0);
   if (battles) battles.textContent = String(summary?.battles ?? 0);
   if (errors) errors.textContent = String(summary?.errors ?? 0);
+  if (eventCount) {
+    eventCount.textContent = String(summary?.timelineEventCount ?? timelineItems.length);
+  }
+  updateFilterBackButton();
 }
 
 function resolveDayPlayers(summaryPlayers, timeline) {
@@ -210,9 +298,15 @@ function renderPlayers() {
 
   if (!html) {
     list.innerHTML = '';
+    if (uiLoading) {
+      empty.classList.add('hidden');
+      return;
+    }
     empty.classList.remove('hidden');
     if (hasJoinsInTimeline && dayPlayers.length === 0) {
       empty.textContent = 'Players list syncing — try refreshing the page.';
+    } else if (searchQuery) {
+      empty.textContent = 'No players match your search.';
     } else {
       empty.textContent = 'No players joined this day.';
     }
@@ -231,6 +325,10 @@ function renderTimeline() {
   if (!list || !empty || !loadMore) return;
 
   if (timelineItems.length === 0) {
+    if (uiLoading) {
+      empty.classList.add('hidden');
+      return;
+    }
     list.innerHTML = '';
     empty.classList.remove('hidden');
     loadMore.classList.add('hidden');
@@ -247,7 +345,7 @@ function renderTimeline() {
   }
 }
 
-function buildQueryParams(includeCursor) {
+function buildFeedQueryParams(includeCursor) {
   const params = new URLSearchParams();
   if (activeServer) params.set('server', activeServer);
   if (activeCategory && activeCategory !== 'all') params.set('category', activeCategory);
@@ -260,8 +358,10 @@ function buildQueryParams(includeCursor) {
 
 /**
  * @param {boolean} loadMore
+ * @param {{ background?: boolean; skipUiStart?: boolean; statusMessage?: string }} [options]
  */
-async function refreshActivity(loadMore) {
+async function refreshActivity(loadMore, options = {}) {
+  const { background = false, skipUiStart = false, statusMessage = 'Updating…' } = options;
   if (loading) return;
   loading = true;
   const seq = ++loadSeq;
@@ -270,30 +370,37 @@ async function refreshActivity(loadMore) {
   const scrollTop = list?.scrollTop ?? 0;
   const atTop = scrollTop < 40;
 
-  try {
-    const summaryParams = new URLSearchParams();
-    if (activeServer) summaryParams.set('server', activeServer);
-    appendDayParams(summaryParams);
-    const summaryQuery = summaryParams.toString();
-    const timelineParams = buildQueryParams(loadMore);
+  const refreshBtn = document.getElementById('activityRefreshBtn');
+  const loadMoreBtn = document.getElementById('activityLoadMore');
 
-    const [summaryRes, timelineRes] = await Promise.all([
-      apiGet(`/activity/summary${summaryQuery ? `?${summaryQuery}` : ''}`),
-      apiGet(`/activity/timeline?${timelineParams}`),
-    ]);
+  if (loadMore) {
+    if (loadMoreBtn instanceof HTMLButtonElement) {
+      loadMoreBtn.textContent = 'Loading…';
+      loadMoreBtn.disabled = true;
+    }
+  } else if (!background && !skipUiStart) {
+    setActivityLoading(true, statusMessage, { showSkeleton: true });
+  }
+
+  refreshBtn?.setAttribute('disabled', 'true');
+
+  try {
+    const feedQuery = buildFeedQueryParams(loadMore);
+    const feedRes = await apiGet(`/activity/feed?${feedQuery}`);
 
     if (seq !== loadSeq) return;
 
-    if (!summaryRes.data.ok || !timelineRes.data.ok) {
-      const msg = summaryRes.data.message || timelineRes.data.message || 'Failed to load activity';
+    if (!feedRes.data.ok) {
+      const msg = feedRes.data.message || 'Failed to load activity';
       setStatus('Unavailable');
       if (!loadMore) {
         timelineItems = [];
         dayPlayers = [];
+        if (!background) setActivityLoading(false);
         renderTimeline();
         renderPlayers();
       }
-      if (summaryRes.res.status === 503 || timelineRes.res.status === 503) {
+      if (feedRes.res.status === 503) {
         setStatus('Redis not configured');
       } else {
         showToast(msg, 'error');
@@ -301,7 +408,7 @@ async function refreshActivity(loadMore) {
       return;
     }
 
-    const newItems = timelineRes.data.items ?? [];
+    const newItems = feedRes.data.items ?? [];
     if (loadMore) {
       const existing = new Set(timelineItems.map((i) => i.id));
       for (const item of newItems) {
@@ -315,18 +422,19 @@ async function refreshActivity(loadMore) {
       timelineItems = [...merged.values()].sort((a, b) => b.ts - a.ts);
     }
 
-    dayPlayers = resolveDayPlayers(summaryRes.data.summary?.players, timelineItems);
-    renderSummary(summaryRes.data.summary);
+    dayPlayers = resolveDayPlayers(feedRes.data.summary?.players, timelineItems);
+    renderSummary(feedRes.data.summary);
     renderPlayers();
 
-    if (summaryRes.data.summary?.day) {
-      activeDay = summaryRes.data.summary.day;
+    if (feedRes.data.summary?.day) {
+      activeDay = feedRes.data.summary.day;
       renderDateFilter();
-      renderSummaryLabel(summaryRes.data.summary.day);
+      renderSummaryLabel(feedRes.data.summary.day);
     }
 
-    nextCursor = timelineRes.data.nextCursor ?? null;
-    hasMore = Boolean(timelineRes.data.hasMore);
+    nextCursor = feedRes.data.nextCursor ?? null;
+    hasMore = Boolean(feedRes.data.hasMore);
+    if (!background) setActivityLoading(false);
     setStatus('Live');
 
     renderTimeline();
@@ -337,37 +445,52 @@ async function refreshActivity(loadMore) {
   } catch (err) {
     if (seq !== loadSeq) return;
     const message = err instanceof Error ? err.message : 'Connection error';
+    if (!loadMore && !background) setActivityLoading(false);
     setStatus(message.includes('404') ? 'API missing — restart ac-data' : 'Error');
     showToast(message, 'error');
   } finally {
     loading = false;
+    refreshBtn?.removeAttribute('disabled');
+    if (loadMore && loadMoreBtn instanceof HTMLButtonElement) {
+      loadMoreBtn.textContent = 'Load more';
+      loadMoreBtn.disabled = false;
+    }
   }
 }
 
 export async function loadActivityPanel() {
-  setStatus('Loading…');
   resetTimeline();
+  const needsServers = serverList.length === 0;
+  setActivityLoading(true, needsServers ? 'Loading servers…' : 'Loading activity…', {
+    showSkeleton: true,
+  });
 
   try {
-    const { data } = await apiGet('/activity/servers');
-    if (!data.ok) {
-      setStatus(data.message || 'Unavailable');
-      if (data.message) showToast(data.message, 'error');
-      renderServerSelect();
-      renderDateFilter();
-      renderSummaryLabel();
-      renderCategoryFilters();
-      renderTimeline();
-      return;
+    if (needsServers) {
+      const { data } = await apiGet('/activity/servers');
+      if (!data.ok) {
+        setActivityLoading(false);
+        setStatus(data.message || 'Unavailable');
+        if (data.message) showToast(data.message, 'error');
+        renderServerSelect();
+        renderDateFilter();
+        renderSummaryLabel();
+        renderCategoryFilters();
+        renderTimeline();
+        return;
+      }
+      serverList = data.servers ?? [];
     }
 
-    serverList = data.servers ?? [];
     renderServerSelect();
     renderDateFilter();
     renderSummaryLabel();
     renderCategoryFilters();
-    await refreshActivity(false);
+
+    setStatus('Scanning events…');
+    await refreshActivity(false, { skipUiStart: true, statusMessage: 'Scanning events…' });
   } catch (err) {
+    setActivityLoading(false);
     const message = err instanceof Error ? err.message : 'Connection error';
     setStatus(message.includes('404') ? 'API missing — restart ac-data' : 'Error');
     showToast(message, 'error');
@@ -382,7 +505,7 @@ export function unmountActivityPanel() {
 function startPoll() {
   stopPoll();
   pollTimer = window.setInterval(() => {
-    if (!document.hidden) void refreshActivity(false);
+    if (!document.hidden) void refreshActivity(false, { background: true });
   }, POLL_MS);
 }
 

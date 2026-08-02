@@ -262,6 +262,24 @@ export function matchesSearch(item: ActivityItem, q: string | undefined): boolea
   return item.searchText.includes(q.trim().toLowerCase());
 }
 
+export function matchesPlayerJoin(player: ActivityPlayerJoin, q: string | undefined): boolean {
+  if (!q?.trim()) return true;
+  const needle = q.trim().toLowerCase();
+  return (
+    player.name.toLowerCase().includes(needle) ||
+    player.steamId.toLowerCase().includes(needle) ||
+    player.carModel.toLowerCase().includes(needle) ||
+    player.serverName.toLowerCase().includes(needle)
+  );
+}
+
+export function playerJoinSearchText(player: ActivityPlayerJoin): string {
+  return [player.name, player.steamId, player.carModel, player.serverName]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
 export function categoryForSummary(item: ActivityItem): ActivityCategory | null {
   return item.category;
 }

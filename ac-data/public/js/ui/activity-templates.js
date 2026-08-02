@@ -20,13 +20,16 @@ export function browserTzOffsetMinutes() {
 
 export function renderActivityPanelHtml() {
   return `
-    <div class="panel activity-panel" data-type="activity">
+    <div class="panel activity-panel" id="activityPanel" data-type="activity">
       <div class="panel-header activity-panel-header">
         <div class="activity-panel-heading">
           <h2>Activity</h2>
           <p class="activity-header-note">Live from <code>ac:events</code> · refreshes every 10s</p>
         </div>
-        <span class="panel-count" id="activityStatus">Loading…</span>
+        <div class="activity-header-actions">
+          <button type="button" class="btn btn-sm btn-ghost activity-refresh-btn" id="activityRefreshBtn" title="Refresh now" aria-label="Refresh activity">↻</button>
+          <span class="panel-count" id="activityStatus">Loading…</span>
+        </div>
       </div>
 
       <div class="activity-toolbar">
@@ -36,11 +39,18 @@ export function renderActivityPanelHtml() {
         <input type="search" id="activitySearch" class="search-input activity-search" placeholder="Search name, steamId, track…" autocomplete="off" />
       </div>
 
+      <div id="activityPlayerFilterBar" class="activity-player-filter-bar hidden">
+        <button type="button" id="activityBackBtn" class="btn btn-sm btn-ghost activity-back-btn">← Back</button>
+        <span class="activity-player-filter-label">Showing activity for <strong id="activityFilterPlayerName"></strong></span>
+      </div>
+
       <div class="activity-date-filter" id="activityDateFilter"></div>
 
       <div class="activity-summary activity-summary-inline" id="activitySummary">
         <span class="activity-summary-label" id="activitySummaryLabel">Today</span>
-        <div class="activity-summary-stats">
+        <span class="activity-summary-filtered hidden" id="activitySummaryFiltered">Filtered</span>
+        <div class="activity-summary-stats" id="activitySummaryStats">
+          <span class="activity-stat activity-stat-filtered hidden" id="activityFilteredEvents"><strong id="activityEventCount">0</strong> events</span>
           <span class="activity-stat"><strong id="activityPlayers">—</strong> players</span>
           <span class="activity-stat"><strong id="activityLaps">—</strong> laps</span>
           <span class="activity-stat"><strong id="activityPbs">—</strong> PBs</span>
@@ -241,8 +251,9 @@ export function renderActivityPlayersHtml(players, showServer = false, searchQue
       if (showServer && player.serverName) metaParts.push(player.serverName);
       const meta = metaParts.filter(Boolean).join(' · ');
       const initial = escapeHtml(playerInitial(player.name));
+      const isActive = q && player.name.toLowerCase() === q;
       return `
-    <li class="activity-player-item" data-player-name="${escapeAttr(player.name)}" role="button" tabindex="0" title="Filter timeline by ${escapeAttr(player.name)}">
+    <li class="activity-player-item${isActive ? ' is-active' : ''}" data-player-name="${escapeAttr(player.name)}" role="button" tabindex="0" title="Filter timeline by ${escapeAttr(player.name)}">
       <span class="activity-player-avatar" aria-hidden="true">${initial}</span>
       <time class="activity-player-time" datetime="${escapeAttr(String(player.firstJoinTs))}" title="${tooltip}">${escapeHtml(time)}</time>
       <div class="activity-player-body">
@@ -286,4 +297,37 @@ export function derivePlayersFromTimeline(items) {
   }
 
   return [...map.values()].sort((a, b) => b.firstJoinTs - a.firstJoinTs);
+}
+
+/** @param {number} [count] */
+export function renderActivityTimelineSkeleton(count = 6) {
+  let html = '';
+  for (let i = 0; i < count; i += 1) {
+    html += `
+    <li class="activity-skeleton-item activity-skeleton-timeline" aria-hidden="true">
+      <span class="activity-skeleton-time skeleton-row"></span>
+      <div class="activity-skeleton-body">
+        <span class="skeleton-row activity-skeleton-line"></span>
+        <span class="skeleton-row activity-skeleton-line activity-skeleton-line-short"></span>
+      </div>
+    </li>`;
+  }
+  return html;
+}
+
+/** @param {number} [count] */
+export function renderActivityPlayersSkeleton(count = 4) {
+  let html = '';
+  for (let i = 0; i < count; i += 1) {
+    html += `
+    <li class="activity-skeleton-item activity-skeleton-player" aria-hidden="true">
+      <span class="activity-skeleton-avatar skeleton-row"></span>
+      <span class="activity-skeleton-time skeleton-row"></span>
+      <div class="activity-skeleton-body">
+        <span class="skeleton-row activity-skeleton-line"></span>
+        <span class="skeleton-row activity-skeleton-line activity-skeleton-line-short"></span>
+      </div>
+    </li>`;
+  }
+  return html;
 }

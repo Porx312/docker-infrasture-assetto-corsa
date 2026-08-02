@@ -4,6 +4,7 @@ import { formatLapMs } from './activityFormat.js';
 import {
   buildJoinNameIndex,
   matchesCategory,
+  matchesPlayerJoin,
   matchesServer,
   normalizeStreamEntry,
   upsertUniquePlayerJoin,
@@ -78,6 +79,18 @@ test('buildJoinNameIndex maps steamId to latest join name', () => {
   ]);
   assert.equal(index.get('76561199150078952'), 'Alice');
   assert.equal(index.get('76561199150078953'), 'Bob');
+});
+
+test('matchesPlayerJoin filters by player fields', () => {
+  const player = {
+    steamId: '76561199150078952',
+    name: 'Grego',
+    firstJoinTs: 1_700_000_000_000,
+    serverName: 'Main Touge',
+    carModel: 'ks_toyota_gt86',
+  };
+  assert.equal(matchesPlayerJoin(player, 'grego'), true);
+  assert.equal(matchesPlayerJoin(player, 'akina'), false);
 });
 
 test('upsertUniquePlayerJoin dedupes reconnects by steamId', () => {

@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express';
-import { getActivitySummary, getActivityTimeline } from '../services/activity/activityService.js';
+import { getActivityFeed, getActivitySummary, getActivityTimeline } from '../services/activity/activityService.js';
 import { isHudRedisConfigured } from '../services/hud/hudRedis.js';
 import { summarizeServers } from '../services/serverBranding.js';
 import type { ActivityCategory } from '../services/activity/activityTypes.js';
@@ -55,6 +55,39 @@ function parseTzOffset(raw: unknown): number | undefined {
   if (!Number.isFinite(value)) return undefined;
   if (value < -840 || value > 840) return undefined;
   return value;
+}
+
+export async function getActivityFeedHandler(req: Request, res: Response): Promise<void> {
+  try {
+    if (!isHudRedisConfigured()) {
+      res.status(503).json({ ok: false, message: 'Redis not configured' });
+      return;
+    }
+
+    const server = typeof req.query.server === 'string' ? req.query.server : undefined;
+    const category = parseCategory(req.query.category) ?? 'all';
+    const day = parseDay(req.query.day);
+    const tzOffset = parseTzOffset(req.query.tzOffset);
+    const q = typeof req.query.q === 'string' ? req.query.q : undefined;
+    const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
+    const limitRaw = typeof req.query.limit === 'string' ? Number.parseInt(req.query.limit, 10) : 50;
+    const limit = Number.isFinite(limitRaw) ? limitRaw : 50;
+
+    const feed = await getActivityFeed({
+      server,
+      category,
+      day,
+      tzOffset,
+      q,
+      cursor,
+      limit,
+    });
+
+    res.json({ ok: true, ...feed });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(500).json({ ok: false, message });
+  }
 }
 
 export async function getActivitySummaryHandler(req: Request, res: Response): Promise<void> {

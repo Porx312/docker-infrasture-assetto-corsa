@@ -12,6 +12,7 @@ import { showToast } from '../lib/toast.js';
 import {
   GLOBAL_BRANDING_REFS,
   renderServerChipsHtml,
+  renderServerChipsSkeleton,
   renderServersPanelHtml,
 } from '../ui/servers-templates.js';
 
@@ -46,7 +47,9 @@ function renderChips(servers) {
 
 export async function loadServersPanel() {
   const countEl = document.getElementById('serversCount');
+  const chipEl = document.getElementById('serverChipList');
   if (countEl) countEl.textContent = 'Loading…';
+  if (chipEl) chipEl.innerHTML = renderServerChipsSkeleton(4);
 
   const seq = ++brandingLoadSeq;
 

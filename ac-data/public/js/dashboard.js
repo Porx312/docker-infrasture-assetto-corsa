@@ -26,7 +26,33 @@ import {
   unmountActivityPanel,
 } from './panels/activity.js';
 
-let currentTab = 'cars';
+const TAB_STORAGE_KEY = 'adminTab';
+
+/** @returns {string} */
+function resolveInitialTab() {
+  const hash = location.hash.replace(/^#/, '').trim();
+  if (hash && getTab(hash).id === hash) return hash;
+  try {
+    const stored = sessionStorage.getItem(TAB_STORAGE_KEY);
+    if (stored && getTab(stored).id === stored) return stored;
+  } catch {
+    /* ignore */
+  }
+  return 'cars';
+}
+
+let currentTab = resolveInitialTab();
+
+function persistTab(tabId) {
+  try {
+    sessionStorage.setItem(TAB_STORAGE_KEY, tabId);
+  } catch {
+    /* ignore */
+  }
+  if (location.hash !== `#${tabId}`) {
+    history.replaceState(null, '', `#${tabId}`);
+  }
+}
 
 function renderTabs() {
   const nav = document.getElementById('tabNav');
@@ -47,6 +73,7 @@ function switchTab(tabId) {
   if (!tabId) return;
   const prevKind = getTab(currentTab).kind;
   currentTab = tabId;
+  persistTab(tabId);
   if (prevKind === 'activity' && getTab(currentTab).kind !== 'activity') {
     unmountActivityPanel();
   }
@@ -122,6 +149,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (!(await checkAuth())) return;
 
+  persistTab(currentTab);
   renderTabs();
   renderActivePanel();
   loadActivePanel();

@@ -37,6 +37,15 @@ export function renderServersPanelHtml() {
   `;
 }
 
+/** @param {number} [count] */
+export function renderServerChipsSkeleton(count = 4) {
+  let html = '';
+  for (let i = 0; i < count; i += 1) {
+    html += `<div class="server-chip server-chip-skeleton skeleton-row" aria-hidden="true"></div>`;
+  }
+  return html;
+}
+
 /**
  * @param {Array<{ name: string; displayName?: string; wrapperPort?: number | null }>} servers
  */
