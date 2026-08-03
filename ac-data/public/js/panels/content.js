@@ -22,9 +22,80 @@ import {
 /** @type {Record<string, object[]>} */
 const itemsByType = { cars: [], tracks: [], weather: [] };
 
+/** @type {Record<string, Set<string>>} */
+const selectedByType = { cars: new Set(), tracks: new Set() };
+
+/** @type {Record<string, string[]>} */
+const visibleModNamesByType = { cars: [], tracks: [] };
+
 /** @param {string} type */
 export function getItems(type) {
   return itemsByType[type] ?? [];
+}
+
+/** @param {string} type */
+function clearSelection(type) {
+  selectedByType[type]?.clear();
+  updateBulkBar(type);
+}
+
+/** @param {string} type */
+function getSelectedCount(type) {
+  return selectedByType[type]?.size ?? 0;
+}
+
+/** @param {string} type @param {string} name */
+function isModSelected(type, name) {
+  return selectedByType[type]?.has(name) ?? false;
+}
+
+/** @param {string} type @param {string} name @param {boolean} selected */
+function setModSelected(type, name, selected) {
+  if (!selectedByType[type]) return;
+  if (selected) selectedByType[type].add(name);
+  else selectedByType[type].delete(name);
+  updateBulkBar(type);
+  syncModCardSelection(type, name);
+}
+
+/** @param {string} type @param {string} name */
+function syncModCardSelection(type, name) {
+  const list = document.getElementById(`${type}List`);
+  if (!list) return;
+
+  for (const wrap of list.querySelectorAll('.mod-card-wrap')) {
+    if (wrap.dataset.modName !== name) continue;
+    const selected = isModSelected(type, name);
+    wrap.classList.toggle('is-selected', selected);
+    const checkbox = wrap.querySelector('[data-select-mod]');
+    if (checkbox instanceof HTMLInputElement) checkbox.checked = selected;
+    break;
+  }
+}
+
+/** @param {string} type */
+function updateBulkBar(type) {
+  if (!isCardGridType(type)) return;
+
+  const count = getSelectedCount(type);
+  const deleteBtn = document.getElementById(`${type}DeleteSelected`);
+  if (deleteBtn instanceof HTMLButtonElement) {
+    deleteBtn.disabled = count === 0;
+    deleteBtn.textContent = `Delete selected (${count})`;
+  }
+}
+
+/** @param {string} type */
+function getVisibleModNames(type) {
+  return visibleModNamesByType[type] ?? [];
+}
+
+/** @param {string} type */
+function selectAllVisible(type) {
+  for (const name of getVisibleModNames(type)) {
+    selectedByType[type]?.add(name);
+  }
+  filterItems(type);
 }
 
 /**
@@ -80,13 +151,33 @@ function bindContentPanel(type) {
   });
 
   document.getElementById(`${type}List`)?.addEventListener('click', (e) => {
+    if (e.target.closest('.mod-card-check')) {
+      e.stopPropagation();
+      return;
+    }
     const btn = e.target.closest('[data-delete]');
     if (btn) deleteItem(btn.dataset.delete, btn.dataset.name);
+  });
+
+  document.getElementById(`${type}List`)?.addEventListener('change', (e) => {
+    const checkbox = e.target.closest('[data-select-mod]');
+    if (!checkbox || checkbox.dataset.selectMod !== type) return;
+    setModSelected(type, checkbox.dataset.name, checkbox.checked);
   });
 
   if (isCardGridType(type)) {
     document.getElementById(`${type}CleanEmpty`)?.addEventListener('click', () => {
       void cleanEmptyMods(type);
+    });
+    document.getElementById(`${type}SelectAll`)?.addEventListener('click', () => {
+      selectAllVisible(type);
+    });
+    document.getElementById(`${type}ClearSelection`)?.addEventListener('click', () => {
+      clearSelection(type);
+      filterItems(type);
+    });
+    document.getElementById(`${type}DeleteSelected`)?.addEventListener('click', () => {
+      void deleteSelectedMods(type);
     });
   }
 }
@@ -136,24 +227,23 @@ function renderItems(items, type, showAll) {
   const useCardGrid = isCardGridType(type);
 
   if (!items.length) {
+    if (useCardGrid) visibleModNamesByType[type] = [];
     container.innerHTML = emptyStateHtml(
       useCardGrid && !showAll
         ? `No ${variantLabel(type).toLowerCase()} found — enable "All folders" to see everything`
         : 'No items found',
     );
-    return;
-  }
-
-  if (useCardGrid && !showAll) {
-    container.innerHTML = items
-      .filter((item) => item.variants?.length)
-      .map((item) => renderModCard(item, type))
-      .join('');
+    updateBulkBar(type);
     return;
   }
 
   if (useCardGrid) {
-    container.innerHTML = items.map((item) => renderModCard(item, type)).join('');
+    const visibleItems = !showAll ? items.filter((item) => item.variants?.length) : items;
+    visibleModNamesByType[type] = visibleItems.map((item) => item.name);
+    container.innerHTML = visibleItems
+      .map((item) => renderModCard(item, type, isModSelected(type, item.name)))
+      .join('');
+    updateBulkBar(type);
     return;
   }
 
@@ -164,6 +254,8 @@ function renderItems(items, type, showAll) {
 export async function loadContent(type) {
   const list = document.getElementById(`${type}List`);
   if (list) list.innerHTML = skeletonHtml(type);
+
+  if (isCardGridType(type)) clearSelection(type);
 
   try {
     const { data } = await apiGet(`/content/${type}`);
@@ -234,6 +326,53 @@ async function deleteItem(type, name) {
   } catch {
     showToast('Connection error', 'error');
   }
+}
+
+/** @param {string} type */
+async function deleteSelectedMods(type) {
+  const names = [...(selectedByType[type] ?? [])];
+  if (!names.length) return;
+
+  const list =
+    names.slice(0, 8).join(', ') + (names.length > 8 ? ` … +${names.length - 8} more` : '');
+  const confirmed = await showConfirm(
+    'Delete selected mods',
+    `Delete ${names.length} mod(s)? This cannot be undone.\n\n${list}`,
+    'Delete',
+  );
+  if (!confirmed) return;
+
+  let successCount = 0;
+  /** @type {string[]} */
+  const errorMessages = [];
+
+  for (const name of names) {
+    try {
+      const { data } = await apiDelete(`/content/${type}/${encodeURIComponent(name)}`);
+      if (data.ok) {
+        successCount++;
+      } else {
+        errorMessages.push(`${name}: ${data.message || 'Delete failed'}`);
+      }
+    } catch {
+      errorMessages.push(`${name}: Connection error`);
+    }
+  }
+
+  clearSelection(type);
+
+  if (successCount > 0) {
+    showToast(
+      errorMessages.length
+        ? `Deleted ${successCount} mod(s), ${errorMessages.length} failed`
+        : `Deleted ${successCount} mod(s)`,
+      errorMessages.length ? 'error' : 'success',
+    );
+  } else if (errorMessages.length) {
+    showToast(errorMessages.slice(0, 3).join('\n'), 'error');
+  }
+
+  loadContent(type);
 }
 
 /** @param {File[]} files @param {string} type */

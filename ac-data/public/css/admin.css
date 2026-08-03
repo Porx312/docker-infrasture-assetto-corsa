@@ -192,6 +192,7 @@ body {
 .panel-search {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -303,6 +304,56 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
   gap: 12px;
+}
+
+.mod-card-wrap {
+  position: relative;
+}
+
+.mod-card-wrap.is-selected .mod-card {
+  border-color: var(--accent);
+  box-shadow: var(--shadow);
+}
+
+.mod-card-check {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+  border: 1px solid var(--border);
+  opacity: 0;
+  transition: opacity 0.15s;
+  cursor: pointer;
+}
+
+.mod-card-wrap:hover .mod-card-check,
+.mod-card-wrap.is-selected .mod-card-check,
+.mod-card-check:has(input:focus-visible) {
+  opacity: 1;
+}
+
+.mod-card-check input {
+  margin: 0;
+  cursor: pointer;
+}
+
+.bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.bulk-actions .btn-danger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .mod-card {

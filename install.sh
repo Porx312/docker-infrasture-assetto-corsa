@@ -101,6 +101,11 @@ done
 # ac-data API
 sudo iptables -A INPUT -p tcp --dport 3000 -j ACCEPT
 
+# HTTPS reverse proxy (Caddy staging/prod)
+for port in 80 443; do
+    sudo iptables -A INPUT -p tcp --dport $port -j ACCEPT 2>/dev/null || true
+done
+
 # Assetto Manager (optional)
 sudo iptables -A INPUT -p tcp --dport 8772 -j ACCEPT
 

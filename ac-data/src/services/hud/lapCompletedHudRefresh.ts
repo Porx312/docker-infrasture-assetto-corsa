@@ -453,7 +453,7 @@ function sessionElo(result: HudSessionResult): number {
   return result.profile.elo ?? 0;
 }
 
-async function fetchHudSessionWithRetry(
+export async function fetchHudSessionWithRetry(
   params: SessionQueryParams,
   options: { retryEloUntilChange?: boolean; previousElo?: number | null } = {},
 ): Promise<HudSessionResult> {

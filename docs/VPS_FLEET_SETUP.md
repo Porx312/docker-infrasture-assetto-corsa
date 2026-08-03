@@ -44,11 +44,21 @@ If you run old code without the instance prefix, or duplicate `AC_INSTANCE_ID`, 
 
 ## Overlay URL
 
-The in-game overlay must connect to **ac-data on the same VPS** where the player is racing:
+The in-game overlay must connect to **ac-data on the same VPS** where the player is racing.
+
+**Staging (HTTPS via Caddy):**
+
+```text
+https://dev-api.projectd.touge.com/hud/stream?steamId={steamId}
+```
+
+**Direct (legacy / debug only):**
 
 ```text
 http://{THIS_VPS_IP}:3000/hud/stream?steamId={steamId}
 ```
+
+See [`docs/STAGING_HTTPS.md`](STAGING_HTTPS.md) for Cloudflare + Caddy setup.
 
 HUD CORS uses `HUD_CORS_ORIGIN` (default `*`), not admin `CORS_ORIGIN`.
 

@@ -1,7 +1,8 @@
 import type { Request, Response } from 'express';
 import fs from 'fs';
 import {
-  buildContentManifest,
+  buildLauncherContentManifest,
+  headContentZip,
   parseSyncContentType,
   streamContentZip,
 } from '../services/contentSyncService.js';
@@ -9,6 +10,11 @@ import {
   getLatestHudRelease,
   resolveHudReleasePath,
 } from '../services/projectdHudManager.js';
+import { buildActiveLauncherServersWithRequiredContent } from '../services/launcherServerRegistry.js';
+import {
+  sendZipDownloadFile,
+  setZipDownloadNoCacheHeaders,
+} from '../lib/sendZipDownload.js';
 
 function requireSyncType(req: Request, res: Response): 'cars' | 'tracks' | null {
   const raw = String(req.query.type ?? req.body?.type ?? req.params.type ?? '');
@@ -63,25 +69,35 @@ async function downloadHudFile(filename: string, res: Response): Promise<void> {
     res.status(404).json({ ok: false, message: 'Release not found' });
     return;
   }
-  res.setHeader('Content-Type', 'application/zip');
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-  res.sendFile(filePath);
+  setZipDownloadNoCacheHeaders(res, filename);
+  await sendZipDownloadFile(res, filePath);
 }
 
 export async function getBootstrapHandler(_req: Request, res: Response): Promise<void> {
   try {
-    const [hud, cars, tracks] = await Promise.all([
+    const [hud, servers] = await Promise.all([
       getLatestHudRelease(),
-      buildContentManifest('cars'),
-      buildContentManifest('tracks'),
+      buildActiveLauncherServersWithRequiredContent(),
     ]);
 
     res.json({
       ok: true,
       hud,
-      cars: { count: cars.length, items: cars },
-      tracks: { count: tracks.length, items: tracks },
+      launcher: {
+        minHudVersion: null,
+      },
+      servers: { count: servers.length, items: servers },
     });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(500).json({ ok: false, message });
+  }
+}
+
+export async function getActiveServersHandler(_req: Request, res: Response): Promise<void> {
+  try {
+    const servers = await buildActiveLauncherServersWithRequiredContent();
+    res.json({ ok: true, servers: { count: servers.length, items: servers } });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     res.status(500).json({ ok: false, message });
@@ -93,7 +109,7 @@ export async function getContentManifestHandler(req: Request, res: Response): Pr
   if (!type) return;
 
   try {
-    const items = await buildContentManifest(type);
+    const items = await buildLauncherContentManifest(type);
     res.json({ ok: true, type, items });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
@@ -116,6 +132,29 @@ export async function downloadContentHandler(req: Request, res: Response): Promi
 
   try {
     await streamContentZip(type, name, res);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    if (!res.headersSent) {
+      res.status(500).json({ ok: false, message });
+    }
+  }
+}
+
+export async function headContentDownloadHandler(req: Request, res: Response): Promise<void> {
+  const type = parseSyncContentType(String(req.params.type || ''));
+  const name = String(req.params.name || '');
+
+  if (!type) {
+    res.status(400).json({ ok: false, message: 'Invalid content type' });
+    return;
+  }
+  if (!name) {
+    res.status(400).json({ ok: false, message: 'Name required' });
+    return;
+  }
+
+  try {
+    await headContentZip(type, name, res);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     if (!res.headersSent) {

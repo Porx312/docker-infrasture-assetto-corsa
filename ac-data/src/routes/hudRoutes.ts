@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 
 import { handleHudStreamSse } from '../services/hud/hudStreamSse.js';
+import { handleHudSnapshot } from '../services/hud/hudSnapshot.js';
 import { refreshHudUserStatusFromConvex } from '../services/hud/hudUserStatusNotify.js';
 import {
   isWorkerRequestAuthorized,
@@ -11,6 +12,10 @@ const router = Router();
 
 router.get('/stream', (req: Request, res: Response) => {
   void handleHudStreamSse(req, res);
+});
+
+router.get('/snapshot', (req: Request, res: Response) => {
+  void handleHudSnapshot(req, res);
 });
 
 /** Convex worker hook: re-fetch user ban + HUD session and push SSE (invalidate / re-validate). */

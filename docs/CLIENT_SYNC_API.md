@@ -1,6 +1,6 @@
 # ProjectD Launcher API
 
-Public read API for the **ProjectD desktop launcher**. Players download the HUD overlay and Assetto Corsa content (cars/tracks) from your VPS without authentication.
+Public read API for the **ProjectD desktop launcher**. Players install the HUD overlay and download **only the mods required by the server they choose** — no full asset library sync.
 
 Server-side empty-mod cleanup stays in the **admin panel** (`DELETE /admin/content/empty`). The launcher removes empty local folders on the user's PC only.
 
@@ -14,27 +14,81 @@ Optional legacy lock (staging): set `CLIENT_LAUNCHER_REQUIRE_API_KEY=true` and `
 
 | Scope | Env | Default |
 |-------|-----|---------|
-| General GET (`/bootstrap`, `/hud/latest`, `/content/manifest`) | `CLIENT_LAUNCHER_RATE_LIMIT_MAX` | 60 / min / IP |
+| General GET (`/bootstrap`, `/servers`, `/hud/latest`) | `CLIENT_LAUNCHER_RATE_LIMIT_MAX` | 60 / min / IP |
 | ZIP downloads (`*/download*`) | `CLIENT_LAUNCHER_DOWNLOAD_RATE_LIMIT_MAX` | 10 / min / IP |
 
-## Bootstrap (recommended)
+## Bootstrap (lite)
 
-Single call when the launcher opens:
+Single call when the launcher opens — **no global cars/tracks manifest**:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/client/bootstrap` | HUD latest + full cars/tracks manifests |
+| GET | `/client/bootstrap` | HUD latest + active servers with per-server `requiredContent` |
 
 ```json
 {
   "ok": true,
   "hud": { "version", "filename", "size", "sha256", "uploadedAt" },
-  "cars": { "count": 12, "items": [...] },
-  "tracks": { "count": 8, "items": [...] }
+  "launcher": { "minHudVersion": null },
+  "servers": {
+    "count": 1,
+    "items": [{
+      "serverName": "server",
+      "displayName": "ProjectD #1",
+      "type": "unified",
+      "track": "pk_akina",
+      "trackConfig": "",
+      "cars": ["ks_toyota_gt86"],
+      "httpPort": 8081,
+      "joinUrl": "https://acstuff.club/s/q:race/online/join?ip=…&httpPort=8081",
+      "requiredContent": {
+        "cars": [{ "name", "modifiedAt", "distribution", "downloadable", "steamStoreUrl", "displayName", "zipSizeBytes" }],
+        "track": { "...": "..." }
+      }
+    }]
+  }
 }
 ```
 
 `hud` is `null` if no release uploaded yet.
+
+| Field | Meaning |
+|-------|---------|
+| `launcher.minHudVersion` | Reserved; `null` until a minimum HUD version is enforced |
+
+**Removed from bootstrap (breaking change):** `cars`, `tracks`, `launcher.contentVersion`. The launcher no longer syncs a full mod library on open.
+
+## Active servers (joinable now)
+
+Only servers that are **Convex `isActive`** (per pool rules) **and** have a running `acServer` process on this VPS are listed.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/client/servers` | Same `servers` block as bootstrap — poll every 15–30s |
+
+Each item (`LauncherServerEntry`):
+
+| Field | Meaning |
+|-------|---------|
+| `serverName` | Folder slug (`server`, `server-1`, …) |
+| `displayName` | Public server name from INI |
+| `type` | Mode from Convex (`unified`, `battle`, `time-attack`, …) |
+| `track` | Track id (`TRACK` in server_cfg.ini) |
+| `trackConfig` | Layout (`CONFIG_TRACK`) |
+| `cars` | Required car ids (semicolon list from INI) |
+| `httpPort` | HTTP port for Content Manager join |
+| `udpPort` | UDP game port (informational) |
+| `maxClients` | Server capacity |
+| `playerCount` | Players online (from latest `server_status` telemetry) |
+| `hasPassword` | Whether a password is set (password is never exposed) |
+| `joinUrl` | Content Manager deep link |
+| `isRunning` | Always `true` in this list |
+| `requiredContent.cars` | Full `LauncherContentEntry[]` for each car on this server |
+| `requiredContent.track` | Full `LauncherContentEntry` for the track, or `null` |
+
+**Join URL host:** set `LAUNCHER_AC_HOST` to the **public game VPS IP or hostname** (not the API domain). If unset, no servers are exposed.
+
+**Mod on INI but missing on VPS:** entry appears with `downloadable: false` and `modifiedAt` epoch — show “mod not available” in UI.
 
 ## HUD overlay
 
@@ -46,16 +100,48 @@ Single call when the launcher opens:
 
 Upload releases: admin tab **ProjectD HUD** or `POST /admin/hud/releases`.
 
-## Content (cars / tracks)
+**ZIP download caching:** HUD and content download endpoints always respond **200 with a full ZIP body**. They set `Cache-Control: no-store` and do not emit ETags — clients that send `If-None-Match` still receive the file (never HTTP 304).
+
+## Content downloads (on demand)
+
+The launcher downloads mods **only when the user selects a server**, using ids from `requiredContent`.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/client/content/manifest?type=cars` | Manifest with `isEmpty`, `hasAcd`, `hasKn5`, sizes |
-| GET | `/client/content/:type/:name/download` | ZIP of mod folder or file |
+| HEAD | `/client/content/:type/:name/download` | Returns **`Content-Length`** without body |
+| GET | `/client/content/:type/:name/download` | ZIP with **`Content-Length`** (**403 for Steam DLC**) |
 
-**Empty mod** (for local cleanup): no `.acd` and no `.kn5` anywhere under the mod folder. The launcher should scan the user's AC `content/cars` and `content/tracks` locally and delete empty folders — **do not** call DELETE on the server.
+Each `LauncherContentEntry` (in `requiredContent` or legacy manifest):
 
-## Launcher flow
+| Field | Values | Meaning |
+|-------|--------|---------|
+| `name` | string | Folder or file id under `content/cars` or `content/tracks` |
+| `modifiedAt` | ISO string | VPS mod mtime — compare locally to detect updates |
+| `distribution` | `launcher` \| `steam_dlc` | How to obtain this mod |
+| `downloadable` | boolean | `false` = do not call download |
+| `steamStoreUrl` | string \| null | Steam store link when `steam_dlc` |
+| `displayName` | string \| null | Friendly label |
+| `zipSizeBytes` | number \| null | Cached ZIP size when known |
+
+### Legacy full manifest (operators / debug)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/client/content/manifest?type=cars` | Full directory scan — **not used by launcher v1** |
+
+**403 on DLC download:**
+
+```json
+{
+  "ok": false,
+  "message": "\"Toyota GT86\" is official Kunos DLC — purchase on Steam...",
+  "distribution": "steam_dlc",
+  "steamStoreUrl": "https://store.steampowered.com/app/440630/",
+  "displayName": "Toyota GT86"
+}
+```
+
+## Launcher flow (server-first)
 
 ```mermaid
 sequenceDiagram
@@ -66,33 +152,39 @@ sequenceDiagram
 
   User->>Launcher: Abrir launcher
   Launcher->>API: GET /client/bootstrap
-  Launcher->>API: GET /client/hud/download
-  Launcher->>Local: Instalar overlay
+  Note over Launcher: Lista servers.items (sin library global)
 
-  loop Mods faltantes o desactualizados
+  User->>Launcher: Elegir server
+  Launcher->>Launcher: Compare requiredContent vs local AC
+
+  alt Missing downloadable mod
     Launcher->>API: GET /client/content/cars/{name}/download
-    Launcher->>Local: Extraer en content/cars/
+    Launcher->>Local: Extraer mod
+  else steam_dlc missing
+    Launcher->>User: Abrir steamStoreUrl
+  else All OK
+    Launcher->>User: Unirse via joinUrl
   end
 
-  Note over Launcher,Local: Limpieza local sin API
-  Launcher->>Local: Borrar carpetas sin .acd/.kn5
+  loop Poll cada ~30s
+    Launcher->>API: GET /client/servers
+  end
+
+  opt HUD update
+    Launcher->>API: GET /client/hud/download
+    Launcher->>Local: Instalar overlay
+  end
 ```
 
 ## Examples
 
 ```bash
-export BASE=http://localhost:3000
+export BASE=https://dev-api.projectd.space
 
-# Bootstrap (no auth)
-curl -s "$BASE/client/bootstrap"
-
-# HUD
-curl -s "$BASE/client/hud/latest"
+curl -s "$BASE/client/bootstrap" | jq '.servers.count'
+curl -s "$BASE/client/servers" | jq '.servers.items[0].requiredContent'
 curl -L "$BASE/client/hud/download" -o projectd-hud.zip
-
-# Content
-curl -s "$BASE/client/content/manifest?type=cars"
-curl -L "$BASE/client/content/cars/ks_toyota_gt86/download" -o gt86.zip
+curl -L "$BASE/client/content/cars/MOD_NAME/download" -o mod.zip
 ```
 
 ## Admin (operators only)
@@ -101,6 +193,7 @@ curl -L "$BASE/client/content/cars/ks_toyota_gt86/download" -o gt86.zip
 |--------|----------|
 | Upload HUD ZIP | Admin → ProjectD HUD |
 | Clean empty mods on VPS | Cars/Tracks → **Clean empty** or `DELETE /admin/content/empty?type=cars` |
+| Full mod list | Admin content panel or `GET /client/content/manifest?type=cars` |
 
 ## Env
 
@@ -110,14 +203,17 @@ CLIENT_LAUNCHER_RATE_LIMIT_MAX=60
 CLIENT_LAUNCHER_DOWNLOAD_RATE_LIMIT_MAX=10
 CLIENT_LAUNCHER_CORS_ORIGIN=*
 CLIENT_LAUNCHER_REQUIRE_API_KEY=false
-# CLIENT_SYNC_API_KEY=...   # only if REQUIRE_API_KEY=true
+LAUNCHER_AC_HOST=YOUR_PUBLIC_VPS_IP
+# CLIENT_SYNC_ZIP_CACHE_PATH=/var/cache/assetto/content-zips
+# LAUNCHER_CONTENT_CATALOG_PATH=...
 ```
 
 ## Verification
 
 ```bash
-curl -s http://localhost:3000/client/bootstrap
-curl -s http://localhost:3000/client/hud/latest
-# DELETE /client/content/empty should 404 (removed)
+curl -s http://localhost:3000/client/bootstrap | jq 'keys'
+curl -s http://localhost:3000/client/servers | jq '.servers.items[0].requiredContent'
 cd ac-data && npm run build && npm test
 ```
+
+Expected bootstrap keys: `ok`, `hud`, `launcher`, `servers` — **not** `cars` or `tracks`.

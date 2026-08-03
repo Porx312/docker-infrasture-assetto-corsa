@@ -41,6 +41,38 @@ function maxZipBytes(): number {
   return Math.max(1, mb) * 1024 * 1024;
 }
 
+/** Smallest valid ZIP (empty archive) is 22 bytes. */
+const MIN_ZIP_BYTES = 22;
+
+export async function validateZipFile(
+  filePath: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  let stats: fs.Stats;
+  try {
+    stats = await fs.promises.stat(filePath);
+  } catch {
+    return { ok: false, message: 'Upload file not found' };
+  }
+
+  if (stats.size < MIN_ZIP_BYTES) {
+    return { ok: false, message: 'File is too small to be a valid ZIP' };
+  }
+
+  const fd = await fs.promises.open(filePath, 'r');
+  try {
+    const header = Buffer.alloc(4);
+    await fd.read(header, 0, 4, 0);
+    const isPk = header[0] === 0x50 && header[1] === 0x4b;
+    if (!isPk) {
+      return { ok: false, message: 'File does not appear to be a valid ZIP (missing PK header)' };
+    }
+  } finally {
+    await fd.close();
+  }
+
+  return { ok: true };
+}
+
 export function resolveSafeHudFilename(filename: string): string | null {
   const base = path.basename(filename.replace(/\\/g, '/'));
   if (!base || base.includes('..') || base !== filename.replace(/\\/g, '/')) {
@@ -133,6 +165,12 @@ export async function uploadHudRelease(
 
   if (stats.size > maxZipBytes()) {
     return { ok: false, message: `File exceeds CLIENT_SYNC_MAX_ZIP_MB limit` };
+  }
+
+  const zipCheck = await validateZipFile(tempPath);
+  if (!zipCheck.ok) {
+    await fs.promises.unlink(tempPath).catch(() => {});
+    return { ok: false, message: zipCheck.message };
   }
 
   await ensureDirs();

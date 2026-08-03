@@ -52,8 +52,8 @@ function modCardThumb(item, type) {
   return `<span class="mod-card-placeholder">${type === 'tracks' ? 'T' : 'C'}</span>`;
 }
 
-/** @param {object} item @param {string} type */
-export function renderModCard(item, type) {
+/** @param {object} item @param {string} type @param {boolean} [isSelected] */
+export function renderModCard(item, type, isSelected = false) {
   const count = item.variants?.length ?? 0;
   const meta =
     count > 0
@@ -63,11 +63,16 @@ export function renderModCard(item, type) {
         : formatSize(item.size);
 
   return `
-    <button type="button" class="mod-card" data-open-mod="${type}" data-name="${escapeAttr(item.name)}">
-      <div class="mod-card-thumb">${modCardThumb(item, type)}</div>
-      <div class="mod-card-name">${escapeHtml(item.name)}</div>
-      <div class="mod-card-meta">${meta}</div>
-    </button>
+    <article class="mod-card-wrap${isSelected ? ' is-selected' : ''}" data-mod-name="${escapeAttr(item.name)}">
+      <label class="mod-card-check" title="Select">
+        <input type="checkbox" data-select-mod="${type}" data-name="${escapeAttr(item.name)}"${isSelected ? ' checked' : ''}>
+      </label>
+      <button type="button" class="mod-card" data-open-mod="${type}" data-name="${escapeAttr(item.name)}">
+        <div class="mod-card-thumb">${modCardThumb(item, type)}</div>
+        <div class="mod-card-name">${escapeHtml(item.name)}</div>
+        <div class="mod-card-meta">${meta}</div>
+      </button>
+    </article>
   `;
 }
 
@@ -119,6 +124,11 @@ export function renderContentPanelHtml(tab) {
             <input type="checkbox" id="${type}ShowAll">
             <span>All folders</span>
           </label>
+          <div class="bulk-actions" id="${type}BulkActions">
+            <button type="button" class="btn btn-sm btn-ghost" id="${type}SelectAll">Select all</button>
+            <button type="button" class="btn btn-sm btn-ghost" id="${type}ClearSelection">Clear</button>
+            <button type="button" class="btn btn-sm btn-danger" id="${type}DeleteSelected" disabled>Delete selected (0)</button>
+          </div>
           <button type="button" class="btn btn-sm btn-ghost" id="${type}CleanEmpty" title="Delete mods without .acd or .kn5">Clean empty</button>`
               : ''
           }

@@ -5,7 +5,11 @@ import { pipeline } from 'stream/promises';
 import unzipper from 'unzipper';
 import '../config/loadEnv.js';
 
-const CONTENT_BASE_PATH = process.env.CONTENT_PATH || '/home/jose/assetto-install/assetto/content';
+const DEFAULT_CONTENT_BASE_PATH = '/home/jose/assetto-install/assetto/content';
+
+function contentBasePath(): string {
+  return process.env.CONTENT_PATH || DEFAULT_CONTENT_BASE_PATH;
+}
 
 export type ContentType = 'cars' | 'tracks' | 'weather';
 
@@ -24,7 +28,7 @@ const ALLOWED_ROOT_EXTENSIONS: Record<ContentType, string[]> = {
 };
 
 function getContentDir(type: ContentType): string {
-    return path.join(CONTENT_BASE_PATH, type);
+    return path.join(contentBasePath(), type);
 }
 
 export function resolveSafeContentPath(contentDir: string, relativePath: string): string | null {

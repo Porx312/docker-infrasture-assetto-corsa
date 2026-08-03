@@ -8,6 +8,7 @@ import {
   setHudSsePushTestHooks,
 } from './hudSsePush.js';
 import { setFetchPlayerJoinContextForTests } from './playerJoinContext.js';
+import { setFetchHudSessionForTests } from './lapCompletedHudRefresh.js';
 import { refreshHudUserStatusFromConvex } from './hudUserStatusNotify.js';
 import { isHudRedisConfigured } from './hudRedis.js';
 import { clearUserInvalidated, readUserInvalidated } from './hudUserInvalidation.js';
@@ -35,6 +36,11 @@ test('refreshHudUserStatusFromConvex pushes hud_error after Convex invalidates u
     reason: 'user_invalidated',
     user: { steamId, isInvalidated: true, name: 'Pilot' },
   }));
+
+  setHudSsePushTestHooks({
+    fetchVersion: async () => ({ ok: false, reason: 'user_invalidated' }),
+    loadSession: async () => ({ ok: false, reason: 'user_invalidated' }),
+  });
 
   try {
     await refreshHudUserStatusFromConvex(steamId);
@@ -96,6 +102,42 @@ test('refreshHudUserStatusFromConvex pushes hud_session after Convex re-validate
     },
   }));
 
+  const sessionPayload = {
+    ok: true as const,
+    version: 'v-revalidated',
+    context: {
+      server_id: 's1',
+      server_name: 'test',
+      track_id: 'pk_akina',
+      track_name: 'Akina',
+      layout_id: 'downhill',
+      layout_name: 'Downhill',
+      car_id: 'ae86',
+      car_name: 'AE86',
+      player_steam_id: steamId,
+    },
+    profile: {
+      name: 'Pilot',
+      rank: 1,
+      tier: 5,
+      best_lap_ms: 120_000,
+      car_name: 'AE86',
+      car_id: 'ae86',
+      steam_id: steamId,
+      rivals: { above: null, below: null },
+    },
+  };
+
+  setHudSsePushTestHooks({
+    fetchVersion: async () => ({
+      ok: true,
+      version: 'v-revalidated',
+      lbVersion: 'v-revalidated',
+      playerVersion: 1,
+    }),
+    loadSession: async () => sessionPayload,
+  });
+
   try {
     await refreshHudUserStatusFromConvex(steamId);
 
@@ -105,6 +147,8 @@ test('refreshHudUserStatusFromConvex pushes hud_session after Convex re-validate
     assert.equal((sessionEvent.data as { ok: boolean }).ok, true);
   } finally {
     setFetchPlayerJoinContextForTests(null);
+    setFetchHudSessionForTests(null);
+    setHudSsePushTestHooks(null);
     unregister();
     resetHudSseConnectionsForTests();
     await clearUserInvalidated(steamId);

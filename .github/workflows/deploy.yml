@@ -29,7 +29,8 @@ jobs:
       - name: Health check
         run: |
           sleep 10
-          curl -f http://${{ secrets.VPS_HOST }}:3000/api/health || exit 1
+          curl -f https://dev-api.projectd.touge.com/api/health || \
+            curl -f http://${{ secrets.VPS_HOST }}:3000/api/health || exit 1
 
       - name: Verify telemetry-data container
         uses: appleboy/ssh-action@v1.0.3

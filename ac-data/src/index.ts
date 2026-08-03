@@ -13,6 +13,7 @@ import { initHudPushHub } from './services/hud/battleHudPush.js';
 import { startRedisConvexBridge } from './services/redisConvexBridge.js';
 import { startRedisConfigApplier } from './services/redisConfigApplier.js';
 import { startServerPoolMonitor } from './services/serverPool.js';
+import { getPublicHealthHandler } from './controller/healthController.js';
 import { resolveEnvFilePath } from './config/loadEnv.js';
 
 const SERVERS_PATH = process.env.SERVERS_PATH;
@@ -22,7 +23,8 @@ if (!SERVERS_PATH) {
 }
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT || 3000);
+const BIND_HOST = process.env.AC_DATA_BIND_HOST || '0.0.0.0';
 
 const CORS_ORIGIN = process.env.CORS_ORIGIN || `http://localhost:${PORT}`;
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || '')
@@ -80,6 +82,8 @@ const acDataRoot = path.dirname(fileURLToPath(import.meta.url));
 const ADMIN_VIEWS_PATH = process.env.ADMIN_VIEWS_PATH || path.join(acDataRoot, '..', 'views');
 const ADMIN_PUBLIC_PATH = process.env.ADMIN_PUBLIC_PATH || path.join(acDataRoot, '..', 'public');
 
+app.get('/api/health', getPublicHealthHandler);
+
 app.use('/ac-server', apiKeyMiddleware, acServerRoutes);
 app.use('/client', ...clientLauncherMiddleware, clientSyncRoutes);
 app.use('/hud', ...hudMiddleware, hudRoutes);
@@ -106,9 +110,9 @@ app.use('/admin', express.static(ADMIN_PUBLIC_PATH, {
 // ------------------------ START SERVER ------------------------
 initHudPushHub();
 
-app.listen(PORT, async () => {
+app.listen(PORT, BIND_HOST, async () => {
   void startRedisConvexBridge();
   void startRedisConfigApplier();
   startServerPoolMonitor();
-  console.log(`API corriendo en http://localhost:${PORT}`);
+  console.log(`API corriendo en http://${BIND_HOST}:${PORT}`);
 });

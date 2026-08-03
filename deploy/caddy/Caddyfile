@@ -1,0 +1,24 @@
+# Staging reverse proxy — automatic Let's Encrypt (Hostinger DNS → VPS directly).
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$STAGING_API_HOST} {
+	reverse_proxy {$AC_DATA_UPSTREAM} {
+		flush_interval -1
+		transport http {
+			read_timeout 600s
+			write_timeout 600s
+		}
+	}
+}
+
+{$STAGING_ADMIN_HOST} {
+	reverse_proxy {$AC_DATA_UPSTREAM} {
+		transport http {
+			read_timeout 120s
+			write_timeout 120s
+		}
+	}
+}

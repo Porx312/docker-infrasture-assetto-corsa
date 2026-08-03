@@ -1,13 +1,13 @@
 # Guía de integración: Time Attack HUD (perfil + rivals)
 
-Documento para el equipo del overlay (ProjectD-HUD Lua). Transporte **SSE único** vía ac-data (`GET /hud/stream`). ac-data consulta Convex con `workerSecret` y empuja JSON al cliente in-game. **No hay rutas HTTP `/hud/version`, `/hud/session` ni `/hud/player`.**
+Documento para el equipo del overlay (ProjectD-HUD Lua). Transporte principal: **SSE** vía ac-data (`GET /hud/stream`). En CSP 0.2.x (sin streaming `web.get` ni TLS embebido), el overlay usa **`GET /hud/snapshot`** como fallback one-shot cada ~5 s. ac-data consulta Convex con `workerSecret` y empuja JSON al cliente in-game. **No hay rutas HTTP `/hud/version`, `/hud/session` ni `/hud/player`.**
 
 ## Cambios respecto al overlay antiguo
 
 | Antes | Ahora |
 |-------|-------|
 | `GET /hud/top10` | **Eliminado** |
-| Poll HTTP `/hud/version` + `/hud/session` | **Eliminado** — ac-data empuja `hud_version` + `hud_session` solo por eventos |
+| Poll HTTP `/hud/version` + `/hud/session` | **Eliminado** — ac-data empuja por SSE; fallback **`GET /hud/snapshot`** en CSP sin SSE streaming |
 | `session:update` / `battle:update` | `hud_session` / `hud_version` / `hud_error` / `battle` |
 | Query `serverName` + `track` | **Solo `steamId`** — Convex resuelve sesión activa desde `live_players` |
 | `profile.rival` (singular) | `profile.rivals.above` / `profile.rivals.below` |
@@ -85,6 +85,40 @@ es.addEventListener('battle', (e) => {
 ```
 
 Reemplazar estado local completo en cada `hud_session`.
+
+## `GET /hud/snapshot` (fallback CSP)
+
+Query: `steamId`, `carFilter?`, `carModel?`, `api_key?` (misma auth/presencia que `/hud/stream`)
+
+Base URL: `http://HOST:3000/hud/snapshot`
+
+Respuesta **JSON one-shot** (no SSE). Útil cuando el overlay no puede hacer SSE incremental (`web.get` CSP 0.2.x bufferiza hasta cerrar, o HTTPS sin módulo `ssl`/`luasec`).
+
+```json
+{
+  "ok": true,
+  "steamId": "7656119…",
+  "version": { "steamId": "…", "version": "…", "lbVersion": "…", "playerVersion": 123 },
+  "session": {
+    "steamId": "…",
+    "ok": true,
+    "version": "…",
+    "context": { "…": "…" },
+    "profile": { "rank": 1, "tier": 7, "rivals": { "above": null, "below": { "…": "…" } } }
+  }
+}
+```
+
+Errores: `{ "ok": false, "reason": "player_not_connected" }` con HTTP **404** (igual que stream).
+
+**ProjectD-HUD:** poll cada `HUD_SNAPSHOT_POLL_SEC` (default 5) vía `web_queue.get` cuando no hay `cached_bundle` o el SSE no entrega actividad reciente. Debug in-game: `mode=poll bundle=y`.
+
+Verificación:
+
+```bash
+curl -s "https://dev-api.projectd.space/hud/snapshot?steamId=76561199230780195" | head -c 500
+./scripts/verify-hud-overlay-contract.sh 76561199230780195
+```
 
 ### Shape `hud_session`
 

@@ -13,11 +13,13 @@ import {
   updateManagedServersFromSnapshot,
   type ManagedServerRow,
 } from './hud/hudManagedServers.js';
+import { updateLauncherServerSnapshot } from './launcherServerRegistry.js';
 import { publishWorkerErrorEvent } from './activity/activityService.js';
 import {
   handleEventAfterIngest,
   handleEventBeforeIngest,
 } from './eventHandlers/index.js';
+import { buildIngestEvent } from './ingestEventBuilder.js';
 import { connectRedisClient, createRedisClient, isRedisConfigured } from './redisClient.js';
 
 const REDIS_STREAM_KEY = process.env.REDIS_STREAM_KEY || 'ac:events';
@@ -124,26 +126,6 @@ function parsePayload(message: StreamMessage): Record<string, unknown> | null {
   }
 }
 
-function buildIngestEvent(payload: Record<string, unknown>) {
-  const event = String(payload.event || '');
-  const data = payload.data as Record<string, unknown> | undefined;
-  return {
-    eventType: event,
-    serverName: typeof payload.serverName === 'string' ? payload.serverName : undefined,
-    data: {
-      ...(data ?? {}),
-      _meta: {
-        eventId: payload.eventId,
-        schemaVersion: payload.schemaVersion,
-        event,
-        instanceId: payload.instanceId,
-        serverName: payload.serverName,
-        ts: payload.ts,
-      },
-    },
-  };
-}
-
 async function forwardBatchToConvex(
   payloads: Record<string, unknown>[],
 ): Promise<IngestBatchResult> {
@@ -247,6 +229,7 @@ async function startConvexConfigPublisher(client: RedisClientType): Promise<void
 
   const snapshot = snapshotResult as WorkerConfigSnapshotResult;
   updateManagedServersFromSnapshot((snapshot.servers ?? []) as ManagedServerRow[]);
+  updateLauncherServerSnapshot((snapshot.servers ?? []) as ManagedServerRow[]);
   await publishConfigSnapshotToRedis(client, snapshot);
       lastConfigVersion = configVersion;
       console.log(

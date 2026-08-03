@@ -1,9 +1,9 @@
 import { fetchHudVersion, isHudConvexConfigured } from './hudConvex.js';
 import { normalizeHudProfile } from './hudProfile.js';
 import {
+  fetchHudSessionWithRetry,
   getSessionCached,
   invalidateSessionCache,
-  refreshSessionCached,
   sessionLeaderboardFingerprint,
 } from './lapCompletedHudRefresh.js';
 import { markUserInvalidated } from './hudUserInvalidation.js';
@@ -30,6 +30,7 @@ const connectionsBySteamId = new Map<string, Set<HudSseConnection>>();
 type HudSsePushTestHooks = {
   fetchVersion?: (steamId: string) => Promise<HudVersionResult>;
   loadSession?: (steamId: string, bypassCache: boolean) => Promise<HudSessionResult>;
+  getSessionCached?: (steamId: string) => Promise<HudSessionResult>;
 };
 
 let testHooks: HudSsePushTestHooks | null = null;
@@ -164,15 +165,54 @@ function shouldSkipSessionPush(steamId: string, session: HudSessionResult): bool
   return true;
 }
 
+const TRANSIENT_SSE_SESSION_REASONS = new Set<string>([
+  'server_not_found',
+  'track_not_found',
+  'car_not_found',
+  'player_not_connected',
+]);
+
+function sessionHasProfile(session: HudSessionResult): boolean {
+  return session.ok && session.profile != null;
+}
+
+/** Live Convex fetch with Redis join-cache fallback on transient errors. */
+async function resolveSessionForPush(
+  steamId: string,
+  bypassCache: boolean,
+): Promise<HudSessionResult> {
+  const session = testHooks?.loadSession
+    ? await testHooks.loadSession(steamId, bypassCache)
+    : await loadHudSessionForSse(steamId, bypassCache);
+
+  if (sessionHasProfile(session)) {
+    return session;
+  }
+  if (!session.ok && session.reason === 'user_invalidated') {
+    return session;
+  }
+
+  if (!session.ok && TRANSIENT_SSE_SESSION_REASONS.has(session.reason)) {
+    const cached = testHooks?.getSessionCached
+      ? await testHooks.getSessionCached(steamId)
+      : await getSessionCached({ steamId });
+    if (sessionHasProfile(cached)) {
+      return cached;
+    }
+  }
+
+  return session;
+}
+
 export async function loadHudSessionForSse(
   steamId: string,
   bypassCache = false,
 ): Promise<HudSessionResult> {
   if (bypassCache) {
     await invalidateSessionCache({ steamId });
-    return refreshSessionCached({ steamId });
   }
-  return getSessionCached({ steamId });
+  // Retry transient Convex errors (e.g. server_not_found right after player_join ingest).
+  return fetchHudSessionWithRetry({ steamId });
 }
 
 /** Event-driven push: hud_version then hud_session for all SSE clients of steamId. */
@@ -227,9 +267,7 @@ export async function pushHudUpdateForSteamId(
     return;
   }
 
-  const session = testHooks?.loadSession
-    ? await testHooks.loadSession(steamId, bypassCache)
-    : await loadHudSessionForSse(steamId, bypassCache);
+  const session = await resolveSessionForPush(steamId, bypassCache);
   if (!session.ok) {
     if (session.reason === 'user_invalidated') {
       await markUserInvalidated(steamId);
@@ -242,7 +280,12 @@ export async function pushHudUpdateForSteamId(
     return;
   }
 
-  emitHudVersionToSteamId(steamId, versionResult);
+  // Align root `version` with hud_session so legacy overlays do not clear cache on mismatch.
+  const versionForClient: HudVersionOk = {
+    ...versionResult,
+    version: session.version,
+  };
+  emitHudVersionToSteamId(steamId, versionForClient);
   emitHudSessionToSteamId(steamId, session);
 }
 

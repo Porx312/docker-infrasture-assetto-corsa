@@ -1,4 +1,5 @@
 import { isHudConvexConfigured } from './hudConvex.js';
+import { getSessionCached } from './lapCompletedHudRefresh.js';
 import { refreshPlayerJoinFromConvex } from './playerJoinContext.js';
 import { pushHudUpdateForSteamId } from './hudSsePush.js';
 
@@ -23,5 +24,11 @@ export async function refreshHudUserStatusFromConvex(steamId: string): Promise<v
     );
   }
 
-  await pushHudUpdateForSteamId(trimmed, false, { preferCachedSession: true });
+  const cached = await getSessionCached({ steamId: trimmed });
+  if (cached.ok && cached.profile) {
+    await pushHudUpdateForSteamId(trimmed, false, { preferCachedSession: true });
+    return;
+  }
+
+  await pushHudUpdateForSteamId(trimmed, true);
 }

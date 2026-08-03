@@ -1,0 +1,22 @@
+# Caddy reverse proxy for ac-data staging (HTTPS).
+# Requires ac-data on host :3000 (./start.sh dev).
+#
+#   docker compose -f docker-compose.caddy.yml up -d
+#   docker compose -f docker-compose.caddy.yml logs -f
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: assetto-caddy
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - deploy/caddy/caddy.env
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
