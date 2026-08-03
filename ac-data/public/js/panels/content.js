@@ -83,6 +83,12 @@ function bindContentPanel(type) {
     const btn = e.target.closest('[data-delete]');
     if (btn) deleteItem(btn.dataset.delete, btn.dataset.name);
   });
+
+  if (isCardGridType(type)) {
+    document.getElementById(`${type}CleanEmpty`)?.addEventListener('click', () => {
+      void cleanEmptyMods(type);
+    });
+  }
 }
 
 /** @param {object} item @param {string} type @param {string} searchTerm @param {boolean} showAll */
@@ -301,4 +307,34 @@ async function uploadFiles(files, type) {
 /** Called from dashboard delete button in mod modal */
 export function handleModDelete(type, name) {
   deleteItem(type, name);
+}
+
+/** @param {string} type */
+async function cleanEmptyMods(type) {
+  try {
+    const preview = await apiDelete(`/content/empty?type=${encodeURIComponent(type)}&dryRun=true`);
+    const targets = preview.data?.deleted ?? [];
+    if (!targets.length) {
+      showToast('No empty mods found');
+      return;
+    }
+
+    const list = targets.slice(0, 8).join(', ') + (targets.length > 8 ? ` … +${targets.length - 8} more` : '');
+    const confirmed = await showConfirm(
+      'Clean empty mods',
+      `Delete ${targets.length} mod(s) without .acd or .kn5?\n\n${list}`,
+      'Delete',
+    );
+    if (!confirmed) return;
+
+    const { data } = await apiDelete(`/content/empty?type=${encodeURIComponent(type)}`);
+    if (data.ok) {
+      showToast(`Removed ${data.deleted?.length ?? 0} empty mod(s)`);
+      loadContent(type);
+    } else {
+      showToast(data.message || 'Cleanup failed', 'error');
+    }
+  } catch {
+    showToast('Connection error', 'error');
+  }
 }

@@ -1608,6 +1608,52 @@ body {
   max-width: 320px;
 }
 
+.hud-releases-table-wrap {
+  overflow-x: auto;
+  margin-top: 16px;
+}
+
+.hud-releases-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.hud-releases-table th,
+.hud-releases-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.hud-releases-table th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.hud-release-row.is-latest {
+  background: rgba(88, 166, 255, 0.06);
+}
+
+.hud-release-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.hud-sha-cell code {
+  font-size: 0.75rem;
+}
+
+.btn-danger {
+  color: var(--danger, #f85149);
+  border-color: rgba(248, 81, 73, 0.35);
+}
+
 .modal-upload .spinner {
   width: 36px;
   height: 36px;

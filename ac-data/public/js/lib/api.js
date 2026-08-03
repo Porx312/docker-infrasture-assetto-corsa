@@ -21,7 +21,9 @@ export async function apiFetch(path, init = {}) {
   try {
     data = await res.json();
   } catch {
-    throw new Error(`Invalid response (${res.status})`);
+    const restartHint =
+      res.status === 404 ? ' — endpoint not found; try restarting ac-data' : '';
+    data = { ok: false, message: `Server error (${res.status})${restartHint}` };
   }
 
   return { res, data };

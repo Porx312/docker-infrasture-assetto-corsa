@@ -25,6 +25,10 @@ import {
   mountActivityPanel,
   unmountActivityPanel,
 } from './panels/activity.js';
+import {
+  loadHudReleasesPanel,
+  mountHudReleasesPanel,
+} from './panels/hud-releases.js';
 
 const TAB_STORAGE_KEY = 'adminTab';
 
@@ -91,6 +95,8 @@ function renderActivePanel() {
     mountServersPanel(container);
   } else if (tab.kind === 'activity') {
     mountActivityPanel(container);
+  } else if (tab.kind === 'hud') {
+    mountHudReleasesPanel(container);
   } else {
     mountContentPanel(tab.id, container);
   }
@@ -102,6 +108,8 @@ function loadActivePanel() {
     loadServersPanel();
   } else if (kind === 'activity') {
     loadActivityPanel();
+  } else if (kind === 'hud') {
+    loadHudReleasesPanel();
   } else {
     loadContent(currentTab);
   }

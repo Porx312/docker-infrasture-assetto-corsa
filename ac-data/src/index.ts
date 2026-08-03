@@ -5,7 +5,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import acServerRoutes from './routes/acServerRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
+import clientSyncRoutes from './routes/clientSyncRoutes.js';
 import hudRoutes from './routes/hudRoutes.js';
+import { clientLauncherMiddleware } from './middleware/clientLauncherMiddleware.js';
 import { hudMiddleware } from './middleware/hudMiddleware.js';
 import { initHudPushHub } from './services/hud/battleHudPush.js';
 import { startRedisConvexBridge } from './services/redisConvexBridge.js';
@@ -44,8 +46,8 @@ app.use((req, res, next) => {
   if (isAllowedCorsOrigin(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin as string);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key');
   }
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
@@ -79,6 +81,7 @@ const ADMIN_VIEWS_PATH = process.env.ADMIN_VIEWS_PATH || path.join(acDataRoot, '
 const ADMIN_PUBLIC_PATH = process.env.ADMIN_PUBLIC_PATH || path.join(acDataRoot, '..', 'public');
 
 app.use('/ac-server', apiKeyMiddleware, acServerRoutes);
+app.use('/client', ...clientLauncherMiddleware, clientSyncRoutes);
 app.use('/hud', ...hudMiddleware, hudRoutes);
 app.use('/admin', adminRoutes);
 

@@ -118,7 +118,8 @@ export function renderContentPanelHtml(tab) {
           <label class="filter-toggle">
             <input type="checkbox" id="${type}ShowAll">
             <span>All folders</span>
-          </label>`
+          </label>
+          <button type="button" class="btn btn-sm btn-ghost" id="${type}CleanEmpty" title="Delete mods without .acd or .kn5">Clean empty</button>`
               : ''
           }
           <span class="panel-count" id="${type}Filtered"></span>

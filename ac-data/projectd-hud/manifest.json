@@ -1,0 +1,12 @@
+{
+  "latest": "projectd-hud-v1.0.0-test.zip",
+  "releases": [
+    {
+      "version": "v1.0.0",
+      "filename": "projectd-hud-v1.0.0-test.zip",
+      "size": 10,
+      "uploadedAt": "2026-08-03T13:32:25.192Z",
+      "sha256": "239f5cd4044fc1d6882c4df733fea5a2975010b510ac0320ed8dc814e6548a6c"
+    }
+  ]
+}

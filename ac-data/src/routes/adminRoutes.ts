@@ -17,6 +17,11 @@ import {
     updateServerBrandingHandler,
     getServerInstanceConfigHandler,
     updateServerInstanceConfigHandler,
+    getHudReleasesHandler,
+    uploadHudReleaseHandler,
+    deleteHudReleaseHandler,
+    downloadHudReleaseAdminHandler,
+    deleteEmptyContentAdminHandler,
 } from '../controller/adminController.js';
 import {
     getActivityFeedHandler,
@@ -97,6 +102,13 @@ router.post(
     handleMulterUpload(upload.array('files', 20)),
     uploadMultipleContent,
 );
+
+router.delete('/content/empty', adminAuth, deleteEmptyContentAdminHandler);
+
+router.get('/hud/releases', adminAuth, getHudReleasesHandler);
+router.post('/hud/releases', adminAuth, handleMulterUpload(upload.single('file')), uploadHudReleaseHandler);
+router.delete('/hud/releases/:filename', adminAuth, deleteHudReleaseHandler);
+router.get('/hud/releases/:filename/download', adminAuth, downloadHudReleaseAdminHandler);
 
 router.get('/branding', adminAuth, getServerBrandingHandler);
 router.put('/branding', adminAuth, updateServerBrandingHandler);

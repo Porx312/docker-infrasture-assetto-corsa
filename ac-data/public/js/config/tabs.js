@@ -21,6 +21,12 @@ export const TABS = [
     kind: 'content',
   },
   {
+    id: 'projectd-hud',
+    label: 'ProjectD HUD',
+    hint: 'Overlay ZIP for desktop sync',
+    kind: 'hud',
+  },
+  {
     id: 'servers',
     label: 'Servers',
     hint: '',
