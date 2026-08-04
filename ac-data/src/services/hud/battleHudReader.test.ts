@@ -18,6 +18,9 @@ const profile: HudProfile = {
   steam_id: 'steam-a',
   elo: 1540,
   rivals: { above: null, below: null },
+  display_style: { fontId: 'orbitron', effectId: 'gradient', color: '#FFFFFF', gradientColor: '#FF4530' },
+  frame_url: 'https://example.com/frame.png',
+  input_type: 'wheel',
 };
 
 test('normalizeBattlePlayerSnapshot maps legacy car to car_id', () => {
@@ -52,6 +55,25 @@ test('mapProfileToBattlePlayer prefers profile fields', () => {
   assert.equal(merged.car_id, 'ks_toyota_gt86');
   assert.equal(merged.car_name, 'Toyota GT86');
   assert.equal(merged.score, 2);
+  assert.equal(merged.display_style?.fontId, 'orbitron');
+  assert.equal(merged.frame_url, 'https://example.com/frame.png');
+  assert.equal(merged.input_type, 'wheel');
+});
+
+test('normalizeBattlePlayerSnapshot passes through battle cosmetics', () => {
+  const normalized = normalizeBattlePlayerSnapshot({
+    steamId: 'steam-b',
+    name: 'Bob',
+    car: 'ks_mazda_miata',
+    score: 1,
+    display_style: { fontId: 'bebas', effectId: 'solid', color: '#AABBCC' },
+    frame_url: 'https://example.com/rival-frame.png',
+    input_type: 'controller',
+  });
+
+  assert.equal(normalized.display_style?.fontId, 'bebas');
+  assert.equal(normalized.frame_url, 'https://example.com/rival-frame.png');
+  assert.equal(normalized.input_type, 'controller');
 });
 
 test('mapProfileToBattlePlayer keeps snapshot when profile is null', () => {

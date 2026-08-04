@@ -132,3 +132,51 @@ test('coerceHudProfile maps camelCase Convex fields', () => {
   assert.equal(normalized?.car_id, 'ae86');
   assert.equal(normalized?.rivals.above?.lap_ms, 275_100);
 });
+
+test('coerceHudProfile preserves display_style, frame_url, and input_type', () => {
+  const normalized = normalizeHudProfile({
+    name: 'Alice',
+    rank: 12,
+    tier: 7,
+    best_lap_ms: 275_432,
+    car_name: 'Trueno AE86',
+    car_id: 'ae86',
+    steam_id: '76561199000000001',
+    displayStyle: {
+      fontId: 'orbitron',
+      effectId: 'gradient',
+      color: '#FFFFFF',
+      gradientColor: '#FF4530',
+      weight: 'bold',
+      letterSpacing: 'wide',
+    },
+    frameUrl: 'https://cdn.example.com/frames/gold.png',
+    inputType: 'wheel',
+    rivals: {
+      above: {
+        rank: 11,
+        name: 'Bob',
+        tier: 8,
+        lap_ms: 275_100,
+        car_name: 'RX-7',
+        display_style: {
+          fontId: 'teko',
+          effectId: 'solid',
+          color: '#00FFAA',
+        },
+        frame_url: 'https://cdn.example.com/frames/silver.png',
+        input_type: 'controller',
+      },
+      below: null,
+    },
+  });
+
+  assert.equal(normalized?.display_style?.fontId, 'orbitron');
+  assert.equal(normalized?.display_style?.effectId, 'gradient');
+  assert.equal(normalized?.display_style?.gradientColor, '#FF4530');
+  assert.equal(normalized?.frame_url, 'https://cdn.example.com/frames/gold.png');
+  assert.equal(normalized?.input_type, 'wheel');
+  assert.equal(normalized?.rivals.above?.display_style?.fontId, 'teko');
+  assert.equal(normalized?.rivals.above?.frame_url, 'https://cdn.example.com/frames/silver.png');
+  assert.equal(normalized?.rivals.above?.input_type, 'controller');
+});

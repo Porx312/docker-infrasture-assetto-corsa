@@ -1,3 +1,15 @@
+export type HudDisplayStyle = {
+  fontId?: string;
+  effectId?: string;
+  color?: string;
+  gradientColor?: string;
+  weight?: string;
+  italic?: boolean;
+  letterSpacing?: string;
+};
+
+export type HudInputType = 'wheel' | 'controller' | 'keyboard';
+
 export type HudRival = {
   rank: number;
   name: string;
@@ -5,6 +17,9 @@ export type HudRival = {
   lap_ms: number;
   car_name: string;
   avatar_url?: string;
+  display_style?: HudDisplayStyle;
+  frame_url?: string;
+  input_type?: HudInputType;
 };
 
 export type HudRivals = {
@@ -28,6 +43,9 @@ export type HudProfile = {
   elo?: number;
   isInvalidated?: boolean;
   rivals: HudRivals;
+  display_style?: HudDisplayStyle;
+  frame_url?: string;
+  input_type?: HudInputType;
   /** Added by ac-data on SSE (`rivals.above`); Convex does not send this field. */
   rival?: HudRival | null;
 };
@@ -178,6 +196,9 @@ export type HudBattlePlayer = {
   car_name: string;
   score: number;
   role?: 'lead' | 'chase';
+  display_style?: HudDisplayStyle;
+  frame_url?: string;
+  input_type?: HudInputType;
 };
 
 /** Raw player slot from Redis before profile enrichment (may use legacy `car`). */

@@ -1,6 +1,8 @@
-import type { HudPlayerResult, HudProfile, HudRival, HudRivals, HudSessionResult } from './hudTypes.js';
+import type { HudDisplayStyle, HudInputType, HudPlayerResult, HudProfile, HudRival, HudRivals, HudSessionResult } from './hudTypes.js';
 
 const EMPTY_RIVALS: HudRivals = { above: null, below: null };
+
+const VALID_INPUT_TYPES = new Set<HudInputType>(['wheel', 'controller', 'keyboard']);
 
 function readNumber(source: Record<string, unknown>, ...keys: string[]): number {
   for (const key of keys) {
@@ -22,12 +24,103 @@ function readString(source: Record<string, unknown>, ...keys: string[]): string 
   return '';
 }
 
+function readBoolean(source: Record<string, unknown>, ...keys: string[]): boolean {
+  for (const key of keys) {
+    const value = source[key];
+    if (value === true) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function coerceDisplayStyle(raw: unknown): HudDisplayStyle | undefined {
+  if (!raw || typeof raw !== 'object') {
+    return undefined;
+  }
+  const source = raw as Record<string, unknown>;
+  const style: HudDisplayStyle = {};
+
+  const fontId = readString(source, 'fontId', 'font_id');
+  if (fontId) {
+    style.fontId = fontId;
+  }
+
+  const effectId = readString(source, 'effectId', 'effect_id', 'effect');
+  if (effectId) {
+    style.effectId = effectId;
+  }
+
+  const color = readString(source, 'color', 'textColor', 'text_color');
+  if (color) {
+    style.color = color;
+  }
+
+  const gradientColor = readString(source, 'gradientColor', 'gradient_color', 'secondaryColor', 'secondary_color');
+  if (gradientColor) {
+    style.gradientColor = gradientColor;
+  }
+
+  const weight = readString(source, 'weight', 'fontWeight', 'font_weight');
+  if (weight) {
+    style.weight = weight;
+  }
+
+  if (readBoolean(source, 'italic', 'isItalic', 'is_italic')) {
+    style.italic = true;
+  }
+
+  const letterSpacing = readString(source, 'letterSpacing', 'letter_spacing');
+  if (letterSpacing) {
+    style.letterSpacing = letterSpacing;
+  }
+
+  return Object.keys(style).length > 0 ? style : undefined;
+}
+
+function readInputType(source: Record<string, unknown>): HudInputType | undefined {
+  const value = readString(source, 'input_type', 'inputType', 'input_device', 'inputDevice').toLowerCase();
+  if (VALID_INPUT_TYPES.has(value as HudInputType)) {
+    return value as HudInputType;
+  }
+  return undefined;
+}
+
+function applyCosmeticFields<T extends HudProfile | HudRival>(
+  target: T,
+  source: Record<string, unknown>,
+): T {
+  return mergeCosmeticFields(target, source);
+}
+
+/** Merge display_style / frame_url / input_type from a raw object (profile, rival, battle player). */
+export function mergeCosmeticFields<
+  T extends { display_style?: HudDisplayStyle; frame_url?: string; input_type?: HudInputType },
+>(target: T, source: Record<string, unknown>): T {
+  const displayStyle = coerceDisplayStyle(source.display_style ?? source.displayStyle);
+  if (displayStyle) {
+    target.display_style = displayStyle;
+  }
+
+  const frameUrl = readString(source, 'frame_url', 'frameUrl', 'frame', 'avatar_frame_url', 'avatarFrameUrl');
+  if (frameUrl) {
+    target.frame_url = frameUrl;
+  }
+
+  const inputType = readInputType(source);
+  if (inputType) {
+    target.input_type = inputType;
+  }
+
+  return target;
+}
+
 function coerceHudRival(raw: unknown): HudRival | null {
   if (!raw || typeof raw !== 'object') {
     return null;
   }
   const source = raw as Record<string, unknown>;
-  return {
+  const rival: HudRival = {
     rank: readNumber(source, 'rank'),
     name: readString(source, 'name'),
     tier: readNumber(source, 'tier'),
@@ -37,6 +130,7 @@ function coerceHudRival(raw: unknown): HudRival | null {
       ? { avatar_url: readString(source, 'avatar_url', 'avatarUrl') }
       : {}),
   };
+  return applyCosmeticFields(rival, source);
 }
 
 function coerceHudRivals(raw: unknown): HudRivals {
@@ -89,6 +183,8 @@ export function coerceHudProfile(
   if (source.isInvalidated === true || source.is_invalidated === true) {
     profile.isInvalidated = true;
   }
+
+  applyCosmeticFields(profile, source);
 
   return profile;
 }

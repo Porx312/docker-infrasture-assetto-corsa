@@ -3,7 +3,7 @@ import {
   buildBattleCacheKey,
 } from './hudCacheKeys.js';
 import { getPlayerCached } from './lapCompletedHudRefresh.js';
-import { isProfileInvalidated } from './hudProfile.js';
+import { isProfileInvalidated, mergeCosmeticFields } from './hudProfile.js';
 import { hudRedisGet } from './hudRedis.js';
 import type {
   BattleCacheParams,
@@ -19,11 +19,15 @@ function snapshotCarId(player: HudBattlePlayerSnapshot): string {
   return player.car_id ?? player.car ?? '';
 }
 
+function snapshotCosmeticSource(player: HudBattlePlayerSnapshot): Record<string, unknown> {
+  return player as unknown as Record<string, unknown>;
+}
+
 export function normalizeBattlePlayerSnapshot(
   player: HudBattlePlayerSnapshot,
 ): HudBattlePlayer {
   const carId = snapshotCarId(player);
-  return {
+  const normalized: HudBattlePlayer = {
     steamId: player.steamId,
     name: player.name,
     tier: player.tier ?? 0,
@@ -34,6 +38,7 @@ export function normalizeBattlePlayerSnapshot(
     ...(player.role ? { role: player.role } : {}),
     ...(player.avatar_url ? { avatar_url: player.avatar_url } : {}),
   };
+  return mergeCosmeticFields(normalized, snapshotCosmeticSource(player));
 }
 
 export function mapProfileToBattlePlayer(
@@ -46,7 +51,7 @@ export function mapProfileToBattlePlayer(
 
   const carId = profile.car_id || base.car_id;
   const elo = profile.elo ?? base.elo;
-  return {
+  const merged: HudBattlePlayer = {
     steamId: base.steamId,
     name: profile.name || base.name,
     tier: profile.tier ?? base.tier,
@@ -56,7 +61,11 @@ export function mapProfileToBattlePlayer(
     score: base.score,
     ...(base.role ? { role: base.role } : {}),
     ...(profile.avatar_url ? { avatar_url: profile.avatar_url } : {}),
+    ...(base.display_style ? { display_style: base.display_style } : {}),
+    ...(base.frame_url ? { frame_url: base.frame_url } : {}),
+    ...(base.input_type ? { input_type: base.input_type } : {}),
   };
+  return mergeCosmeticFields(merged, profile as unknown as Record<string, unknown>);
 }
 
 async function enrichBattlePlayer(

@@ -1,13 +1,4 @@
 {
-  "latest": "ProjectD Launcher 1.0.0.zip",
-  "releases": [
-    {
-      "version": "1.0.0",
-      "filename": "ProjectD Launcher 1.0.0.zip",
-      "size": 76016640,
-      "uploadedAt": "2026-08-04T12:11:02.089Z",
-      "sha256": "92342e2694ce17f191319d06dc364fd4fb933a2a367a6394615154ba990ccffc",
-      "platform": "windows"
-    }
-  ]
+  "latest": null,
+  "releases": []
 }

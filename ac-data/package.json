@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "rimraf ./dist && tsc && node scripts/write-build-info.mjs",
+    "build": "rimraf ./dist && tsc -p tsconfig.build.json && node scripts/write-build-info.mjs",
     "start": "node dist/index.js",
     "test": "bash -c \"shopt -s globstar && tsx --test src/**/*.test.ts\""
   },
