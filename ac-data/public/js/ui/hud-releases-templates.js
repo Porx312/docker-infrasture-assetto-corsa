@@ -16,9 +16,10 @@ export function renderHudReleasesPanelHtml() {
         <p class="upload-hint">Example: projectd-hud-v1.0.0.zip</p>
         <input type="file" id="hudReleaseFileInput" accept=".zip,application/zip" hidden>
         <button type="button" class="btn btn-primary" id="hudReleaseSelectBtn">Select ZIP</button>
-        <div class="progress-bar hidden" id="hudReleaseProgress">
+        <div class="progress-bar" id="hudReleaseProgress">
           <div class="progress-bar-fill" id="hudReleaseProgressFill"></div>
         </div>
+        <p class="upload-progress-label hidden" id="hudReleaseProgressLabel"></p>
       </div>
 
       <div class="hud-releases-table-wrap">

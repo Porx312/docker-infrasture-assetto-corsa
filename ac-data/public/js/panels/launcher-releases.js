@@ -1,4 +1,5 @@
-import { apiDelete, apiGet, apiPostForm } from '../lib/api.js';
+import { apiDelete, apiGet, apiPostFormWithProgress } from '../lib/api.js';
+import { formatSize } from '../lib/dom.js';
 import { showConfirm } from '../lib/modal.js';
 import { showToast } from '../lib/toast.js';
 import { normalizeUploadFiles } from '../lib/upload-files.js';
@@ -76,6 +77,35 @@ export async function loadLauncherReleasesPanel() {
   }
 }
 
+/**
+ * @param {HTMLElement | null} labelEl
+ * @param {number} loaded
+ * @param {number} total
+ */
+function updateUploadProgressLabel(labelEl, loaded, total) {
+  if (!labelEl) return;
+  labelEl.classList.remove('hidden');
+  if (total > 0) {
+    const pct = Math.min(100, Math.round((loaded / total) * 100));
+    labelEl.textContent = `Uploading… ${formatSize(loaded)} / ${formatSize(total)} (${pct}%)`;
+    return;
+  }
+  labelEl.textContent = `Uploading… ${formatSize(loaded)}`;
+}
+
+/**
+ * @param {boolean} busy
+ */
+function setLauncherUploadBusy(busy) {
+  const dropzone = document.getElementById('launcherReleaseUpload');
+  const selectBtn = document.getElementById('launcherReleaseSelectBtn');
+  dropzone?.classList.toggle('is-uploading', busy);
+  dropzone?.setAttribute('aria-busy', busy ? 'true' : 'false');
+  if (selectBtn instanceof HTMLButtonElement) {
+    selectBtn.disabled = busy;
+  }
+}
+
 /** @param {File} file */
 async function uploadLauncherRelease(file) {
   if (!file.name.toLowerCase().endsWith('.zip')) {
@@ -85,13 +115,22 @@ async function uploadLauncherRelease(file) {
 
   const progress = document.getElementById('launcherReleaseProgress');
   const fill = document.getElementById('launcherReleaseProgressFill');
-  progress?.classList.remove('hidden');
-  if (fill) fill.style.width = '30%';
+  const label = document.getElementById('launcherReleaseProgressLabel');
+
+  setLauncherUploadBusy(true);
+  progress?.classList.add('show');
+  if (fill) fill.style.width = '0%';
+  label?.classList.add('hidden');
+  if (label) label.textContent = '';
 
   try {
     const form = new FormData();
     form.append('file', file, file.name);
-    const { res, data } = await apiPostForm('/launcher/releases', form);
+    const { res, data } = await apiPostFormWithProgress('/launcher/releases', form, (loaded, total) => {
+      const pct = total > 0 ? (loaded / total) * 100 : 0;
+      if (fill) fill.style.width = `${pct}%`;
+      updateUploadProgressLabel(label, loaded, total);
+    });
     if (fill) fill.style.width = '100%';
     if (data.ok) {
       showToast(data.message || 'Launcher release uploaded');
@@ -103,8 +142,10 @@ async function uploadLauncherRelease(file) {
   } catch {
     showToast('Upload failed — connection error', 'error');
   } finally {
+    setLauncherUploadBusy(false);
     window.setTimeout(() => {
-      progress?.classList.add('hidden');
+      progress?.classList.remove('show');
+      label?.classList.add('hidden');
       if (fill) fill.style.width = '0%';
     }, 400);
   }

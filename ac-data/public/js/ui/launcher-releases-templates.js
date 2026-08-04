@@ -16,9 +16,10 @@ export function renderLauncherReleasesPanelHtml() {
         <p class="upload-hint">Example: projectd-launcher-v1.0.0.zip</p>
         <input type="file" id="launcherReleaseFileInput" accept=".zip,application/zip" hidden>
         <button type="button" class="btn btn-primary" id="launcherReleaseSelectBtn">Select ZIP</button>
-        <div class="progress-bar hidden" id="launcherReleaseProgress">
+        <div class="progress-bar" id="launcherReleaseProgress">
           <div class="progress-bar-fill" id="launcherReleaseProgressFill"></div>
         </div>
+        <p class="upload-progress-label hidden" id="launcherReleaseProgressLabel"></p>
       </div>
 
       <div class="hud-releases-table-wrap">
