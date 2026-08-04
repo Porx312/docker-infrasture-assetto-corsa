@@ -9,9 +9,11 @@ import {
   buildLauncherContentEntryForName,
   computeContentVersion,
   missingLauncherContentEntry,
+  prepareContentDownloadHead,
   toLauncherContentEntry,
   type ContentManifestEntry,
 } from './contentSyncService.js';
+import { resetContentZipCacheEnvForTests } from './contentZipCache.js';
 
 function sampleEntry(overrides: Partial<ContentManifestEntry> = {}): ContentManifestEntry {
   return {
@@ -117,4 +119,28 @@ test('missingLauncherContentEntry marks mod unavailable on VPS', () => {
   assert.equal(entry.name, 'ghost_car');
   assert.equal(entry.downloadable, false);
   assert.equal(entry.zipSizeBytes, null);
+});
+
+test('prepareContentDownloadHead returns 503 zip_building on cold cache', async () => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'content-head-'));
+  tempContentPath = fs.mkdtempSync(path.join(os.tmpdir(), 'content-head-mod-'));
+  process.env.CONTENT_PATH = tempContentPath;
+  process.env.CLIENT_SYNC_ZIP_CACHE_PATH = cacheDir;
+
+  const trackDir = path.join(tempContentPath, 'tracks', 'cold_track');
+  fs.mkdirSync(trackDir, { recursive: true });
+  fs.writeFileSync(path.join(trackDir, 'data.acd'), 'acd', 'utf-8');
+
+  try {
+    const head = await prepareContentDownloadHead('tracks', 'cold_track');
+    assert.equal(head.ok, false);
+    if (!head.ok) {
+      assert.equal(head.status, 503);
+      assert.equal(head.body.reason, 'zip_building');
+    }
+  } finally {
+    delete process.env.CLIENT_SYNC_ZIP_CACHE_PATH;
+    resetContentZipCacheEnvForTests();
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+  }
 });

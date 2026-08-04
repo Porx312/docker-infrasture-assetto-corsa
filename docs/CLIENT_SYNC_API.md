@@ -29,7 +29,10 @@ Single call when the launcher opens — **no global cars/tracks manifest**:
 {
   "ok": true,
   "hud": { "version", "filename", "size", "sha256", "uploadedAt" },
-  "launcher": { "minHudVersion": null },
+  "launcher": {
+    "latest": { "version", "filename", "size", "sha256", "uploadedAt", "platform": "windows" },
+    "minHudVersion": null
+  },
   "servers": {
     "count": 1,
     "items": [{
@@ -54,6 +57,7 @@ Single call when the launcher opens — **no global cars/tracks manifest**:
 
 | Field | Meaning |
 |-------|---------|
+| `launcher.latest` | Latest desktop launcher release metadata, or `null` if none uploaded |
 | `launcher.minHudVersion` | Reserved; `null` until a minimum HUD version is enforced |
 
 **Removed from bootstrap (breaking change):** `cars`, `tracks`, `launcher.contentVersion`. The launcher no longer syncs a full mod library on open.
@@ -102,13 +106,43 @@ Upload releases: admin tab **ProjectD HUD** or `POST /admin/hud/releases`.
 
 **ZIP download caching:** HUD and content download endpoints always respond **200 with a full ZIP body**. They set `Cache-Control: no-store` and do not emit ETags — clients that send `If-None-Match` still receive the file (never HTTP 304).
 
+## Launcher app (desktop)
+
+Windows portable ZIP for first-time download (website) and in-app auto-update.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/client/launcher/latest` | Latest release metadata |
+| GET | `/client/launcher/download` | Download latest ZIP |
+| GET | `/client/launcher/download/:filename` | Download specific release |
+
+Upload releases: admin tab **ProjectD Launcher** or `POST /admin/launcher/releases`.
+
+Example metadata:
+
+```json
+{
+  "ok": true,
+  "version": "1.0.0",
+  "filename": "projectd-launcher-v1.0.0.zip",
+  "size": 52428800,
+  "sha256": "abc123…",
+  "uploadedAt": "2026-07-28T12:00:00.000Z",
+  "platform": "windows"
+}
+```
+
+**Website flow:** fetch `/client/launcher/latest`, link the download button to `/client/launcher/download`.
+
+**In-app auto-update:** on startup, compare local `sha256` with bootstrap `launcher.latest.sha256` (or call `/client/launcher/latest`); if different, download ZIP, extract, restart.
+
 ## Content downloads (on demand)
 
 The launcher downloads mods **only when the user selects a server**, using ids from `requiredContent`.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| HEAD | `/client/content/:type/:name/download` | Returns **`Content-Length`** without body |
+| HEAD | `/client/content/:type/:name/download` | **`200 + Content-Length`** when zip cache exists; **`503 zip_building`** (+ `Retry-After`) while cache is cold |
 | GET | `/client/content/:type/:name/download` | ZIP with **`Content-Length`** (**403 for Steam DLC**) |
 
 Each `LauncherContentEntry` (in `requiredContent` or legacy manifest):
@@ -174,6 +208,12 @@ sequenceDiagram
     Launcher->>API: GET /client/hud/download
     Launcher->>Local: Instalar overlay
   end
+
+  opt Launcher self-update
+    Launcher->>API: GET /client/launcher/latest
+    Launcher->>API: GET /client/launcher/download
+    Launcher->>Local: Extraer y reiniciar
+  end
 ```
 
 ## Examples
@@ -184,6 +224,7 @@ export BASE=https://dev-api.projectd.space
 curl -s "$BASE/client/bootstrap" | jq '.servers.count'
 curl -s "$BASE/client/servers" | jq '.servers.items[0].requiredContent'
 curl -L "$BASE/client/hud/download" -o projectd-hud.zip
+curl -L "$BASE/client/launcher/download" -o projectd-launcher.zip
 curl -L "$BASE/client/content/cars/MOD_NAME/download" -o mod.zip
 ```
 
@@ -192,6 +233,7 @@ curl -L "$BASE/client/content/cars/MOD_NAME/download" -o mod.zip
 | Action | Endpoint |
 |--------|----------|
 | Upload HUD ZIP | Admin → ProjectD HUD |
+| Upload launcher ZIP | Admin → ProjectD Launcher |
 | Clean empty mods on VPS | Cars/Tracks → **Clean empty** or `DELETE /admin/content/empty?type=cars` |
 | Full mod list | Admin content panel or `GET /client/content/manifest?type=cars` |
 
@@ -199,12 +241,16 @@ curl -L "$BASE/client/content/cars/MOD_NAME/download" -o mod.zip
 
 ```bash
 PROJECTD_HUD_PATH=/path/to/projectd-hud
+PROJECTD_LAUNCHER_PATH=/path/to/projectd-launcher
 CLIENT_LAUNCHER_RATE_LIMIT_MAX=60
 CLIENT_LAUNCHER_DOWNLOAD_RATE_LIMIT_MAX=10
 CLIENT_LAUNCHER_CORS_ORIGIN=*
 CLIENT_LAUNCHER_REQUIRE_API_KEY=false
 LAUNCHER_AC_HOST=YOUR_PUBLIC_VPS_IP
 # CLIENT_SYNC_ZIP_CACHE_PATH=/var/cache/assetto/content-zips
+# CLIENT_SYNC_ZIP_WARM=true
+# CLIENT_SYNC_WARM_MODS=tracks:pk_akina
+# CLIENT_SYNC_ZIP_LEVEL=1
 # LAUNCHER_CONTENT_CATALOG_PATH=...
 ```
 
@@ -214,6 +260,15 @@ LAUNCHER_AC_HOST=YOUR_PUBLIC_VPS_IP
 curl -s http://localhost:3000/client/bootstrap | jq 'keys'
 curl -s http://localhost:3000/client/servers | jq '.servers.items[0].requiredContent'
 cd ac-data && npm run build && npm test
+
+# Content download (Content-Length + large tracks)
+./scripts/verify-client-content-download.sh http://localhost:3000 pk_akina MOD_CAR_NAME
+curl -sI http://localhost:3000/client/content/tracks/pk_akina/download | grep -i content-length
+
+# Warm zip cache after deploy (avoids 502/503 on first pk_akina download)
+./scripts/warm-content-zip-cache.sh tracks:pk_akina
 ```
+
+`HEAD /client/content/:type/:name/download` returns **200 + Content-Length** when the zip cache exists. On a cold cache it returns **503** `{ "reason": "zip_building" }` with `Retry-After: 30` and starts a background build — do not block the proxy for ~500 MB track zips. ac-data also pre-warms zips at startup from server `TRACK`/`CARS` and `CLIENT_SYNC_WARM_MODS`.
 
 Expected bootstrap keys: `ok`, `hud`, `launcher`, `servers` — **not** `cars` or `tracks`.

@@ -1,10 +1,13 @@
 import type { Request, Response } from 'express';
 
+import { getBattleCached } from './battleHudReader.js';
 import { isHudSseEnabled } from './battleHudPush.js';
+import { battleRoomFromParams, parseBattleScopeKey } from './hudBattleRooms.js';
 import { fetchHudVersion, isHudConvexConfigured } from './hudConvex.js';
 import { requireHudApiKeyFromQuery } from './hudBattleAuth.js';
 import { resolvePlayerPresence } from './hudPlayerPresence.js';
 import { isHudRedisConfigured } from './hudRedis.js';
+import { getSessionCached } from './lapCompletedHudRefresh.js';
 import {
   buildHudSessionEvent,
   buildHudVersionEvent,
@@ -61,7 +64,11 @@ export async function handleHudSnapshot(req: Request, res: Response): Promise<vo
     return;
   }
 
-  const session = await loadHudSessionForSse(steamId, false);
+  const cachedSession = await getSessionCached({ steamId });
+  let session =
+    cachedSession.ok && cachedSession.version === versionResult.version
+      ? cachedSession
+      : await loadHudSessionForSse(steamId, false);
   if (!session.ok) {
     if (session.reason === 'user_invalidated') {
       await markUserInvalidated(steamId);
@@ -75,10 +82,17 @@ export async function handleHudSnapshot(req: Request, res: Response): Promise<vo
     version: session.version,
   };
 
+  const battleRoom = battleRoomFromParams(resolved.presence.serverName, steamId);
+  const battleParams = parseBattleScopeKey(battleRoom);
+  const battle = battleParams
+    ? await getBattleCached(battleParams)
+    : { ok: false as const, reason: 'no_battle' };
+
   res.json({
     ok: true,
     steamId,
     version: buildHudVersionEvent(steamId, versionForClient),
     session: buildHudSessionEvent(steamId, session),
+    battle,
   });
 }

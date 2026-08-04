@@ -59,8 +59,12 @@ def _pair_manager():
     ]
     mgr.cars["steam-a"] = CarState("steam-a")
     mgr.cars["steam-a"].pos = (0.0, 0.0, 0.0)
+    mgr.cars["steam-a"].spline = 0.2
+    mgr.cars["steam-a"].spline_reliable = True
     mgr.cars["steam-b"] = CarState("steam-b")
     mgr.cars["steam-b"].pos = (100.0, 0.0, 0.0)
+    mgr.cars["steam-b"].spline = 0.1
+    mgr.cars["steam-b"].spline_reliable = True
     return mgr
 
 
@@ -130,6 +134,32 @@ def test_build_battle_snapshot_includes_gap_fields():
     snapshot = publisher.build_battle_snapshot(server, mgr, hud_state="active")
     assert snapshot["gap3dM"] == 100.0
     assert snapshot["disappearGapM"] == DISAPPEAR_GAP_METERS
+
+
+def test_build_battle_snapshot_ahead_on_track():
+    server = _FakeServerState()
+    mgr = _pair_manager()
+    snapshot = publisher.build_battle_snapshot(server, mgr, hud_state="active")
+    assert snapshot["player1"]["aheadOnTrack"] is True
+    assert snapshot["player2"]["aheadOnTrack"] is False
+
+
+def test_build_battle_snapshot_role_in_armed():
+    server = _FakeServerState()
+    mgr = _pair_manager()
+    mgr.state = "ARMED"
+    snapshot = publisher.build_battle_snapshot(server, mgr, hud_state="armed")
+    assert snapshot["player1"]["role"] == "lead"
+    assert snapshot["player2"]["role"] == "chase"
+
+
+def test_build_battle_snapshot_role_in_launching():
+    server = _FakeServerState()
+    mgr = _pair_manager()
+    mgr.state = "LAUNCHING"
+    snapshot = publisher.build_battle_snapshot(server, mgr, hud_state="launching")
+    assert snapshot["player1"]["role"] == "lead"
+    assert snapshot["player2"]["role"] == "chase"
 
 
 def test_build_battle_snapshot_terminal_cancel_fields():

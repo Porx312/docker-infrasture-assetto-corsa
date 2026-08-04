@@ -11,11 +11,21 @@ import {
 const router = Router();
 
 router.get('/stream', (req: Request, res: Response) => {
-  void handleHudStreamSse(req, res);
+  void handleHudStreamSse(req, res).catch((err: unknown) => {
+    console.error('[hud] stream unhandled:', err);
+    if (!res.headersSent) {
+      res.status(503).json({ ok: false, reason: 'convex_unreachable' });
+    }
+  });
 });
 
 router.get('/snapshot', (req: Request, res: Response) => {
-  void handleHudSnapshot(req, res);
+  void handleHudSnapshot(req, res).catch((err: unknown) => {
+    console.error('[hud] snapshot unhandled:', err);
+    if (!res.headersSent) {
+      res.status(503).json({ ok: false, reason: 'convex_unreachable' });
+    }
+  });
 });
 
 /** Convex worker hook: re-fetch user ban + HUD session and push SSE (invalidate / re-validate). */

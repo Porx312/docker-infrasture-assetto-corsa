@@ -14,7 +14,12 @@ import {
   type ContentType,
 } from './contentManager.js';
 import { modHasContentFiles } from './contentEmptyDetector.js';
-import { ensureContentZip, getCachedZipSizeIfExists } from './contentZipCache.js';
+import {
+  ensureContentZip,
+  getCachedZipSizeIfExists,
+  isContentZipBuildInFlight,
+  scheduleContentZipBuild,
+} from './contentZipCache.js';
 import {
   sendZipDownloadFile,
   setZipDownloadNoCacheHeaders,
@@ -187,6 +192,16 @@ export type ContentDownloadBlocked = {
 
 export type ContentDownloadResult = ContentDownloadReady | ContentDownloadBlocked;
 
+export type ContentHeadResult =
+  | ContentDownloadReady
+  | ContentDownloadBlocked
+  | {
+      ok: false;
+      status: 503;
+      body: { ok: false; reason: 'zip_building'; retryAfterSec: number };
+      retryAfterSec: number;
+    };
+
 function parseSyncType(type: string): SyncContentType | null {
   if (type === 'cars' || type === 'tracks') return type;
   return null;
@@ -304,10 +319,13 @@ export function resolveModPath(type: SyncContentType, name: string): string | nu
   return resolved;
 }
 
-export async function prepareContentDownload(
+async function resolveDownloadableMod(
   type: SyncContentType,
   name: string,
-): Promise<ContentDownloadResult> {
+): Promise<
+  | { ok: true; modPath: string; modifiedMs: number }
+  | { ok: false; status: number; body: Record<string, unknown> }
+> {
   const dist = resolveContentDistribution(type, name);
   if (!dist.downloadable) {
     return { ok: false, status: 403, body: getDownloadBlockedResponse(type, name) };
@@ -319,7 +337,52 @@ export async function prepareContentDownload(
   }
 
   const stats = await fs.promises.stat(modPath);
-  const cached = await ensureContentZip(type, name, modPath, stats.mtimeMs);
+  return { ok: true, modPath, modifiedMs: stats.mtimeMs };
+}
+
+const ZIP_BUILD_RETRY_SEC = 30;
+
+export async function prepareContentDownloadHead(
+  type: SyncContentType,
+  name: string,
+): Promise<ContentHeadResult> {
+  const resolved = await resolveDownloadableMod(type, name);
+  if (!resolved.ok) {
+    return { ok: false, status: resolved.status, body: resolved.body };
+  }
+
+  const cachedSize = await getCachedZipSizeIfExists(type, name, resolved.modifiedMs);
+  if (cachedSize !== null) {
+    return {
+      ok: true,
+      zipPath: '',
+      sizeBytes: cachedSize,
+      zipName: `${name}.zip`,
+    };
+  }
+
+  if (!isContentZipBuildInFlight(type, name, resolved.modifiedMs)) {
+    scheduleContentZipBuild(type, name, resolved.modPath, resolved.modifiedMs);
+  }
+
+  return {
+    ok: false,
+    status: 503,
+    retryAfterSec: ZIP_BUILD_RETRY_SEC,
+    body: { ok: false, reason: 'zip_building', retryAfterSec: ZIP_BUILD_RETRY_SEC },
+  };
+}
+
+export async function prepareContentDownload(
+  type: SyncContentType,
+  name: string,
+): Promise<ContentDownloadResult> {
+  const resolved = await resolveDownloadableMod(type, name);
+  if (!resolved.ok) {
+    return { ok: false, status: resolved.status, body: resolved.body };
+  }
+
+  const cached = await ensureContentZip(type, name, resolved.modPath, resolved.modifiedMs);
 
   return {
     ok: true,
@@ -334,8 +397,11 @@ function setContentZipHeaders(res: Response, zipName: string, sizeBytes: number)
 }
 
 export async function headContentZip(type: SyncContentType, name: string, res: Response): Promise<void> {
-  const prepared = await prepareContentDownload(type, name);
+  const prepared = await prepareContentDownloadHead(type, name);
   if (!prepared.ok) {
+    if (prepared.status === 503 && 'retryAfterSec' in prepared) {
+      res.setHeader('Retry-After', String(prepared.retryAfterSec));
+    }
     res.status(prepared.status).json(prepared.body);
     return;
   }

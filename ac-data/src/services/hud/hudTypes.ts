@@ -41,6 +41,8 @@ export type HudPresenceErrReason =
   | 'player_not_connected'
   | 'not_managed_server';
 
+export type HudConvexUnreachableReason = 'convex_unreachable';
+
 export type HudPlayerErr = {
   ok: false;
   reason:
@@ -48,6 +50,7 @@ export type HudPlayerErr = {
     | 'track_not_found'
     | 'user_not_found'
     | 'user_invalidated'
+    | HudConvexUnreachableReason
     | HudPresenceErrReason;
 };
 
@@ -80,6 +83,7 @@ export type HudSessionErr = {
     | 'car_not_found'
     | 'user_not_found'
     | 'user_invalidated'
+    | HudConvexUnreachableReason
     | HudPresenceErrReason;
 };
 
@@ -129,6 +133,7 @@ export type HudVersionErr = {
     | 'car_not_found'
     | 'user_not_found'
     | 'user_invalidated'
+    | HudConvexUnreachableReason
     | HudPresenceErrReason;
 };
 
@@ -155,6 +160,7 @@ export type PlayerJoinContextErr = {
     | 'car_not_found'
     | 'user_not_found'
     | 'user_invalidated'
+    | HudConvexUnreachableReason
     | HudPresenceErrReason;
   user?: PlayerJoinUser;
   session?: HudSessionResult;

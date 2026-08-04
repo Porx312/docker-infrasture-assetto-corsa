@@ -121,7 +121,7 @@ const TRANSIENT_HUD_ERROR_REASONS = new Set<string>([
 
 /** TTL for caching failed HUD reads; null means do not cache. */
 export function hudErrorCacheTtlSec(reason: string, defaultTtlSec: number): number | null {
-  if (reason === 'player_not_connected') {
+  if (reason === 'player_not_connected' || reason === 'convex_unreachable') {
     return null;
   }
   if (reason === 'user_invalidated') {
@@ -404,11 +404,16 @@ export async function patchLastLapInCaches(
     return false;
   }
 
+  let sessionProfile = sessionCached.profile
+    ? { ...sessionCached.profile, last_lap_ms: lapTimeMs }
+    : null;
+  if (sessionProfile && (sessionProfile.best_lap_ms <= 0 || lapTimeMs < sessionProfile.best_lap_ms)) {
+    sessionProfile = { ...sessionProfile, best_lap_ms: lapTimeMs };
+  }
+
   const updatedSession: HudSessionResult = {
     ...sessionCached,
-    profile: sessionCached.profile
-      ? { ...sessionCached.profile, last_lap_ms: lapTimeMs }
-      : null,
+    profile: sessionProfile,
   };
   const updatedPlayer = applyLastLapToPlayerResult(
     normalizePlayerResult(playerResultFromSession(updatedSession)),

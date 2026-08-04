@@ -30,6 +30,12 @@ import {
     resolveHudReleasePath,
     uploadHudRelease,
 } from '../services/projectdHudManager.js';
+import {
+    deleteLauncherRelease,
+    listLauncherReleases,
+    resolveLauncherReleasePath,
+    uploadLauncherRelease,
+} from '../services/projectdLauncherManager.js';
 import { deleteEmptyContent, parseSyncContentType } from '../services/contentSyncService.js';
 
 export async function adminLogin(req: Request, res: Response): Promise<void> {
@@ -360,6 +366,62 @@ export async function deleteHudReleaseHandler(req: Request, res: Response): Prom
 export async function downloadHudReleaseAdminHandler(req: Request, res: Response): Promise<void> {
     const filename = String(req.params.filename || '');
     const filePath = resolveHudReleasePath(filename);
+    if (!filePath || !fs.existsSync(filePath)) {
+        res.status(404).json({ ok: false, message: 'Release not found' });
+        return;
+    }
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.sendFile(filePath);
+}
+
+export async function getLauncherReleasesHandler(_req: Request, res: Response): Promise<void> {
+    try {
+        const manifest = await listLauncherReleases();
+        res.json({ ok: true, ...manifest });
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        res.status(500).json({ ok: false, message });
+    }
+}
+
+export async function uploadLauncherReleaseHandler(req: Request, res: Response): Promise<void> {
+    if (!req.file) {
+        res.status(400).json({ ok: false, message: 'No file uploaded' });
+        return;
+    }
+
+    try {
+        const result = await uploadLauncherRelease(req.file.path, req.file.originalname);
+        if (result.ok) {
+            res.json(result);
+        } else {
+            res.status(400).json(result);
+        }
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        res.status(500).json({ ok: false, message });
+    }
+}
+
+export async function deleteLauncherReleaseHandler(req: Request, res: Response): Promise<void> {
+    const filename = String(req.params.filename || '');
+    try {
+        const result = await deleteLauncherRelease(filename);
+        if (result.ok) {
+            res.json(result);
+        } else {
+            res.status(404).json(result);
+        }
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        res.status(500).json({ ok: false, message });
+    }
+}
+
+export async function downloadLauncherReleaseAdminHandler(req: Request, res: Response): Promise<void> {
+    const filename = String(req.params.filename || '');
+    const filePath = resolveLauncherReleasePath(filename);
     if (!filePath || !fs.existsSync(filePath)) {
         res.status(404).json({ ok: false, message: 'Release not found' });
         return;

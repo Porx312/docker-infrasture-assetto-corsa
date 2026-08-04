@@ -15,12 +15,22 @@ import { startRedisConfigApplier } from './services/redisConfigApplier.js';
 import { startServerPoolMonitor } from './services/serverPool.js';
 import { getPublicHealthHandler } from './controller/healthController.js';
 import { resolveEnvFilePath } from './config/loadEnv.js';
+import { startContentZipCacheWarmer } from './services/contentZipWarmer.js';
 
 const SERVERS_PATH = process.env.SERVERS_PATH;
 if (!SERVERS_PATH) {
     console.error(`❌ SERVERS_PATH no está definido en ${resolveEnvFilePath()}`);
     process.exit(1);
 }
+
+// Last-resort safety net: primary error handling is in hudConvex + HUD routes.
+process.on('unhandledRejection', (reason) => {
+  console.error('[ac-data] unhandledRejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[ac-data] uncaughtException:', err);
+});
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -114,5 +124,6 @@ app.listen(PORT, BIND_HOST, async () => {
   void startRedisConvexBridge();
   void startRedisConfigApplier();
   startServerPoolMonitor();
+  startContentZipCacheWarmer();
   console.log(`API corriendo en http://${BIND_HOST}:${PORT}`);
 });

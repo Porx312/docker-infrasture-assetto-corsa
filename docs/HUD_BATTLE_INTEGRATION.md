@@ -12,7 +12,7 @@ Flujo de datos:
 
 1. telemetry-data escribe snapshots en Redis (`ac:hud:battle:*`) y publica en `ac:hud:updates`.
 2. ac-data enriquece cada jugador con perfil (nombre, tier, avatar) al servir datos de batalla.
-3. El overlay abre **una conexión SSE** y recibe `battle:update` / `battle:clear` en push.
+3. El overlay abre **una conexión SSE** y recibe eventos `battle` (snapshot completo o `{ ok: false, reason: "no_battle" }` al limpiar).
 
 No hay endpoints de poll (`/hud/battle`, `/hud/battle/version`) ni Socket.io — solo el stream SSE.
 
@@ -34,21 +34,21 @@ sequenceDiagram
   TM->>R: PUBLISH ac:hud:updates
   HUD->>AD: GET /hud/stream
   AD->>R: GET snapshot inicial
-  AD-->>HUD: battle:update
+  AD-->>HUD: `battle`
   loop Cada cambio de batalla
     TM->>R: SET + PUBLISH
     R-->>AD: pub/sub ac:hud:updates
-    AD-->>HUD: battle:update
+    AD-->>HUD: `battle`
   end
   Note over TM: finished o cancelled
-  AD-->>HUD: battle:update snapshot final
+  AD-->>HUD: `battle` snapshot final
   Note over AD: ~5 s después
-  AD-->>HUD: battle:clear
+  AD-->>HUD: `battle` (payload `{ ok: false, reason: "no_battle" }`)
 ```
 
 ### Línea temporal (orden típico)
 
-| Orden | `state` | SSE `battle:update` | Toast (`lastEvent.label`) | Qué pintar en el HUD |
+| Orden | `state` | SSE `battle` | Toast (`lastEvent.label`) | Qué pintar en el HUD |
 |------:|---------|---------------------|---------------------------|----------------------|
 | 1 | `pairing` | `player1`, `player2`, scores 0 | — | Panel visible; rival y coches |
 | 2 | `arming` | + `armingCountdownSec` (5→1) | — | Número grande de cuenta atrás |
@@ -56,15 +56,15 @@ sequenceDiagram
 | 4 | `launching` | rival + gap | — | “GO” breve |
 | 5 | `active` | + `role`, `gap3dM`, scores | `overtake`, `recover`, … al puntuar | Marcador, LEAD/CHASE, barra gap |
 | 6 | `finished` o `cancelled` | + `endLabel`, `winnerSteamId` si aplica | `win`, `draw`, `cancel`, `stopped` | Resultado + toast |
-| 7 | (clear) | `battle:clear` | — | Mantener latch 3–5 s; luego ocultar |
+| 7 | (clear) | `battle` con `{ ok: false, reason: "no_battle" }` | — | Mantener latch 3–5 s; luego ocultar |
 
 **Reglas clave:**
 
-- Cada fase llega como **`battle:update` con snapshot completo** — reemplazar todo el estado local, no parchear campos sueltos.
+- Cada fase llega como **`battle` con snapshot completo** — reemplazar todo el estado local, no parchear campos sueltos.
 - Los **toasts** son siempre **`lastEvent.label`** (una palabra en minúsculas). Dedup por `lastEvent.ts`.
 - **`endLabel`** repite la misma palabra en fin/cancel; puedes usar `lastEvent.label` o `endLabel` para el toast final.
 - **`pairing` → `arming` → …** no mandan toast; solo cambia `state` y campos asociados.
-- Tras `finished`/`cancelled`, **`battle:clear`** ~5 s después es normal — no ocultar al instante (usar latch).
+- Tras `finished`/`cancelled`, **`battle` con `{ ok: false, reason: "no_battle" }`** ~5 s después es normal — no ocultar al instante (usar latch).
 
 ### Qué campo leer para cada parte del HUD
 
@@ -282,7 +282,7 @@ Stream push unificado (time attack + battle).
 
 **Query:** `steamId`, opcional `api_key`
 
-**200 OK** — `Content-Type: text/event-stream`; eventos `battle:update` y `battle:clear`.
+**200 OK** — `Content-Type: text/event-stream`; eventos `battle` y `battle` con `{ ok: false, reason: "no_battle" }`.
 
 **400** — falta query: `{ "error": "steamId is required" }`
 
@@ -292,9 +292,22 @@ Stream push unificado (time attack + battle).
 
 **404** — SSE deshabilitado: `{ "error": "Battle HUD SSE disabled" }`
 
-Una conexión persistente por jugador. No usar poll paralelo.
+Una conexión persistente por jugador. No usar poll paralelo de session (el poll de snapshot es fallback CSP — ver abajo).
 
-### Ejemplo de payload `battle:update`
+### `GET /hud/snapshot` (fallback CSP, incluye batalla)
+
+Query: `steamId`, opcional `api_key` — misma auth/presencia que `/hud/stream`.
+
+Respuesta JSON one-shot con `version`, `session` y **`battle`** (snapshot Redis `ac:hud:battle:*`, misma forma que evento SSE `battle`).
+
+- Con batalla activa: `"battle": { "ok": true, "state": "pairing"|"arming"|"armed"|"launching"|"active"|…, … }`
+- Sin batalla: `"battle": { "ok": false, "reason": "no_battle" }`
+
+**ProjectD-HUD (mode=poll):** aplica `battle` vía `battle_fetch.apply_snapshot`; poll **2 s** durante batalla (`HUD_SNAPSHOT_BATTLE_POLL_SEC`). No muestra lobby sintético LOOKING — solo UI real cuando telemetry empareja.
+
+Ver también [HUD_TIME_ATTACK_INTEGRATION.md](./HUD_TIME_ATTACK_INTEGRATION.md#get-hudsnapshot-fallback-csp).
+
+### Ejemplo de payload `battle`
 
 ```json
 {
@@ -342,7 +355,7 @@ Una conexión persistente por jugador. No usar poll paralelo.
 
 | Campo | Descripción |
 |-------|-------------|
-| `version` | Token de cambio en cada `battle:update` |
+| `version` | Token de cambio en cada `battle` |
 | `battleId` | Id estable de la partida; puede ser `null` en estados muy tempranos |
 | `state` | Fase actual de la batalla (ver tabla abajo) |
 | `armingCountdownSec` | Solo relevante en `arming`: segundos restantes (típicamente 5→1) |
@@ -361,7 +374,7 @@ Cada slot incluye:
 | `steamId` | Identificar jugador local vs rival |
 | `name` | Nombre mostrado (desde caché de perfil) |
 | `tier` | Nivel/rango battle; `0` si no hay perfil |
-| `elo` | ELO battle del jugador; omitido si no hay perfil. Tras `finished`, ac-data refresca perfil y re-emite `battle:update` con el elo actualizado de **ambos** pilotos |
+| `elo` | ELO battle del jugador; omitido si no hay perfil. Tras `finished`, ac-data refresca perfil y re-emite `battle` con el elo actualizado de **ambos** pilotos |
 | `avatar_url` | URL de avatar; puede omitirse |
 | `car_id` | Id interno del coche en AC |
 | `car_name` | Nombre legible del coche |
@@ -372,7 +385,7 @@ Cada slot incluye:
 
 Si falta perfil en Redis, ac-data rellena `name` con un valor por defecto y `tier` con `0` (sin `elo`), pero mantiene `car_id` / `car_name` del snapshot de batalla.
 
-**Overlay battle:** lee `tier` y `elo` de `player1` / `player2` en cada `battle:update`.
+**Overlay battle:** lee `tier` y `elo` de `player1` / `player2` en cada `battle`.
 
 ### Eventos y marcador
 
@@ -425,7 +438,7 @@ Cancel / fin (`lastEvent.label` y `endLabel`):
 | Disolver pareja | `cancelled` | `cancelReason` según motivo, `endLabel`, `lastEvent` |
 | Gap en vivo | `active` | `gap3dM`, `disappearGapM` |
 
-Tras `finished` o `cancelled`, el backend envía el snapshot final por SSE y, ~5 s después, `battle:clear`. Mantener latch cliente 3–5 s al recibir `battle:clear`.
+Tras `finished` o `cancelled`, el backend envía el snapshot final por SSE y, ~5 s después, `battle` con `{ ok: false, reason: "no_battle" }`. Mantener latch cliente 3–5 s al recibir `battle` con `{ ok: false, reason: "no_battle" }`.
 
 ### Separación 3D (barra de ruptura)
 
@@ -482,7 +495,7 @@ El overlay debe tratar cada `battle` como **única fuente de verdad**. No mezcla
 
 | Variable | Uso |
 |----------|-----|
-| `snapshot` | Último JSON de `battle:update` |
+| `snapshot` | Último JSON de `battle` |
 | `lastEventTs` | Último `lastEvent.ts` mostrado (evita toast duplicado) |
 | `finishLatchUntil` | Timestamp (ms) hasta el que se sigue mostrando fin/cancel |
 | `finishLatchSnapshot` | Copia del snapshot en `finished` / `cancelled` |
@@ -490,9 +503,9 @@ El overlay debe tratar cada `battle` como **única fuente de verdad**. No mezcla
 ### Algoritmo (SSE)
 
 1. `EventSource` conectado a `/hud/stream`.
-2. `battle:update` → reemplazar `snapshot` → pintar UI.
+2. `battle` → reemplazar `snapshot` → pintar UI.
 3. Si `state === finished|cancelled` → guardar latch 4 s.
-4. `battle:clear` → si latch activo, seguir mostrando; si no, ocultar HUD.
+4. `battle` con `{ ok: false, reason: "no_battle" }` → si latch activo, seguir mostrando; si no, ocultar HUD.
 5. `onerror` → reconectar un solo stream (evitar duplicados).
 
 ### Cuándo mostrar cada fase (no omitir estados)
@@ -506,11 +519,11 @@ El overlay debe tratar cada `battle` como **única fuente de verdad**. No mezcla
 | `finished` | Ganador (`winnerSteamId`), scores finales → toast `win` o `draw` → **activar latch 3–5 s** |
 | `cancelled` | Toast `cancel` o `stopped`, scores si los hay → **activar latch 3–5 s** |
 
-**Error frecuente:** ocultar el HUD al primer `battle:clear` sin latch — el usuario no ve fin/cancel.
+**Error frecuente:** ocultar el HUD al primer `battle` con `{ ok: false, reason: "no_battle" }` sin latch — el usuario no ve fin/cancel.
 
 ### Latch de fin (crítico)
 
-Al recibir snapshot con `state === "finished"` o `"cancelled"` (o en `battle:clear`):
+Al recibir snapshot con `state === "finished"` o `"cancelled"` (o en `battle` con `{ ok: false, reason: "no_battle" }`):
 
 1. Guardar copia en `finishLatchSnapshot`.
 2. `finishLatchUntil = Date.now() + 4000`.
@@ -535,16 +548,16 @@ Si `battleId` del snapshot cambia respecto al anterior:
 
 - Usar `gap3dM` y `disappearGapM` del snapshot.
 - No calcular distancia en el cliente.
-- Cada `battle:update` trae datos frescos; no hace falta poll.
+- Cada `battle` trae datos frescos; no hace falta poll.
 
 ### Diagrama de flujo
 
 ```
 EventSource /hud/stream
-  ├─ battle:update → reemplazar snapshot → pintar UI
+  ├─ `battle` → reemplazar snapshot → pintar UI
   │    ├─ state finished/cancelled → iniciar latch
   │    └─ lastEvent.ts nuevo → toast
-  ├─ battle:clear → latch activo ? mantener : ocultar HUD
+  ├─ `battle` (payload `{ ok: false, reason: "no_battle" }`) → latch activo ? mantener : ocultar HUD
   └─ onerror → reconectar (un solo stream)
 ```
 
@@ -560,7 +573,7 @@ Comprobar en este orden:
 ./scripts/verify-battle-hud.sh "NOMBRE_SERVIDOR" TU_STEAM_ID
 ```
 
-Debe conectar al stream SSE (keepalive o evento `battle:update` si hay batalla).
+Debe conectar al stream SSE (keepalive o evento `battle` si hay batalla).
 
 **2. `steamId` correcto**
 
@@ -579,9 +592,9 @@ Debe conectar al stream SSE (keepalive o evento `battle:update` si hay batalla).
 - Implementar UI para `pairing`, `arming`, `armed`, `launching`, **`finished`**, **`cancelled`**.
 - Sin latch en `finished`/`cancelled`, la pantalla desaparece antes de que el usuario vea resultado o cancelación.
 
-**5. ¿Se oculta el HUD al primer `battle:clear`?**
+**5. ¿Se oculta el HUD al primer `battle` con `{ ok: false, reason: "no_battle" }`?**
 
-- Tras terminar, `battle:clear` es **normal** ~5 s después del snapshot final.
+- Tras terminar, `battle` con `{ ok: false, reason: "no_battle" }` es **normal** ~5 s después del snapshot final.
 - No ocultar de inmediato si hay latch de fin activo.
 
 **6. ¿URL / CORS / CSP?**
@@ -597,7 +610,7 @@ Debe conectar al stream SSE (keepalive o evento `battle:update` si hay batalla).
 
 ### Síntoma: score/toast desfasado
 
-- Verificar que cada `battle:update` reemplaza el snapshot entero.
+- Verificar que cada `battle` reemplaza el snapshot entero.
 - No mezclar chat ni incrementar score a mano.
 
 ### Síntoma: funciona en un PC y en otro no

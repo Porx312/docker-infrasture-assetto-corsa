@@ -21,6 +21,10 @@ import {
     uploadHudReleaseHandler,
     deleteHudReleaseHandler,
     downloadHudReleaseAdminHandler,
+    getLauncherReleasesHandler,
+    uploadLauncherReleaseHandler,
+    deleteLauncherReleaseHandler,
+    downloadLauncherReleaseAdminHandler,
     deleteEmptyContentAdminHandler,
 } from '../controller/adminController.js';
 import {
@@ -109,6 +113,11 @@ router.get('/hud/releases', adminAuth, getHudReleasesHandler);
 router.post('/hud/releases', adminAuth, handleMulterUpload(upload.single('file')), uploadHudReleaseHandler);
 router.delete('/hud/releases/:filename', adminAuth, deleteHudReleaseHandler);
 router.get('/hud/releases/:filename/download', adminAuth, downloadHudReleaseAdminHandler);
+
+router.get('/launcher/releases', adminAuth, getLauncherReleasesHandler);
+router.post('/launcher/releases', adminAuth, handleMulterUpload(upload.single('file')), uploadLauncherReleaseHandler);
+router.delete('/launcher/releases/:filename', adminAuth, deleteLauncherReleaseHandler);
+router.get('/launcher/releases/:filename/download', adminAuth, downloadLauncherReleaseAdminHandler);
 
 router.get('/branding', adminAuth, getServerBrandingHandler);
 router.put('/branding', adminAuth, updateServerBrandingHandler);

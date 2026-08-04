@@ -10,6 +10,10 @@ import {
   getLatestHudRelease,
   resolveHudReleasePath,
 } from '../services/projectdHudManager.js';
+import {
+  getLatestLauncherRelease,
+  resolveLauncherReleasePath,
+} from '../services/projectdLauncherManager.js';
 import { buildActiveLauncherServersWithRequiredContent } from '../services/launcherServerRegistry.js';
 import {
   sendZipDownloadFile,
@@ -73,10 +77,58 @@ async function downloadHudFile(filename: string, res: Response): Promise<void> {
   await sendZipDownloadFile(res, filePath);
 }
 
+export async function getLauncherLatestHandler(_req: Request, res: Response): Promise<void> {
+  try {
+    const latest = await getLatestLauncherRelease();
+    if (!latest) {
+      res.status(404).json({ ok: false, message: 'No launcher release uploaded yet' });
+      return;
+    }
+    res.json({ ok: true, ...latest });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(500).json({ ok: false, message });
+  }
+}
+
+export async function downloadLauncherLatestHandler(_req: Request, res: Response): Promise<void> {
+  try {
+    const latest = await getLatestLauncherRelease();
+    if (!latest) {
+      res.status(404).json({ ok: false, message: 'No launcher release uploaded yet' });
+      return;
+    }
+    await downloadLauncherFile(latest.filename, res);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(500).json({ ok: false, message });
+  }
+}
+
+export async function downloadLauncherFileHandler(req: Request, res: Response): Promise<void> {
+  try {
+    await downloadLauncherFile(String(req.params.filename || ''), res);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(500).json({ ok: false, message });
+  }
+}
+
+async function downloadLauncherFile(filename: string, res: Response): Promise<void> {
+  const filePath = resolveLauncherReleasePath(filename);
+  if (!filePath || !fs.existsSync(filePath)) {
+    res.status(404).json({ ok: false, message: 'Release not found' });
+    return;
+  }
+  setZipDownloadNoCacheHeaders(res, filename);
+  await sendZipDownloadFile(res, filePath);
+}
+
 export async function getBootstrapHandler(_req: Request, res: Response): Promise<void> {
   try {
-    const [hud, servers] = await Promise.all([
+    const [hud, launcherLatest, servers] = await Promise.all([
       getLatestHudRelease(),
+      getLatestLauncherRelease(),
       buildActiveLauncherServersWithRequiredContent(),
     ]);
 
@@ -84,6 +136,7 @@ export async function getBootstrapHandler(_req: Request, res: Response): Promise
       ok: true,
       hud,
       launcher: {
+        latest: launcherLatest,
         minHudVersion: null,
       },
       servers: { count: servers.length, items: servers },

@@ -41,3 +41,5 @@ redis-data/
 # Runtime data
 ac-data/server_pids.json
 telemetry-data/redis_applied_config_versions.json
+ac-data/projectd-hud/releases/
+ac-data/projectd-launcher/releases/

@@ -13,7 +13,7 @@ from core.cm_name import display_server_name
 from core.logging_config import get_logger
 from core.redis_client import get_redis_client
 from engines.battlesystem.config import DISAPPEAR_GAP_METERS
-from engines.battlesystem.rules.proximity import distance_3d
+from engines.battlesystem.rules.proximity import distance_3d, is_ahead_with_fallback
 
 log = get_logger("battle_hud_publisher")
 
@@ -155,23 +155,43 @@ def _driver_field(server_state, guid: str, attr: str) -> str:
     return str(getattr(driver, attr, "") or "") if driver else ""
 
 
+def _opponent_guid(battle, guid: str) -> str | None:
+    if guid == battle.car1_guid:
+        return battle.car2_guid
+    if guid == battle.car2_guid:
+        return battle.car1_guid
+    return None
+
+
 def _player_payload(manager, server_state, guid: str, score: int) -> dict[str, Any]:
     role = None
+    ahead_on_track = None
     battle = manager.battle
-    if battle and manager.state == "ACTIVE":
+    if battle and manager.state in ("ARMED", "LAUNCHING", "ACTIVE"):
         if guid == battle.lead_guid:
             role = "lead"
         elif guid == battle.chase_guid:
             role = "chase"
+        opp_guid = _opponent_guid(battle, guid)
+        if opp_guid:
+            car_self = manager.cars.get(guid)
+            car_opp = manager.cars.get(opp_guid)
+            if car_self and car_opp:
+                ahead_on_track = is_ahead_with_fallback(
+                    car_self, car_opp, manager=manager
+                )
     name = manager._display_name(guid)
     car = _driver_field(server_state, guid, "model") or manager.player_names.get(guid, "")
-    return {
+    payload: dict[str, Any] = {
         "steamId": guid,
         "name": name,
         "car_id": car,
         "score": score,
         **({"role": role} if role else {}),
     }
+    if ahead_on_track is not None:
+        payload["aheadOnTrack"] = ahead_on_track
+    return payload
 
 
 def _gap3d_m(manager) -> float | None:

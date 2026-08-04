@@ -1,0 +1,68 @@
+name: HUD contract
+
+on:
+  pull_request:
+    paths:
+      - 'ac-data/**'
+      - 'telemetry-data/**'
+      - 'ProjectD-HUD/**'
+      - 'scripts/verify-hud*.sh'
+      - 'scripts/verify-battle*.sh'
+      - 'scripts/verify-convex-hud*.sh'
+      - 'docs/HUD*.md'
+  push:
+    branches:
+      - main
+    paths:
+      - 'ac-data/**'
+      - 'telemetry-data/**'
+      - 'ProjectD-HUD/**'
+      - 'scripts/verify-hud*.sh'
+
+jobs:
+  hud-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: ac-data/package-lock.json
+
+      - name: Install ac-data dependencies
+        working-directory: ac-data
+        run: npm ci
+
+      - name: ac-data HUD tests
+        working-directory: ac-data
+        run: npx tsx --test src/services/hud/hudSnapshot.test.ts src/services/hud/hudStreamSse.test.ts
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: telemetry-data battle HUD tests
+        working-directory: telemetry-data
+        run: |
+          pip install -q pytest
+          python -m pytest tests/test_battle_hud_publisher.py -q
+
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      - name: HUD e2e (local contract only)
+        env:
+          HUD_E2E_SKIP_LIVE: '1'
+        run: |
+          chmod +x ProjectD-HUD/scripts/verify-requires.sh
+          chmod +x ProjectD-HUD/scripts/verify-center-labels.sh
+          chmod +x ProjectD-HUD/scripts/verify-gap-direction.sh
+          chmod +x scripts/verify-hud-e2e.sh
+          ./scripts/verify-hud-e2e.sh

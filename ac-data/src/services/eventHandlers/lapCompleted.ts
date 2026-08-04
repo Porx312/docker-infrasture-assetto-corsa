@@ -17,11 +17,14 @@ export async function handleLapCompletedAfterIngest(payload: EventPayload): Prom
     const isPersonalBest = Number.isFinite(lapTimeMs)
       ? await isLapPersonalBest({ steamId: lapSteamId }, lapTimeMs)
       : true;
+    if (Number.isFinite(lapTimeMs) && lapTimeMs > 0) {
+      const patched = await patchLastLapInCaches({ steamId: lapSteamId }, lapTimeMs);
+      if (patched) {
+        void pushHudUpdateForSteamId(lapSteamId, false, { preferCachedSession: true });
+      }
+    }
     if (isPersonalBest) {
       await invalidateHudCachesForSteamId(lapSteamId);
-      void pushHudUpdateForSteamId(lapSteamId, true);
-    } else if (Number.isFinite(lapTimeMs) && lapTimeMs > 0) {
-      await patchLastLapInCaches({ steamId: lapSteamId }, lapTimeMs);
     }
     scheduleHudRefreshAfterLap({
       ...payload,

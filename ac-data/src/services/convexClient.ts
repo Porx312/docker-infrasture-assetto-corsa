@@ -44,3 +44,8 @@ export function isConvexConfigured(): boolean {
 export function resetConvexClientForTests(): void {
   cachedClient = null;
 }
+
+/** Test helper: inject a mock Convex client. */
+export function setConvexClientForTests(client: ConvexClient | null): void {
+  cachedClient = client;
+}

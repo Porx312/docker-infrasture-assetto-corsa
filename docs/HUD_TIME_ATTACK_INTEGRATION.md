@@ -105,13 +105,22 @@ Respuesta **JSON one-shot** (no SSE). Útil cuando el overlay no puede hacer SSE
     "version": "…",
     "context": { "…": "…" },
     "profile": { "rank": 1, "tier": 7, "rivals": { "above": null, "below": { "…": "…" } } }
+  },
+  "battle": {
+    "ok": true,
+    "state": "arming",
+    "battleId": "battle-a1b2c3d4e5f6",
+    "player1": { "…": "…" },
+    "player2": { "…": "…" }
   }
 }
 ```
 
+Si no hay batalla activa: `"battle": { "ok": false, "reason": "no_battle" }` (mismo payload que SSE `battle:clear`).
+
 Errores: `{ "ok": false, "reason": "player_not_connected" }` con HTTP **404** (igual que stream).
 
-**ProjectD-HUD:** poll cada `HUD_SNAPSHOT_POLL_SEC` (default 5) vía `web_queue.get` cuando no hay `cached_bundle` o el SSE no entrega actividad reciente. Debug in-game: `mode=poll bundle=y`.
+**ProjectD-HUD:** poll cada `HUD_SNAPSHOT_POLL_SEC` (default 5 s; **2 s** durante batalla activa via `HUD_SNAPSHOT_BATTLE_POLL_SEC`) vía `web_queue.get`. Aplica `session` + `battle` del JSON. Debug: `mode=poll bundle=y battle=y battle_state=arming`.
 
 Verificación:
 
