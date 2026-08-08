@@ -20,7 +20,15 @@ import {
   handleEventBeforeIngest,
 } from './eventHandlers/index.js';
 import { buildIngestEvent } from './ingestEventBuilder.js';
+import {
+  isNonRetryableIngestError,
+  partitionIngestResults,
+  resolveChunkAckPlan,
+  type IngestBatchResult,
+} from './ingestBatchAck.js';
 import { connectRedisClient, createRedisClient, isRedisConfigured } from './redisClient.js';
+
+export { ingestBatchSucceeded } from './ingestBatchAck.js';
 
 const REDIS_STREAM_KEY = process.env.REDIS_STREAM_KEY || 'ac:events';
 const REDIS_CONFIG_STREAM_KEY = process.env.REDIS_CONFIG_STREAM_KEY || 'ac:config';
@@ -88,32 +96,9 @@ const CONFIG_ONLY_EVENTS = new Set<string>([
   'server_config_applied',
 ]);
 
-type IngestEventResult = {
-  ok?: boolean;
-  error?: string;
-  eventType?: string;
-  index?: number;
-};
-
-type IngestBatchResult = {
-  ok?: boolean;
-  failed?: number;
-  processed?: number;
-  results?: IngestEventResult[];
-};
-
 function parseIngestBatchResult(raw: unknown): IngestBatchResult {
   if (!raw || typeof raw !== 'object') return {};
   return raw as IngestBatchResult;
-}
-
-/** True when every event in the batch succeeded (or the batch is empty). */
-export function ingestBatchSucceeded(result: IngestBatchResult): boolean {
-  const results = result.results ?? [];
-  if (results.length === 0) {
-    return result.ok !== false && (result.failed ?? 0) === 0;
-  }
-  return results.every((r) => r.ok === true);
 }
 
 function parsePayload(message: StreamMessage): Record<string, unknown> | null {
@@ -264,10 +249,14 @@ function appendToIngestBuffer(state: IngestBufferState, items: PendingIngestMess
   state.items.push(...items);
 }
 
+/**
+ * Flush one chunk to Convex. Returns messages that must stay in the buffer
+ * (retryable failures). Empty array means the chunk was fully resolved.
+ */
 async function flushIngestChunk(
   client: RedisClientType,
   chunk: PendingIngestMessage[],
-): Promise<boolean> {
+): Promise<PendingIngestMessage[]> {
   const coalesced = coalesceIngestBatch(chunk);
   const droppedStatus = chunk.length - coalesced.length;
 
@@ -276,40 +265,66 @@ async function flushIngestChunk(
   }
 
   const ingestResult = await forwardBatchToConvex(coalesced.map((p) => p.payload));
-  if (!ingestBatchSucceeded(ingestResult)) {
-    const failed = ingestResult.results?.find((r) => r.ok !== true);
-    const errorMsg =
-      typeof failed?.error === 'string'
-        ? failed.error
-        : 'Convex ingest batch failed';
-    console.error(
-      '[redis-bridge] convex batch ingest failed (no ack):',
-      coalesced.length,
-      'events',
-      droppedStatus > 0 ? `(coalesced ${droppedStatus} duplicate server_status)` : '',
-      errorMsg,
+  const partitioned = partitionIngestResults(coalesced, ingestResult);
+  const { toAck, toRetry } = resolveChunkAckPlan(chunk, coalesced, partitioned);
+
+  if (partitioned.nonRetryableCount > 0) {
+    console.warn(
+      `[redis-bridge] acked ${partitioned.nonRetryableCount} non-retryable ingest error(s) (user_not_found)`,
     );
-    void publishWorkerErrorEvent({
-      error: errorMsg,
-      failed: coalesced.length,
-      eventTypes: [...new Set(coalesced.map((p) => p.event))],
-    }).catch((publishErr) => {
-      console.warn('[redis-bridge] worker_error publish failed:', publishErr);
-    });
-    return false;
   }
 
-  if (droppedStatus > 0) {
+  if (droppedStatus > 0 && toRetry.length === 0) {
     console.log(
       `[redis-bridge] ingested ${coalesced.length} events (coalesced ${droppedStatus} server_status)`,
     );
   }
 
+  const ackIds = new Set(toAck.map((m) => m.msg.id));
   for (const { msg, payload, event } of chunk) {
-    await handleEventAfterIngest(event, payload);
+    if (!ackIds.has(msg.id)) {
+      continue;
+    }
+    // After-ingest only for messages that were actually forwarded (or kept
+    // after coalesce). Dropped duplicate server_status just get XACK.
+    const wasForwarded = coalesced.some((c) => c.msg.id === msg.id);
+    if (wasForwarded) {
+      await handleEventAfterIngest(event, payload);
+    }
     await client.xAck(REDIS_STREAM_KEY, GROUP, msg.id);
   }
-  return true;
+
+  if (toRetry.length === 0) {
+    return [];
+  }
+
+  const failed = ingestResult.results?.find(
+    (r) => r.ok !== true && !isNonRetryableIngestError(r.error),
+  );
+  const errorMsg =
+    typeof failed?.error === 'string'
+      ? failed.error
+      : partitioned.unsafeMissingResults
+        ? 'Convex ingest batch failed (missing per-event results)'
+        : 'Convex ingest batch failed';
+  console.error(
+    '[redis-bridge] convex batch ingest failed (retrying):',
+    toRetry.length,
+    'of',
+    coalesced.length,
+    'events',
+    droppedStatus > 0 ? `(coalesced ${droppedStatus} duplicate server_status)` : '',
+    errorMsg,
+  );
+  void publishWorkerErrorEvent({
+    error: errorMsg,
+    failed: toRetry.length,
+    eventTypes: [...new Set(toRetry.map((p) => p.event))],
+  }).catch((publishErr) => {
+    console.warn('[redis-bridge] worker_error publish failed:', publishErr);
+  });
+
+  return toRetry;
 }
 
 function formatFlushError(err: unknown): string {
@@ -397,9 +412,9 @@ async function flushIngestBuffer(
   ) {
     const take = Math.min(state.items.length, INGEST_MAX_BATCH_SIZE);
     const chunk = state.items.splice(0, take);
-    const ok = await flushIngestChunk(client, chunk);
-    if (!ok) {
-      state.items.unshift(...chunk);
+    const retry = await flushIngestChunk(client, chunk);
+    if (retry.length > 0) {
+      state.items.unshift(...retry);
       if (state.startedAt === null) {
         state.startedAt = Date.now();
       }

@@ -21,10 +21,21 @@ source "$CADDY_ENV"
 set +a
 
 DOCKER=(docker)
-COMPOSE=(docker-compose)
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE=(docker-compose)
+else
+  echo -e "${RED}docker compose or docker-compose required${NC}"
+  exit 1
+fi
 if ! docker info >/dev/null 2>&1; then
   DOCKER=(sg docker -c docker)
-  COMPOSE=(sg docker -c docker-compose)
+  if docker compose version >/dev/null 2>&1; then
+    COMPOSE=(sg docker -c "docker compose")
+  else
+    COMPOSE=(sg docker -c docker-compose)
+  fi
 fi
 
 echo -e "${YELLOW}Starting Caddy (Docker, host network)...${NC}"

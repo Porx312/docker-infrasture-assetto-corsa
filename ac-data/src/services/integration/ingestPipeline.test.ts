@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { coalesceIngestBatch, type PendingIngestMessage } from '../coalesceIngestBatch.js';
-import { ingestBatchSucceeded } from '../redisConvexBridge.js';
+import {
+  ingestBatchSucceeded,
+  partitionIngestResults,
+  resolveChunkAckPlan,
+} from '../ingestBatchAck.js';
 
 function pending(event: string, id: string, serverName = 'server-a'): PendingIngestMessage {
   return {
@@ -21,17 +25,36 @@ test('ingest pipeline: coalesce then succeed acks batch', () => {
 
   const coalesced = coalesceIngestBatch(chunk);
   assert.equal(coalesced.length, 3);
-  assert.ok(ingestBatchSucceeded({ ok: true, results: coalesced.map(() => ({ ok: true })) }));
+  assert.ok(ingestBatchSucceeded({ ok: true, results: coalesced.map((_, i) => ({ ok: true, index: i })) }));
 });
 
-test('ingest pipeline: failed batch is not acked', () => {
+test('ingest pipeline: transient failure is not fully resolved', () => {
   assert.equal(
     ingestBatchSucceeded({
       ok: false,
-      results: [{ ok: false, error: 'Convex down' }],
+      results: [{ ok: false, error: 'Convex down', index: 0 }],
     }),
     false,
   );
+  const coalesced = [pending('player_join', '1')];
+  const partitioned = partitionIngestResults(coalesced, {
+    results: [{ ok: false, error: 'Convex down', index: 0 }],
+  });
+  assert.equal(partitioned.retry.length, 1);
+});
+
+test('ingest pipeline: user_not_found is acked (no retry)', () => {
+  const chunk = [pending('player_join', '1'), pending('lap_completed', '2')];
+  const coalesced = coalesceIngestBatch(chunk);
+  const partitioned = partitionIngestResults(coalesced, {
+    results: [
+      { ok: false, error: 'user_not_found', index: 0 },
+      { ok: true, index: 1 },
+    ],
+  });
+  const plan = resolveChunkAckPlan(chunk, coalesced, partitioned);
+  assert.equal(plan.toRetry.length, 0);
+  assert.equal(plan.toAck.length, 2);
 });
 
 test('ingest pipeline: coalesce drops duplicate server_status before forward', () => {
