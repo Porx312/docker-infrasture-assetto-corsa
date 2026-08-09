@@ -34,7 +34,12 @@ flowchart TB
   HudRedis --> AcData[ac-data SSE /hud/battle/stream]
 ```
 
-Con `BATTLE_HUD_ENABLED=true` (default), el estado en vivo se publica en Redis y **no** se envían líneas de batalla por chat ACSP. El overlay se suscribe con `EventSource` a `/hud/battle/stream` vía `ac-data`.
+Con `BATTLE_HUD_ENABLED=true` (default), el estado en vivo se publica en Redis para pilotos con overlay ProjectD. Con `BATTLE_CHAT_ENABLED=true` (default), los pilotos **sin** clave `ac:hud:sse:{steamId}` reciben las mismas transiciones por chat ACSP privado (consola in-game). Ambos canales son independientes: el chat no sustituye al HUD ni viceversa.
+
+ac-data renueva `ac:hud:sse:{steamId}` en **`GET /hud/stream`** (SSE) y en **`GET /hud/snapshot`** (poll HTTP, fallback CSP sin TCP/TLS). telemetry-data usa esa clave en `has_hud_overlay_connected()` para omitir chat a pilotos con overlay activo.
+
+- Overlay: `EventSource` a `/hud/battle/stream` vía `ac-data`
+- Chat fallback: `engines/battlesystem/chat.py` → `session_manager.handle_chat_message` → ACSP 202 privado
 
 - `engines/battlesystem/orchestrator.py` (`BattleManager`): caché global de `CarState` por GUID, **matchmaking** y un `PairBattleManager` por pareja
 - `engines/battlesystem/pair_manager.py` (`PairBattleManager`): máquina de estados de una batalla touge concreta
@@ -48,7 +53,7 @@ En cada `update()` de telemetría (`orchestrator._try_matchmake`):
 2. Se emparejan si están a **≤ 15 m** (`BATTLE_ARM_MAX_GAP_METERS`) y ambos van a **> 40 km/h** (`BATTLE_ARM_MIN_SPEED_KMH`)
 3. Algoritmo **greedy nearest-neighbor**: el par más cercano que cumple condiciones se bloquea primero; se repite hasta agotar candidatos
 4. Un jugador solo puede estar en **una** batalla a la vez (`guid_to_pair`). Si la pareja queda separada en IDLE **10 s** (`BATTLE_PAIR_IDLE_SEPARATED_RELEASE_SEC`) o sin llegar a ACTIVE en **120 s** (`BATTLE_PAIR_MAX_PREACTIVE_LOCK_SEC`), el lock se disuelve y pueden emparejarse con otros
-5. Con `BATTLE_REQUIRE_HUD_SSE=true`, solo entran candidatos con overlay conectado al SSE (`ac:hud:sse:{steamId}` escrito por ac-data en `GET /hud/stream`). Si un jugador pierde el SSE durante una batalla, la pareja se disuelve con `cancelReason: hud_disconnected`
+5. Con `BATTLE_REQUIRE_HUD_SSE=true`, solo entran candidatos con overlay conectado (`ac:hud:sse:{steamId}` escrito por ac-data en `GET /hud/stream` o renovado en `GET /hud/snapshot`). Si un jugador pierde el overlay durante una batalla, la pareja se disuelve con `cancelReason: hud_disconnected`. Con `BATTLE_REQUIRE_HUD_SSE=false` (recomendado para mezcla HUD/vanilla), el emparejamiento no exige overlay; el chat fallback cubre a quien no tenga clave activa.
 
 ## Máquina de estados por pareja
 
@@ -122,7 +127,13 @@ Recomendación: instalar `content/tracks/&lt;track&gt;/ai/fast_lane.ai` en el se
 
 ## Feedback al jugador
 
-- Con `BATTLE_HUD_ENABLED=true` (default): estado en vivo en Redis (`network/battle_hud_publisher.py`) → SSE `/hud/stream` vía ac-data. Sin chat in-game de batallas.
+| Canal | Audiencia | Activación |
+|-------|-----------|------------|
+| Redis HUD | Pilotos con overlay (`ac:hud:sse:*` presente) | `BATTLE_HUD_ENABLED=true` |
+| Chat ACSP | Pilotos **sin** overlay conectado | `BATTLE_CHAT_ENABLED=true` |
+
+- **HUD en vivo** (`network/battle_hud_publisher.py`): claves Redis `ac:hud:battle:{serverKey}:{steamId}` → SSE `/hud/stream` vía ac-data.
+- **Chat fallback** (`engines/battlesystem/chat.py`): mensajes privados ACSP — arming `BATTLE ARM 5…1`, `ARMED`, `GO`, `You are LEAD/CHASE`, puntos, cancel/finish. Solo al guid sin `ac:hud:sse:{steamId}` (`has_hud_overlay_connected`).
 
 ## Persistencia / backend
 
@@ -150,6 +161,7 @@ Ver también [REDIS_CONTRACT.md](../REDIS_CONTRACT.md) para el esquema de evento
 | Umbrales | `engines/battlesystem/config.py` |
 | Integración AC | `core/packet_processor.py` |
 | HUD batalla → Redis | `network/battle_hud_publisher.py` |
+| Chat fallback | `engines/battlesystem/chat.py` |
 | Tests reglas | `tests/battlesystem/` |
 
 ## Referencia rápida de umbrales
@@ -159,7 +171,9 @@ Ver también [REDIS_CONTRACT.md](../REDIS_CONTRACT.md) para el esquema de evento
 | Arm / pair lock | ≤ 15 m, ambos > 40 km/h | `BATTLE_ARM_MAX_GAP_METERS`, `BATTLE_ARM_MIN_SPEED_KMH` |
 | Arm (IDLE → ARMED) | condiciones sostenidas 5 s | `BATTLE_ARM_SUSTAINED_PROXIMITY_SEC` |
 | Rematch tras fin/cancel | cooldown 20 s solo para la misma pareja | `BATTLE_FINISHED_COOLDOWN_SEC` |
-| HUD SSE requerido | overlay conectado a `/hud/stream` | `BATTLE_REQUIRE_HUD_SSE`, `HUD_SSE_PRESENCE_TTL_SEC` |
+| HUD SSE requerido (matchmaking) | overlay conectado a `/hud/stream` | `BATTLE_REQUIRE_HUD_SSE` |
+| Chat fallback (sin overlay) | chat ACSP a quien no tenga SSE | `BATTLE_CHAT_ENABLED` |
+| HUD overlay Redis | snapshots en vivo | `BATTLE_HUD_ENABLED` |
 | Abort prestart (solo ARMED) | > 80 m, ambos ≥ 20 km/h tras 2 s | `MAX_BATTLE_GAP_METERS`, `BATTLE_PRESTART_GAP_ABORT_GRACE_SEC` |
 | Overtake / recovery | gap 10–15 m | `OVERTAKE_MIN_GAP_METERS`, `OVERTAKE_MAX_GAP_METERS` |
 | Finish | lead completa vuelta (meta) + gap ≥ 20 m | `BATTLE_FINISH_LINE_*`, `BATTLE_MIN_LAP_PROGRESS_BEFORE_FINISH`, `BATTLE_FINISH_POINT_MIN_GAP_METERS` |

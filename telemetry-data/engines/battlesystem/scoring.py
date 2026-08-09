@@ -7,6 +7,7 @@ from engines.battlesystem.config import (
     FINISH_POINT_MIN_GAP_METERS,
 )
 from engines.battlesystem.rules.proximity import pair_uses_position_fallback_from_manager
+from engines.battlesystem.chat import format_point_broadcast, notify_battle_cancelled, notify_touge_chat
 from network.battle_hud_publisher import (
     format_abandon_win_label,
     format_cancel_label,
@@ -118,6 +119,7 @@ def finalize_abandon(manager, winner_guid, reason) -> bool:
     manager.battle.winner = None
     manager.state = "FINISHED"
     manager.finished_time = time.time()
+    notify_battle_cancelled(manager, reason)
     cancel_label = format_cancel_label(reason)
     manager._publish_hud(
         hud_state="cancelled",
@@ -134,6 +136,7 @@ def finalize_default_win(manager, winner_guid, reason):
         return False
 
     manager.battle.winner = winner_guid
+    wn = manager._display_name(winner_guid)
     log.info(
         "abandon win %s reason=%s score=%s-%s",
         winner_guid,
@@ -141,6 +144,8 @@ def finalize_default_win(manager, winner_guid, reason):
         manager.battle.car1_score,
         manager.battle.car2_score,
     )
+    msg = f"WIN {wn} — opponent abandoned ({reason}) | {manager._scoreboard_line()}"
+    notify_touge_chat(manager, msg)
     _dispatch_session_outcome(manager, status="finished")
     end_label = format_abandon_win_label(manager, winner_guid, reason)
     manager._publish_hud(
@@ -166,14 +171,19 @@ def finalize_single_session_result(manager, finish_gap_m, is_draw):
         winner = None
 
     manager.battle.winner = winner
+    board = manager._scoreboard_line()
     if winner:
+        wn = manager._display_name(winner)
         log.info(
             "session over winner=%s (finish gap=%.1fm)",
             winner,
             finish_gap_m,
         )
+        msg = f"FINISH — WIN {wn} (+1, gap {finish_gap_m:.0f}m) | {board}"
     else:
         log.info("session over DRAW finish_gap=%.1fm", finish_gap_m)
+        msg = f"FINISH — DRAW (gap {finish_gap_m:.0f}m) | {board}"
+    notify_touge_chat(manager, msg)
     session_status = "draw" if winner is None else "finished"
     _dispatch_session_outcome(manager, status=session_status)
     end_label = format_finish_session_label(
@@ -198,7 +208,7 @@ def finalize_single_session_result(manager, finish_gap_m, is_draw):
     manager.finished_time = time.time()
 
 
-def award_point(manager, winner_guid, reason="outrun"):
+def award_point(manager, winner_guid, reason="outrun", *, skip_chat: bool = False):
     if winner_guid == manager.battle.car1_guid:
         manager.battle.car1_score += 1
         log_msg = f"Point to {manager.battle.car1_guid} ({reason})"
@@ -226,3 +236,7 @@ def award_point(manager, winner_guid, reason="outrun"):
             "ts": int(time.time() * 1000),
         },
     )
+
+    if not skip_chat:
+        msg = format_point_broadcast(manager, winner_guid, reason)
+        notify_touge_chat(manager, msg)

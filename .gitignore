@@ -43,3 +43,16 @@ ac-data/server_pids.json
 telemetry-data/redis_applied_config_versions.json
 ac-data/projectd-hud/releases/
 ac-data/projectd-launcher/releases/
+
+# AC server fleet — per-instance config (Convex/ac-data, CM scripts)
+server/cfg/
+server/**/cfg/
+server/entry_list.ini
+server/server_cfg.ini
+server/presets/
+server/**/blacklist.txt
+
+# Content Manager: descriptions, loading images, wrapper params (generated)
+server/shared/server-branding.json
+server/shared/cm-proxy-pids/
+server/shared/cm-proxy-logs/

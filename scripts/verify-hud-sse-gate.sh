@@ -5,7 +5,8 @@
 #   ./scripts/verify-hud-sse-gate.sh              # env + unit tests
 #   ./scripts/verify-hud-sse-gate.sh <steamId>    # also check Redis presence key
 #
-# With overlay connected to GET /hud/stream, ac:hud:sse:{steamId} should exist (TTL ~45s).
+# With overlay connected to GET /hud/stream or polling GET /hud/snapshot,
+# ac:hud:sse:{steamId} should exist (TTL ~45s, renewed each poll/SSE keepalive).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -50,9 +51,9 @@ if [[ -n "$STEAM_ID" ]]; then
     TTL="$(redis-cli -h "$HOST" -p "$PORT" TTL "$KEY" 2>/dev/null || echo -2)"
     echo "EXISTS=$EXISTS TTL=${TTL}s (key=$KEY)"
     if [[ "$EXISTS" == "1" ]]; then
-      echo "OK: overlay SSE presence active for $STEAM_ID"
+      echo "OK: overlay presence active for $STEAM_ID (SSE or snapshot poll)"
     else
-      echo "MISSING: connect overlay to GET /hud/stream?steamId=$STEAM_ID (ac-data must be running)"
+      echo "MISSING: open ProjectD HUD (SSE /hud/stream or poll /hud/snapshot?steamId=$STEAM_ID)"
     fi
   else
     echo "redis-cli not found — skip Redis check"

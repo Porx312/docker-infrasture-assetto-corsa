@@ -1,5 +1,7 @@
 from core.logging_config import get_logger
+from engines.battlesystem.chat import notify_battle_cancelled
 from engines.battlesystem.config import (
+    ARMED_CHAT_COOLDOWN_SEC,
     OVERTAKE_ACTIVE_GRACE_SEC,
     OVERTAKE_MARGIN_SPLINE,
     OVERTAKE_PASS_MARGIN_SPLINE,
@@ -31,9 +33,12 @@ class PairBattleManager:
         self.arm_proximity_since = 0.0
         self._arming_countdown_announced_sec = -1
         self.launch_trigger_time = 0.0
+        self.last_armed_chat_time = 0.0
+        self.ARMED_CHAT_COOLDOWN = ARMED_CHAT_COOLDOWN_SEC
 
         self.on_battle_start = None
         self.on_score_update = None
+        self.on_chat_message = None
         self.on_hud_update = None
         self.on_battle_end = None
         self.pair_locked_at = 0.0
@@ -77,6 +82,9 @@ class PairBattleManager:
     def _scoreboard_line(self):
         g1, g2 = self.battle.car1_guid, self.battle.car2_guid
         return f"{self._display_name(g1)} {self.battle.car1_score} : {self._display_name(g2)} {self.battle.car2_score}"
+
+    def _notify_battle_cancelled(self, reason=None):
+        notify_battle_cancelled(self, reason)
 
     def _finalize_abandon(self, winner_guid, reason):
         return finalize_abandon(self, winner_guid, reason)
@@ -132,6 +140,7 @@ class PairBattleManager:
         self.launch_trigger_time = 0.0
         for car in self.cars.values():
             car.end_run()
+        # Keep last_armed_chat_time so abort loops do not spam ARMED chat.
         if full_reset:
             self.finished_time = 0.0
             self.battle_id = None

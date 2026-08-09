@@ -54,6 +54,7 @@ class ServerState:
         self.battle_manager = BattleManager()
         self.battle_manager.on_battle_start = self.handle_battle_start
         self.battle_manager.on_score_update = self.handle_battle_score
+        self.battle_manager.on_chat_message = self.handle_chat_message
         self.battle_manager.on_hud_update = self.handle_battle_hud
 
         # Generic Time/Endurance Event logic engine
@@ -163,6 +164,14 @@ class ServerState:
             points_log,
             status=status,
         )
+
+    def handle_chat_message(self, guid, message):
+        driver = self.guid_to_driver.get(guid)
+        if driver:
+            for c_id, d in self.active_drivers.items():
+                if d.guid == guid:
+                    send_chat(self, c_id, message)
+                    break
 
 
 def send_registration(server_state, server_ip):

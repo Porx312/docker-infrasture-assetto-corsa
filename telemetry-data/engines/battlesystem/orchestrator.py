@@ -35,6 +35,7 @@ class BattleManager:
         # External callbacks (same contract as legacy manager).
         self.on_battle_start = None
         self.on_score_update = None
+        self.on_chat_message = None
         self.on_hud_update = None
 
     @staticmethod
@@ -68,6 +69,7 @@ class BattleManager:
         # Callbacks are proxied to server_state handlers.
         mgr.on_battle_start = self.on_battle_start
         mgr.on_score_update = self.on_score_update
+        mgr.on_chat_message = self.on_chat_message
         mgr.on_hud_update = self.on_hud_update
         return mgr
 

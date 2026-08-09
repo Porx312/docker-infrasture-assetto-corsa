@@ -14,6 +14,7 @@ import {
   loadHudSessionForSse,
 } from './hudSsePush.js';
 import type { HudVersionOk } from './hudTypes.js';
+import { markHudSseConnected } from './hudSsePresence.js';
 import { markUserInvalidated } from './hudUserInvalidation.js';
 
 function requireQueryString(value: unknown): string | null {
@@ -87,6 +88,8 @@ export async function handleHudSnapshot(req: Request, res: Response): Promise<vo
   const battle = battleParams
     ? await getBattleCached(battleParams)
     : { ok: false as const, reason: 'no_battle' };
+
+  await markHudSseConnected(steamId);
 
   res.json({
     ok: true,

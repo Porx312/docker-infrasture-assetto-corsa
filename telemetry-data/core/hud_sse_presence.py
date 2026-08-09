@@ -37,11 +37,7 @@ def _read_active_from_redis(steam_id: str) -> bool:
         return False
 
 
-def is_hud_sse_active(steam_id: str) -> bool:
-    """Return True when ac:hud:sse:{steamId} exists (overlay connected)."""
-    if not settings.BATTLE_REQUIRE_HUD_SSE:
-        return True
-
+def _cached_overlay_active(steam_id: str) -> bool:
     trimmed = steam_id.strip()
     if not trimmed or trimmed.startswith("unknown_"):
         return False
@@ -56,6 +52,18 @@ def is_hud_sse_active(steam_id: str) -> bool:
     with _cache_lock:
         _cache[trimmed] = (active, now)
     return active
+
+
+def has_hud_overlay_connected(steam_id: str) -> bool:
+    """True when ac:hud:sse:{steamId} exists — always reads Redis (chat routing)."""
+    return _cached_overlay_active(steam_id)
+
+
+def is_hud_sse_active(steam_id: str) -> bool:
+    """Return True when ac:hud:sse:{steamId} exists (overlay connected)."""
+    if not settings.BATTLE_REQUIRE_HUD_SSE:
+        return True
+    return _cached_overlay_active(steam_id)
 
 
 def filter_hud_eligible(guids: Iterable[str]) -> set[str]:
