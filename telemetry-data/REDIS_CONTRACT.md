@@ -129,8 +129,35 @@ On every `NEW_CONNECTION`, telemetry emits `player_join` **before** ban kick so 
 
 Enforcement reads **only** `ac:user:invalidated:{steamId}` (not HUD player cache).
 
-Ban kicks are **silent**: telemetry sends ACSP `KICK_USER` (206) and `/kick_id` only — no chat message (AC plugin chat is visible to all clients).
+Both ban and registration kicks: **one private chat warning** (`ACSP` 202 to `car_id`), wait
+`USER_KICK_WARN_DELAY_SEC` (default 3s), then **one** `KICK_USER` packet. Deduped per connection
+(no retries, no `/kick_id` duplicate, no CAR_UPDATE spam).
 
-Env: `USER_BAN_ENABLED`, `USER_INVALIDATED_REDIS_PREFIX`, `USER_INVALIDATED_CHANNEL`, `USER_BAN_DEFER_POLL_MS`, `USER_BAN_DEFER_ATTEMPTS`.
+Env: `USER_BAN_ENABLED`, `USER_INVALIDATED_REDIS_PREFIX`, `USER_INVALIDATED_CHANNEL`,
+`USER_INVALIDATED_KICK_MESSAGE`, `USER_KICK_WARN_DELAY_SEC`, `USER_BAN_DEFER_POLL_MS`, `USER_BAN_DEFER_ATTEMPTS`.
 
 Verify: `./scripts/verify-user-ban.sh [steamId]`
+
+## User registration required (not streams)
+
+When Convex returns `user_not_found` (Steam ID not linked to a ProjectD account), **ac-data**
+persists registration state in Redis. **telemetry-data** kicks after a private chat warning.
+
+**Writer path:** same `player_join` → `getPlayerJoinContext` flow as bans; `markUserNotRegistered`
+when `reason === user_not_found`. Ban state takes precedence (invalidated users get the ban message).
+
+| Key / channel | Writer | Reader | TTL |
+|---------------|--------|--------|-----|
+| `ac:user:not_registered:{steamId}` | ac-data (`hudUserNotRegistered.ts`) | telemetry-data on connect (after deferred `player_join` refresh) | `USER_NOT_REGISTERED_TTL_SEC` (default 86400) |
+| Pub/sub `ac:user:not_registered` | ac-data on mark | telemetry-data subscriber → kick on all servers | — |
+
+On every `NEW_CONNECTION`, telemetry emits `player_join` **before** registration kick so ac-data
+can call Convex and run `clearUserNotRegistered` when the user registers. Kick is deferred
+(`USER_BAN_DEFER_POLL_MS` × `USER_BAN_DEFER_ATTEMPTS`) while ac-data refreshes Redis.
+
+Uses the same warn-then-kick flow as bans (see above).
+
+Env: `USER_REGISTRATION_REQUIRED`, `USER_NOT_REGISTERED_REDIS_PREFIX`, `USER_NOT_REGISTERED_CHANNEL`,
+`USER_NOT_REGISTERED_KICK_MESSAGE`, `USER_KICK_WARN_DELAY_SEC`.
+
+Verify: `./scripts/verify-user-registration-pipeline.sh [steamId]`

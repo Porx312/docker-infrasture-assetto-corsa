@@ -29,7 +29,10 @@ export async function readUserInvalidated(steamId: string): Promise<boolean> {
   return value !== null;
 }
 
-export async function markUserInvalidated(steamId: string): Promise<void> {
+export async function markUserInvalidated(
+  steamId: string,
+  options?: { publish?: boolean },
+): Promise<void> {
   const trimmed = steamId.trim();
   if (!trimmed || trimmed.startsWith('unknown_') || !isHudRedisConfigured()) {
     return;
@@ -39,7 +42,9 @@ export async function markUserInvalidated(steamId: string): Promise<void> {
   const message: UserInvalidatedMessage = { steamId: trimmed, ts: Date.now() };
   const redis = await getHudRedisClient();
   await hudRedisSet(key, '1', USER_INVALIDATED_TTL_SEC);
-  await redis.publish(USER_INVALIDATED_CHANNEL, JSON.stringify(message));
+  if (options?.publish !== false) {
+    await redis.publish(USER_INVALIDATED_CHANNEL, JSON.stringify(message));
+  }
   console.log(`[user-ban] marked steamId=${trimmed}`);
 }
 

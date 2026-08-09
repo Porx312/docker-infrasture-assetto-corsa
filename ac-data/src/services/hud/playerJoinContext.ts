@@ -11,6 +11,10 @@ import {
   markUserInvalidated,
 } from './hudUserInvalidation.js';
 import {
+  clearUserNotRegistered,
+  markUserNotRegistered,
+} from './hudUserNotRegistered.js';
+import {
   invalidateHudCachesForSteamId,
   persistPlayerCacheResult,
   persistSessionCacheResult,
@@ -104,6 +108,7 @@ export async function applyPlayerJoinContext(
   const trimmed = steamId.trim();
   const user = context.user ?? readJoinUser(context as unknown as Record<string, unknown>, trimmed);
   const invalidated = isUserInvalidated(context, user);
+  const notRegistered = !context.ok && context.reason === 'user_not_found';
 
   let session = normalizeSessionForCache(defaultSessionResult(context));
   let player = normalizePlayerForCache(playerResultFromSession(session));
@@ -111,9 +116,14 @@ export async function applyPlayerJoinContext(
   if (invalidated) {
     player = { ok: false, reason: 'user_invalidated' };
     session = { ok: false, reason: 'user_invalidated' };
-    await markUserInvalidated(trimmed);
+    await markUserInvalidated(trimmed, { publish: false });
+    await clearUserNotRegistered(trimmed);
+  } else if (notRegistered) {
+    await markUserNotRegistered(trimmed, { publish: false });
+    await clearUserInvalidated(trimmed);
   } else {
     await clearUserInvalidated(trimmed);
+    await clearUserNotRegistered(trimmed);
   }
 
   const params = { steamId: trimmed };
@@ -124,7 +134,7 @@ export async function applyPlayerJoinContext(
   await persistSessionCacheResult(sessionRedisKey(buildSessionCacheKey(params)), session);
 
   console.log(
-    `[player-join] steamId=${trimmed} invalidated=${invalidated} player=${player.ok ? 'ok' : player.reason} session=${session.ok ? 'ok' : session.reason}`,
+    `[player-join] steamId=${trimmed} invalidated=${invalidated} notRegistered=${notRegistered} player=${player.ok ? 'ok' : player.reason} session=${session.ok ? 'ok' : session.reason}`,
   );
 
   return { player, session };

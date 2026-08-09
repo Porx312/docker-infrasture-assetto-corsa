@@ -9,11 +9,12 @@ from typing import TYPE_CHECKING, Any
 
 from core import settings
 from core.logging_config import get_logger
-from core.server_registry import all_servers, find_driver_by_steam_id
-from core.session_manager import send_admin_command, send_kick_user
+from core.server_registry import find_driver_by_steam_id
+from core.session_manager import DriverInfo
+from core.user_kick_common import execute_warn_then_kick, find_driver_on_server
 
 if TYPE_CHECKING:
-    from core.session_manager import DriverInfo, ServerState
+    from core.session_manager import ServerState
 
 log = get_logger("user_ban_enforcer")
 
@@ -77,59 +78,7 @@ def is_steam_id_banned(steam_id: str, *, quiet: bool = False) -> bool:
         return False
 
 
-_BAN_KICK_RETRY_DELAYS_SEC = (0.5, 1.5, 3.0, 5.0, 8.0)
-_CAR_UPDATE_KICK_THROTTLE_MS = 3000
-_last_car_update_kick_ms: dict[tuple[int, str], int] = {}
-
-
-def _cleanup_driver(
-    server_state: ServerState,
-    driver: DriverInfo,
-    *,
-    keep_car_cache: bool = False,
-) -> None:
-    car_id = driver.car_id
-    guid = driver.guid
-
-    if guid and guid in server_state.guid_to_driver:
-        del server_state.guid_to_driver[guid]
-
-    if car_id is not None and car_id in server_state.active_drivers:
-        del server_state.active_drivers[car_id]
-
-    if car_id is not None and not keep_car_cache:
-        last_known = getattr(server_state, "last_known_by_car_id", None)
-        if isinstance(last_known, dict):
-            last_known.pop(car_id, None)
-
-    if guid:
-        server_state.battle_manager.remove_car(guid)
-
-
-def _send_ban_kick_packets(server_state: ServerState, car_id: int) -> None:
-    send_kick_user(server_state, car_id)
-    send_admin_command(server_state, f"/kick_id {car_id}")
-
-
-def _schedule_ban_kick_retries(
-    server_state: ServerState,
-    car_id: int,
-    guid: str,
-) -> None:
-    def _run() -> None:
-        for delay in _BAN_KICK_RETRY_DELAYS_SEC:
-            time.sleep(delay)
-            if not is_steam_id_banned(guid, quiet=True):
-                return
-            current = _find_driver_on_server(server_state, guid)
-            target_car_id = current.car_id if current and current.car_id is not None else car_id
-            _send_ban_kick_packets(server_state, target_car_id)
-
-    threading.Thread(
-        target=_run,
-        daemon=True,
-        name=f"ban-kick-{server_state.port}-{car_id}",
-    ).start()
+from core.user_kick_common import find_driver_on_server, execute_warn_then_kick
 
 
 def kick_banned_car(
@@ -138,41 +87,28 @@ def kick_banned_car(
     guid: str,
     driver_name: str,
     reason: str,
-) -> None:
-    _send_ban_kick_packets(server_state, car_id)
-    _schedule_ban_kick_retries(server_state, car_id, guid)
-    log.info(
-        "[%s] ban kick car=%s guid=%s name=%s reason=%s",
-        server_state.port,
+    *,
+    wait_client_loaded: bool = True,
+) -> bool:
+    kicked = execute_warn_then_kick(
+        server_state,
         car_id,
         guid,
-        driver_name,
-        reason,
+        settings.USER_INVALIDATED_KICK_MESSAGE,
+        settings.USER_KICK_WARN_DELAY_SEC,
+        log_label="ban",
+        wait_client_loaded=wait_client_loaded,
     )
-
-
-def _find_driver_on_server(server_state: ServerState, guid: str) -> DriverInfo | None:
-    driver = server_state.guid_to_driver.get(guid)
-    if driver is not None:
-        return driver
-
-    for candidate in server_state.active_drivers.values():
-        if candidate.guid == guid:
-            return candidate
-
-    last_known = getattr(server_state, "last_known_by_car_id", None)
-    if isinstance(last_known, dict):
-        for car_id, meta in last_known.items():
-            if meta.get("guid") == guid:
-                found = DriverInfo(
-                    meta.get("name") or "Driver",
-                    guid,
-                    meta.get("model") or "Unknown",
-                )
-                found.car_id = car_id
-                return found
-
-    return None
+    if kicked:
+        log.info(
+            "[%s] ban kick car=%s guid=%s name=%s reason=%s",
+            server_state.port,
+            car_id,
+            guid,
+            driver_name,
+            reason,
+        )
+    return kicked
 
 
 def schedule_deferred_ban_kick(server_state: ServerState, driver: DriverInfo) -> None:
@@ -193,7 +129,7 @@ def schedule_deferred_ban_kick(server_state: ServerState, driver: DriverInfo) ->
                 )
                 return
 
-        current = _find_driver_on_server(server_state, guid)
+        current = find_driver_on_server(server_state, guid)
         if current is None:
             log.info(
                 "[%s] deferred ban kick skipped (driver gone) guid=%s",
@@ -215,6 +151,8 @@ def kick_driver(
     server_state: ServerState,
     driver: DriverInfo,
     reason: str,
+    *,
+    wait_client_loaded: bool = True,
 ) -> None:
     car_id = driver.car_id
     guid = driver.guid
@@ -222,7 +160,14 @@ def kick_driver(
         log.warning("[%s] kick skipped (no car_id) guid=%s reason=%s", server_state.port, guid, reason)
         return
 
-    kick_banned_car(server_state, car_id, guid, driver.name, reason)
+    kick_banned_car(
+        server_state,
+        car_id,
+        guid,
+        driver.name,
+        reason,
+        wait_client_loaded=wait_client_loaded,
+    )
     if guid:
         server_state.battle_manager.remove_car(guid)
 
@@ -231,19 +176,12 @@ def maybe_kick_banned_driver_on_car_update(
     server_state: ServerState,
     driver: DriverInfo,
 ) -> None:
-    """Mid-session ban via Convex webhook: keep kicking while CAR_UPDATE still flows."""
+    """Mid-session ban via Convex webhook — one warn-then-kick per connection."""
     guid = driver.guid
     if not guid or guid.startswith("unknown_"):
         return
     if not is_steam_id_banned(guid, quiet=True):
         return
-
-    now_ms = int(time.time() * 1000)
-    throttle_key = (server_state.port, guid)
-    last_ms = _last_car_update_kick_ms.get(throttle_key, 0)
-    if now_ms - last_ms < _CAR_UPDATE_KICK_THROTTLE_MS:
-        return
-    _last_car_update_kick_ms[throttle_key] = now_ms
 
     log.info(
         "[%s] CAR_UPDATE banned guid=%s car=%s — kicking",

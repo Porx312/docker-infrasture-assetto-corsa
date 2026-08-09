@@ -32,6 +32,7 @@ class DriverInfo:
         self.lap_notified_fail = False
         self.idle_notified = False
         self.failed_laps = 0
+        self.client_loaded = False
 
 
 class ServerState:

@@ -99,7 +99,11 @@ CONVEX_PLAYER_JOIN_QUERY=workerPlayers:getPlayerJoinContext
 CONVEX_HUD_SESSION_QUERY=hud:getHudSession
 CONVEX_HUD_VERSION_QUERY=hud:getHudVersion
 USER_BAN_ENABLED=true
+USER_REGISTRATION_REQUIRED=true
 ```
+
+Unregistered Steam IDs (`user_not_found` from Convex) are kicked after a private chat warning.
+Verify: `./scripts/verify-user-registration-pipeline.sh [steamId]`
 
 Session-only HUD: no `getHudPlayer` / `CONVEX_HUD_PLAYER_QUERY`. See [`docs/CONVEX_PLAYER_JOIN_CONTEXT.md`](docs/CONVEX_PLAYER_JOIN_CONTEXT.md).
 

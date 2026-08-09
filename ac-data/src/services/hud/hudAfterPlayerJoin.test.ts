@@ -21,6 +21,11 @@ import {
   readUserInvalidated,
   userInvalidatedRedisKey,
 } from './hudUserInvalidation.js';
+import {
+  clearUserNotRegistered,
+  readUserNotRegistered,
+  userNotRegisteredRedisKey,
+} from './hudUserNotRegistered.js';
 
 const steamId = '76561199000000999';
 
@@ -36,6 +41,70 @@ test('hudErrorCacheTtlSec uses short TTL for transient Convex errors', () => {
 
 test('hudErrorCacheTtlSec uses default TTL for stable errors', () => {
   assert.equal(hudErrorCacheTtlSec('user_not_found', 300), 300);
+});
+
+test('applyPlayerJoinContext marks not-registered on user_not_found', async () => {
+  if (!isHudRedisConfigured()) {
+    return;
+  }
+
+  await clearUserInvalidated(steamId);
+  await clearUserNotRegistered(steamId);
+  await hudRedisDel(playerRedisKey(buildPlayerCacheKey({ steamId })));
+  await hudRedisDel(sessionRedisKey(buildSessionCacheKey({ steamId })));
+
+  await applyPlayerJoinContext(steamId, {
+    ok: false,
+    reason: 'user_not_found',
+  });
+
+  assert.equal(await readUserNotRegistered(steamId), true);
+  assert.equal(await readUserInvalidated(steamId), false);
+
+  await clearUserNotRegistered(steamId);
+  await hudRedisDel(playerRedisKey(buildPlayerCacheKey({ steamId })));
+  await hudRedisDel(sessionRedisKey(buildSessionCacheKey({ steamId })));
+});
+
+test('applyPlayerJoinContext clears both keys when user is valid', async () => {
+  if (!isHudRedisConfigured()) {
+    return;
+  }
+
+  await markUserInvalidatedForTest(steamId);
+  await markUserNotRegisteredForTest(steamId);
+
+  await applyPlayerJoinContext(steamId, {
+    ok: true,
+    user: { steamId, isInvalidated: false, name: 'Pilot' },
+    session: { ok: false, reason: 'player_not_connected' },
+  });
+
+  assert.equal(await readUserInvalidated(steamId), false);
+  assert.equal(await readUserNotRegistered(steamId), false);
+
+  await hudRedisDel(playerRedisKey(buildPlayerCacheKey({ steamId })));
+  await hudRedisDel(sessionRedisKey(buildSessionCacheKey({ steamId })));
+});
+
+test('applyPlayerJoinContext ban takes precedence over user_not_found', async () => {
+  if (!isHudRedisConfigured()) {
+    return;
+  }
+
+  await clearUserInvalidated(steamId);
+  await clearUserNotRegistered(steamId);
+
+  await applyPlayerJoinContext(steamId, {
+    ok: false,
+    reason: 'user_invalidated',
+    user: { steamId, isInvalidated: true },
+  });
+
+  assert.equal(await readUserInvalidated(steamId), true);
+  assert.equal(await readUserNotRegistered(steamId), false);
+
+  await clearUserInvalidated(steamId);
 });
 
 test('applyPlayerJoinContext marks ban from user.isInvalidated without session', async () => {
@@ -110,6 +179,11 @@ test('applyPlayerJoinContext clears ban and seeds session cache when valid', asy
 async function markUserInvalidatedForTest(id: string): Promise<void> {
   const { markUserInvalidated } = await import('./hudUserInvalidation.js');
   await markUserInvalidated(id);
+}
+
+async function markUserNotRegisteredForTest(id: string): Promise<void> {
+  const { markUserNotRegistered } = await import('./hudUserNotRegistered.js');
+  await markUserNotRegistered(id);
 }
 
 test('refreshPlayerJoinFromConvex uses unified query mock', async () => {

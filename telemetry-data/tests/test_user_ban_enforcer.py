@@ -74,10 +74,8 @@ def test_is_steam_id_banned_ignores_stale_hud_player_cache(mock_get_client):
     assert is_steam_id_banned("steam-b") is False
 
 
-@patch("core.user_ban_enforcer._schedule_ban_kick_retries")
-@patch("core.user_ban_enforcer.send_admin_command")
-@patch("core.user_ban_enforcer.send_kick_user")
-def test_kick_driver_silent_kick_packet_only(mock_kick, mock_admin, mock_retries):
+@patch("core.user_ban_enforcer.execute_warn_then_kick", return_value=True)
+def test_kick_driver_sends_warn_then_single_kick(mock_execute):
     reset_registry_for_tests()
     server = ServerState(12001, 8081, "track", "layout", "Test Server")
     server.sock = MagicMock()
@@ -90,12 +88,9 @@ def test_kick_driver_silent_kick_packet_only(mock_kick, mock_admin, mock_retries
 
     kick_driver(server, driver, "user_invalidated")
 
-    mock_kick.assert_called_once_with(server, 3)
-    assert mock_admin.call_count >= 1
-    mock_retries.assert_called_once()
+    mock_execute.assert_called_once()
+    assert mock_execute.call_args.args[2] == driver.guid
     assert 3 in server.active_drivers
-    assert driver.guid in server.guid_to_driver
-    assert 3 in server.last_known_by_car_id
 
 
 @patch("core.user_ban_enforcer.kick_driver")

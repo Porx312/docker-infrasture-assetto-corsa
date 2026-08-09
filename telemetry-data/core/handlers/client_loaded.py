@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from core import settings
 from core.logging_config import get_logger
-from core.session_manager import DriverInfo
 from core.user_ban_enforcer import is_steam_id_banned, kick_driver
+from core.user_registration_enforcer import is_steam_id_not_registered, kick_unregistered_driver
 
 log = get_logger("packet_handlers")
 
@@ -15,19 +16,37 @@ def handle_client_loaded(parser, server_state, addr) -> None:
     if car_id is None:
         return
 
-    cached = server_state.last_known_by_car_id.get(car_id, {})
-    guid = cached.get("guid")
-    name = cached.get("name") or "Driver"
-    model = cached.get("model") or "Unknown"
     driver = server_state.active_drivers.get(car_id)
-    if driver:
-        guid = driver.guid or guid
-        name = driver.name or name
-        model = driver.model or model
+    if not driver:
+        cached = server_state.last_known_by_car_id.get(car_id, {})
+        guid = cached.get("guid")
+        if not guid or guid.startswith("unknown_"):
+            return
+        from core.session_manager import DriverInfo
 
-    if guid and not guid.startswith("unknown_") and is_steam_id_banned(guid):
+        driver = DriverInfo(
+            cached.get("name") or "Driver",
+            guid,
+            cached.get("model") or "Unknown",
+        )
+        driver.car_id = car_id
+
+    driver.client_loaded = True
+    driver.car_id = car_id
+    guid = driver.guid
+    if not guid or guid.startswith("unknown_"):
+        return
+
+    if is_steam_id_banned(guid):
         log.info("[%s] CLIENT_LOADED banned guid=%s car=%s", server_state.port, guid, car_id)
-        if not driver:
-            driver = DriverInfo(name, guid, model)
-            driver.car_id = car_id
-        kick_driver(server_state, driver, "user_invalidated_client_loaded")
+        kick_driver(server_state, driver, "user_invalidated_client_loaded", wait_client_loaded=False)
+        return
+
+    if settings.USER_REGISTRATION_REQUIRED and is_steam_id_not_registered(guid):
+        log.info("[%s] CLIENT_LOADED not registered guid=%s car=%s", server_state.port, guid, car_id)
+        kick_unregistered_driver(
+            server_state,
+            driver,
+            "user_not_found_client_loaded",
+            wait_client_loaded=False,
+        )

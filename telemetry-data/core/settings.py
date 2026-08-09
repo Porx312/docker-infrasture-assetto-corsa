@@ -87,6 +87,31 @@ USER_INVALIDATED_TTL_SEC = _env_int("USER_INVALIDATED_TTL_SEC", "86400")
 # Wait for ac-data player_join → Convex refresh before kicking on connect
 USER_BAN_DEFER_POLL_MS = _env_int("USER_BAN_DEFER_POLL_MS", "250")
 USER_BAN_DEFER_ATTEMPTS = _env_int("USER_BAN_DEFER_ATTEMPTS", "8")
+USER_INVALIDATED_KICK_MESSAGE = os.getenv(
+    "USER_INVALIDATED_KICK_MESSAGE",
+    "Your account has been deactivated from all servers.",
+).strip()
+USER_KICK_WARN_DELAY_SEC = _env_float(
+    "USER_KICK_WARN_DELAY_SEC",
+    os.getenv("USER_NOT_REGISTERED_WARN_DELAY_SEC", "3"),
+)
+
+USER_REGISTRATION_REQUIRED = _env_bool("USER_REGISTRATION_REQUIRED", "true")
+USER_NOT_REGISTERED_REDIS_PREFIX = os.getenv(
+    "USER_NOT_REGISTERED_REDIS_PREFIX", "ac:user:not_registered:"
+).strip()
+USER_NOT_REGISTERED_CHANNEL = os.getenv(
+    "USER_NOT_REGISTERED_CHANNEL", "ac:user:not_registered"
+).strip()
+USER_NOT_REGISTERED_TTL_SEC = _env_int("USER_NOT_REGISTERED_TTL_SEC", "86400")
+USER_NOT_REGISTERED_KICK_MESSAGE = os.getenv(
+    "USER_NOT_REGISTERED_KICK_MESSAGE",
+    "You need a ProjectD account and link Steam to play on this server.",
+).strip()
+USER_NOT_REGISTERED_WARN_DELAY_SEC = _env_float(
+    "USER_NOT_REGISTERED_WARN_DELAY_SEC",
+    str(USER_KICK_WARN_DELAY_SEC),
+)
 
 # ── Battle engine tuning (re-exported in engines/battlesystem/config.py) ──
 BATTLE_ARM_MAX_GAP_METERS = _env_float("BATTLE_ARM_MAX_GAP_METERS", "15.0")

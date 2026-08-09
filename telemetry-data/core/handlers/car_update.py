@@ -7,6 +7,7 @@ import time
 from core import runtime_config
 from core.handlers.common import mark_driver_seen, resolve_server_mode
 from core.user_ban_enforcer import maybe_kick_banned_driver_on_car_update
+from core.user_registration_enforcer import maybe_kick_unregistered_driver_on_car_update
 
 
 def handle_car_update(parser, server_state, addr) -> None:
@@ -41,6 +42,7 @@ def handle_car_update(parser, server_state, addr) -> None:
 
     if not driver.guid.startswith("unknown_"):
         maybe_kick_banned_driver_on_car_update(server_state, driver)
+        maybe_kick_unregistered_driver_on_car_update(server_state, driver)
 
     is_battle_server = runtime_config.battle_enabled(server_mode)
     server_state.battle_manager.set_server_mode(is_battle_server)

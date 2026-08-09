@@ -24,6 +24,7 @@ from core.redis_config_sync import (  # noqa: E402
 )
 from core.server_registry import register_server  # noqa: E402
 from core.user_ban_enforcer import start_user_ban_subscriber  # noqa: E402
+from core.user_registration_enforcer import start_user_registration_subscriber  # noqa: E402
 
 setup_logging()
 log = get_logger("main")
@@ -213,6 +214,7 @@ def main():
     threads.append(cfg_sync_thread)
 
     start_user_ban_subscriber()
+    start_user_registration_subscriber()
 
     log.info(
         "%d UDP listener(s) running (%d configured); press Ctrl+C to stop",

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import time
 
+from core import settings
 from core.cm_name import display_server_name
 from core.handlers.common import mark_driver_seen
 from core.logging_config import get_logger
 from core.session_manager import DriverInfo
 from core.user_ban_enforcer import is_steam_id_banned, schedule_deferred_ban_kick
+from core.user_registration_enforcer import schedule_deferred_registration_kick
 from network.event_dispatcher import send_server_event
 
 log = get_logger("packet_handlers")
@@ -61,3 +63,5 @@ def handle_new_connection(parser, server_state, addr) -> None:
 
         if is_steam_id_banned(guid):
             schedule_deferred_ban_kick(server_state, driver)
+        elif settings.USER_REGISTRATION_REQUIRED:
+            schedule_deferred_registration_kick(server_state, driver)
