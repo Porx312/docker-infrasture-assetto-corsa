@@ -272,6 +272,11 @@ def _handle_launching(manager, car1, car2, distance: float, now: float) -> None:
         if (now - manager.launch_trigger_time) > LAUNCH_TIMEOUT_SEC:
             log.info("launch role assign timeout, resetting")
             manager._reset_to_idle()
+            return
+        last_rep = getattr(manager, "_launching_hud_republished_at", 0.0)
+        if now - last_rep >= 0.5:
+            manager._launching_hud_republished_at = now
+            manager._publish_hud(hud_state="launching", force=True)
         return
 
     arming.setup_active_run(manager, car1, car2, now)
