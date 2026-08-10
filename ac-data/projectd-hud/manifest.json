@@ -1,6 +1,13 @@
 {
-  "latest": "ProjectD-HUD (2).zip",
+  "latest": "ProjectD-HUD-1.9.zip",
   "releases": [
+    {
+      "version": "1.9",
+      "filename": "ProjectD-HUD-1.9.zip",
+      "size": 7209598,
+      "uploadedAt": "2026-08-10T14:42:56.436Z",
+      "sha256": "6040ae255de55a526cce52bdbe3a02803276e42f9a63bb5994d4e85207568d29"
+    },
     {
       "version": "2",
       "filename": "ProjectD-HUD (2).zip",

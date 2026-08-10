@@ -1,4 +1,5 @@
-import { getBattleCached } from './battleHudReader.js';
+import { getBattleCachedFast } from './battleHudReader.js';
+import type { BattleCacheParams } from './hudTypes.js';
 import { parseBattleScopeKey } from './hudBattleRooms.js';
 import { parsePlayerScopeKey } from './hudScopeKeys.js';
 import { isHudRedisConfigured } from './hudRedis.js';
@@ -16,7 +17,12 @@ function battleClearDelayMs(): number {
 
 const roomListeners = new Map<string, Set<BattleHudRoomListener>>();
 const clearTimers = new Map<string, ReturnType<typeof setTimeout>>();
-let battleSnapshotFetcher: typeof getBattleCached = getBattleCached;
+type BattleSnapshotFetcher = (params: BattleCacheParams) => Promise<HudBattleOk | HudBattleErr>;
+
+let battleSnapshotFetcher: BattleSnapshotFetcher = (params) =>
+  getBattleCachedFast(params, { enrich: false });
+let battleInitialSnapshotFetcher: BattleSnapshotFetcher = (params) =>
+  getBattleCachedFast(params, { enrich: true });
 let hubStarted = false;
 
 function shouldScheduleClear(snapshot: HudBattleOk): boolean {
@@ -145,7 +151,7 @@ export async function sendInitialBattleSnapshot(
     return;
   }
 
-  const result = await battleSnapshotFetcher(params);
+  const result = await battleInitialSnapshotFetcher(params);
   if (!result.ok) {
     return;
   }
@@ -163,11 +169,17 @@ export function resetBattleHudPushForTests(): void {
   }
   clearTimers.clear();
   roomListeners.clear();
-  battleSnapshotFetcher = getBattleCached;
+  battleSnapshotFetcher = (params) => getBattleCachedFast(params, { enrich: false });
+  battleInitialSnapshotFetcher = (params) => getBattleCachedFast(params, { enrich: true });
   hubStarted = false;
 }
 
-/** Test hook: inject battle snapshot fetcher. */
-export function setBattleFetcherForTests(fetcher: typeof getBattleCached): void {
+/** Test hook: inject battle snapshot fetcher for live pushes. */
+export function setBattleFetcherForTests(fetcher: BattleSnapshotFetcher): void {
   battleSnapshotFetcher = fetcher;
+}
+
+/** Test hook: inject battle snapshot fetcher for initial SSE connect. */
+export function setBattleInitialFetcherForTests(fetcher: BattleSnapshotFetcher): void {
+  battleInitialSnapshotFetcher = fetcher;
 }

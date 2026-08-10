@@ -4,7 +4,9 @@ import test from 'node:test';
 import {
   pushBattleToRoom,
   resetBattleHudPushForTests,
+  sendInitialBattleSnapshot,
   setBattleFetcherForTests,
+  setBattleInitialFetcherForTests,
   subscribeBattleHudRoom,
   unsubscribeBattleHudRoom,
 } from './battleHudPush.js';
@@ -135,6 +137,63 @@ test('scheduleBattleClear repushes terminal snapshot before no_battle', async ()
     assert.deepEqual(roomEvents[2]?.payload, { ok: false, reason: 'no_battle' });
   } finally {
     unsubscribeBattleHudRoom(ROOM, listener);
+    resetBattleHudPushForTests();
+  }
+});
+
+test('sendInitialBattleSnapshot uses initial enrich fetcher', async () => {
+  resetBattleHudPushForTests();
+
+  const snapshot: HudBattleOk = {
+    ok: true,
+    version: '9',
+    battleId: 'battle-init',
+    state: 'arming',
+    serverName: 'testing',
+    track: 'pk_akina',
+    trackConfig: 'downhill',
+    player1: {
+      steamId: 'a',
+      name: 'A',
+      tier: 0,
+      car_id: 'car',
+      car_name: 'car',
+      score: 0,
+    },
+    player2: {
+      steamId: 'b',
+      name: 'B',
+      tier: 0,
+      car_id: 'car',
+      car_name: 'car',
+      score: 0,
+    },
+    pointsLog: [],
+    status: 'active',
+  };
+
+  let liveCalls = 0;
+  let initialCalls = 0;
+  setBattleFetcherForTests(async () => {
+    liveCalls += 1;
+    return { ok: false, reason: 'no_battle' };
+  });
+  setBattleInitialFetcherForTests(async () => {
+    initialCalls += 1;
+    return snapshot;
+  });
+
+  const events: unknown[] = [];
+  try {
+    await sendInitialBattleSnapshot(ROOM, (_event, payload) => {
+      events.push(payload);
+    });
+    await pushBattleToRoom(ROOM);
+
+    assert.equal(initialCalls, 1);
+    assert.equal(liveCalls, 1);
+    assert.deepEqual(events, [snapshot]);
+  } finally {
     resetBattleHudPushForTests();
   }
 });

@@ -101,7 +101,22 @@ export async function enrichBattleWithProfiles(battle: HudBattleSnapshotOk): Pro
   };
 }
 
-export async function getBattleCached(params: BattleCacheParams): Promise<HudBattleResult> {
+export type GetBattleCachedOptions = {
+  enrich?: boolean;
+};
+
+function normalizeBattleSnapshot(battle: HudBattleSnapshotOk): HudBattleOk {
+  return {
+    ...battle,
+    player1: normalizeBattlePlayerSnapshot(battle.player1),
+    player2: normalizeBattlePlayerSnapshot(battle.player2),
+  };
+}
+
+export async function getBattleCachedFast(
+  params: BattleCacheParams,
+  options?: GetBattleCachedOptions,
+): Promise<HudBattleResult> {
   const cacheKey = buildBattleCacheKey(params);
   const cached = await hudRedisGet(battleRedisKey(cacheKey));
   if (!cached) {
@@ -113,5 +128,13 @@ export async function getBattleCached(params: BattleCacheParams): Promise<HudBat
     return { ok: false, reason: 'no_battle' };
   }
 
-  return enrichBattleWithProfiles(battle);
+  if (options?.enrich === true) {
+    return enrichBattleWithProfiles(battle);
+  }
+
+  return normalizeBattleSnapshot(battle);
+}
+
+export async function getBattleCached(params: BattleCacheParams): Promise<HudBattleResult> {
+  return getBattleCachedFast(params, { enrich: true });
 }
