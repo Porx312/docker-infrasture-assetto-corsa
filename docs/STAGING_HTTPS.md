@@ -1,6 +1,6 @@
 # Staging HTTPS (Caddy + Let's Encrypt)
 
-Expose ac-data on **HTTPS** for launcher, HUD overlay, and admin on this VPS.
+Expose ac-data on **HTTPS** for HUD overlay and admin on this VPS.
 
 ## Architecture
 
@@ -86,19 +86,19 @@ HUD overlay:
 https://dev-api.projectd.space/hud/stream?steamId=...
 ```
 
-ZIP downloads (`/client/hud/download`, `/client/content/.../download`) always return **200 with a full body** — no conditional `304` caching.
+ZIP downloads (`/client/hud/download`) always return **200 with a full body** — no conditional `304` caching.
 
 ## Verification
 
 ```bash
 curl -s https://dev-api.projectd.space/api/health
 curl -s https://dev-api.projectd.space/client/bootstrap | jq '.hud'
-curl -sI https://dev-api.projectd.space/client/content/cars/MOD_NAME/download | grep -i content-length
 curl -sS -D - -o /dev/null -H 'If-None-Match: W/"test"' \
   https://dev-api.projectd.space/client/hud/download | head -3
 # Must be HTTP 200, not 304
 # Admin login in browser: https://dev-admin.projectd.space/admin
 # HUD SSE: keep connected >5 min while in session
+./scripts/verify-hud-client-api.sh
 ```
 
 ## Troubleshooting

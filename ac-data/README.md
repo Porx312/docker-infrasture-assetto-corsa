@@ -22,7 +22,7 @@ After code changes: **always rebuild + restart ac-data** (see deploy checklist i
 - Publishes Convex config snapshots to `ac:config` → applies INI + restart
 - Spawns native 32-bit AC server processes (must run on host, not Docker)
 - Admin panel: content, branding, activity timeline, server config, ProjectD HUD releases
-- Desktop client sync API (`/client/*`): public launcher downloads (HUD + cars/tracks manifest/ZIP) — see [`docs/CLIENT_SYNC_API.md`](../docs/CLIENT_SYNC_API.md)
+- Public HUD download API (`/client/hud/*`) — see [`docs/HUD_CLIENT_API.md`](../docs/HUD_CLIENT_API.md)
 
 ## Architecture
 

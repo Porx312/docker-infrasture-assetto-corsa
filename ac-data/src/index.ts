@@ -16,7 +16,6 @@ import { startRedisConfigApplier } from './services/redisConfigApplier.js';
 import { startServerPoolMonitor } from './services/serverPool.js';
 import { getPublicHealthHandler } from './controller/healthController.js';
 import { resolveEnvFilePath } from './config/loadEnv.js';
-import { startContentZipCacheWarmer } from './services/contentZipWarmer.js';
 
 const SERVERS_PATH = process.env.SERVERS_PATH;
 if (!SERVERS_PATH) {
@@ -126,6 +125,5 @@ app.listen(PORT, BIND_HOST, async () => {
   void startRedisConvexBridge();
   void startRedisConfigApplier();
   startServerPoolMonitor();
-  startContentZipCacheWarmer();
   console.log(`API corriendo en http://${BIND_HOST}:${PORT}`);
 });

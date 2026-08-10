@@ -29,10 +29,6 @@ import {
   loadHudReleasesPanel,
   mountHudReleasesPanel,
 } from './panels/hud-releases.js';
-import {
-  loadLauncherReleasesPanel,
-  mountLauncherReleasesPanel,
-} from './panels/launcher-releases.js';
 
 const TAB_STORAGE_KEY = 'adminTab';
 
@@ -101,8 +97,6 @@ function renderActivePanel() {
     mountActivityPanel(container);
   } else if (tab.kind === 'hud') {
     mountHudReleasesPanel(container);
-  } else if (tab.kind === 'launcher') {
-    mountLauncherReleasesPanel(container);
   } else {
     mountContentPanel(tab.id, container);
   }
@@ -116,8 +110,6 @@ function loadActivePanel() {
     loadActivityPanel();
   } else if (kind === 'hud') {
     loadHudReleasesPanel();
-  } else if (kind === 'launcher') {
-    loadLauncherReleasesPanel();
   } else {
     loadContent(currentTab);
   }

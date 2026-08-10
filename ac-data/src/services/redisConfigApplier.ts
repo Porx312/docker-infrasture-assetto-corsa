@@ -18,7 +18,6 @@ import {
   updateManagedServersFromSnapshot,
   type ManagedServerRow,
 } from './hud/hudManagedServers.js';
-import { updateLauncherServerSnapshot } from './launcherServerRegistry.js';
 import { connectRedisClient, createRedisClient, isRedisConfigured } from './redisClient.js';
 
 const REDIS_CONFIG_STREAM_KEY = process.env.REDIS_CONFIG_STREAM_KEY || 'ac:config';
@@ -227,7 +226,6 @@ async function handleSnapshot(payload: Record<string, unknown>, isFirstSnapshot:
   if (!Array.isArray(rows) || rows.length === 0) return;
 
   updateManagedServersFromSnapshot(rows as ManagedServerRow[]);
-  updateLauncherServerSnapshot(rows);
 
   for (const row of rows) {
     try {

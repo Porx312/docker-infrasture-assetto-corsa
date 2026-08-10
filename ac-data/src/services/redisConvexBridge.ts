@@ -13,7 +13,6 @@ import {
   updateManagedServersFromSnapshot,
   type ManagedServerRow,
 } from './hud/hudManagedServers.js';
-import { updateLauncherServerSnapshot } from './launcherServerRegistry.js';
 import { publishWorkerErrorEvent } from './activity/activityService.js';
 import {
   handleEventAfterIngest,
@@ -215,7 +214,6 @@ async function startConvexConfigPublisher(client: RedisClientType): Promise<void
 
   const snapshot = snapshotResult as WorkerConfigSnapshotResult;
   updateManagedServersFromSnapshot((snapshot.servers ?? []) as ManagedServerRow[]);
-  updateLauncherServerSnapshot((snapshot.servers ?? []) as ManagedServerRow[]);
   await publishConfigSnapshotToRedis(client, snapshot);
       lastConfigVersion = configVersion;
       console.log(

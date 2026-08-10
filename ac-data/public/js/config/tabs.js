@@ -1,4 +1,4 @@
-/** @typedef {{ id: string; label: string; hint: string; kind: 'content' | 'servers' | 'activity' | 'hud' | 'launcher' }} TabConfig */
+/** @typedef {{ id: string; label: string; hint: string; kind: 'content' | 'servers' | 'activity' | 'hud' }} TabConfig */
 
 /** @type {TabConfig[]} */
 export const TABS = [
@@ -23,14 +23,8 @@ export const TABS = [
   {
     id: 'projectd-hud',
     label: 'ProjectD HUD',
-    hint: 'Overlay ZIP for desktop sync',
+    hint: 'HUD overlay ZIP for players',
     kind: 'hud',
-  },
-  {
-    id: 'projectd-launcher',
-    label: 'ProjectD Launcher',
-    hint: 'Desktop app ZIP for auto-update',
-    kind: 'launcher',
   },
   {
     id: 'servers',
