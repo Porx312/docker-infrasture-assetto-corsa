@@ -56,7 +56,7 @@
                 </div>
                 <button type="button" class="btn btn-ghost btn-icon" id="serverConfigCloseBtn" aria-label="Close">✕</button>
             </header>
-            <form id="serverConfigForm" class="modal-server-body">
+            <form id="serverConfigForm" class="modal-server-body" novalidate>
                 <p class="modal-mod-section">Branding (this instance only)</p>
                 <div class="branding-grid modal-server-grid">
                     <div class="form-group">
@@ -75,9 +75,13 @@
                         <label for="scBannerUrl">Banner image</label>
                         <input class="input" type="url" id="scBannerUrl">
                     </div>
-                    <div class="form-group">
-                        <label for="scLoadingUrl">Loading screen</label>
-                        <input class="input" type="url" id="scLoadingUrl">
+                    <div class="form-group branding-full loading-urls-field">
+                        <div class="loading-urls-header">
+                            <label>Loading screen images (rotates per join)</label>
+                            <button type="button" class="btn btn-ghost btn-sm" id="scLoadingUrlAdd">Add image</button>
+                        </div>
+                        <p class="loading-urls-note">One random URL from this list is shown each time a player connects via Content Manager.</p>
+                        <div class="loading-url-list" id="scLoadingUrlsList"></div>
                     </div>
                 </div>
                 <div class="branding-preview modal-server-preview">
@@ -86,8 +90,8 @@
                         <div class="branding-preview-img" id="scBannerPreview"></div>
                     </div>
                     <div class="branding-preview-block">
-                        <span class="branding-preview-label">Loading</span>
-                        <div class="branding-preview-img" id="scLoadingPreview"></div>
+                        <span class="branding-preview-label">Loading previews</span>
+                        <div class="branding-preview-img loading-preview-multi" id="scLoadingPreview"></div>
                     </div>
                     <div class="branding-preview-block branding-full">
                         <span class="branding-preview-label">CM description</span>

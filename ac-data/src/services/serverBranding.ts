@@ -218,6 +218,14 @@ export function summarizeServers(): ServerBrandingSummary[] {
     });
 }
 
+export type SaveAndApplyBrandingResult = {
+  branding: ServerBranding;
+  updatedIni: number;
+  updatedWrapper: number;
+  cmProxiesRestarted: boolean;
+  warning?: string;
+};
+
 export async function applyBrandingToServers(branding: ServerBranding): Promise<{
   updatedIni: number;
   updatedWrapper: number;
@@ -242,17 +250,25 @@ export async function applyBrandingToServers(branding: ServerBranding): Promise<
         const wrapperPath = wrapperJsonPath(serverName);
         fs.mkdirSync(path.dirname(wrapperPath), { recursive: true });
 
+        const existing = fs.existsSync(wrapperPath)
+          ? (JSON.parse(fs.readFileSync(wrapperPath, 'utf-8')) as Record<string, unknown>)
+          : {};
+
         const wrapperData: Record<string, unknown> = {
+          ...existing,
           description: cmDescription,
           port: wrapperPort,
-          verboseLog: false,
-          downloadSpeedLimit: 0,
-          downloadPasswordOnly: false,
-          publishPasswordChecksum: true,
+          verboseLog: existing.verboseLog ?? false,
+          downloadSpeedLimit: existing.downloadSpeedLimit ?? 0,
+          downloadPasswordOnly: existing.downloadPasswordOnly ?? false,
+          publishPasswordChecksum: existing.publishPasswordChecksum ?? true,
         };
         if (branding.loadingImageUrls.length > 0) {
           wrapperData.loadingImageUrls = branding.loadingImageUrls;
           wrapperData.loadingImageUrl = branding.loadingImageUrls[0];
+        } else {
+          delete wrapperData.loadingImageUrl;
+          delete wrapperData.loadingImageUrls;
         }
 
         fs.writeFileSync(wrapperPath, `${JSON.stringify(wrapperData, null, 2)}\n`, 'utf-8');
@@ -279,10 +295,22 @@ export async function restartCmProxies(): Promise<void> {
 
 export async function saveAndApplyBranding(
   input: ServerBrandingInput,
-): Promise<{ branding: ServerBranding; updatedIni: number; updatedWrapper: number }> {
+): Promise<SaveAndApplyBrandingResult> {
   const branding = normalizeBranding(input);
   await writeServerBranding(branding);
   const applied = await applyBrandingToServers(branding);
-  await restartCmProxies();
-  return { branding, ...applied };
+
+  // CM proxy re-reads cm_wrapper_params.json on every /api/details request; restart is best-effort.
+  let cmProxiesRestarted = false;
+  let warning: string | undefined;
+  try {
+    await restartCmProxies();
+    cmProxiesRestarted = true;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'CM proxy restart failed';
+    warning = `${message}. Branding files were saved; loading screens update on the next CM join.`;
+    console.warn('[branding] CM proxy restart skipped:', message);
+  }
+
+  return { branding, ...applied, cmProxiesRestarted, warning };
 }

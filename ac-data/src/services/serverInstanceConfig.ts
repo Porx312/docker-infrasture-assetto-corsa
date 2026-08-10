@@ -21,6 +21,7 @@ export interface ServerInstanceConfig {
   cmDescriptionBody: string;
   bannerImageUrl: string;
   loadingImageUrl: string;
+  loadingImageUrls: string[];
   httpPort: number | null;
   udpPort: number | null;
   registerToLobby: boolean;
@@ -88,16 +89,27 @@ export function readServerInstanceConfig(serverName: string): ServerInstanceConf
   let cmDescriptionBody = '';
   let bannerImageUrl = '';
   let loadingImageUrl = '';
+  let loadingImageUrls: string[] = [];
 
   if (fs.existsSync(wrapperPath)) {
     const wrapper = JSON.parse(fs.readFileSync(wrapperPath, 'utf-8')) as {
       description?: string;
       loadingImageUrl?: string;
+      loadingImageUrls?: string[];
     };
     const parsed = parseCmDescription(wrapper.description ?? '');
     cmDescriptionBody = parsed.body;
     bannerImageUrl = parsed.bannerImageUrl;
-    loadingImageUrl = wrapper.loadingImageUrl ?? parsed.bannerImageUrl;
+    loadingImageUrls = Array.isArray(wrapper.loadingImageUrls)
+      ? wrapper.loadingImageUrls.map((url) => String(url).trim()).filter(Boolean)
+      : [];
+    loadingImageUrl =
+      wrapper.loadingImageUrl?.trim() ||
+      loadingImageUrls[0] ||
+      parsed.bannerImageUrl;
+    if (loadingImageUrls.length === 0 && loadingImageUrl) {
+      loadingImageUrls = [loadingImageUrl];
+    }
   }
 
   const httpPortRaw = readIniField(ini, 'HTTP_PORT');
@@ -118,6 +130,7 @@ export function readServerInstanceConfig(serverName: string): ServerInstanceConf
     cmDescriptionBody,
     bannerImageUrl,
     loadingImageUrl,
+    loadingImageUrls,
     httpPort: httpPortRaw ? Number.parseInt(httpPortRaw, 10) : null,
     udpPort: udpPortRaw ? Number.parseInt(udpPortRaw, 10) : null,
     registerToLobby: registerRaw === '1',
@@ -168,7 +181,8 @@ export async function updateServerInstanceConfig(
     input.webLink !== undefined ||
     input.cmDescriptionBody !== undefined ||
     input.bannerImageUrl !== undefined ||
-    input.loadingImageUrl !== undefined;
+    input.loadingImageUrl !== undefined ||
+    input.loadingImageUrls !== undefined;
 
   if (brandingTouched) {
     const current = readServerInstanceConfig(serverName);
@@ -178,6 +192,7 @@ export async function updateServerInstanceConfig(
       cmDescriptionBody: input.cmDescriptionBody ?? current.cmDescriptionBody,
       bannerImageUrl: input.bannerImageUrl ?? current.bannerImageUrl,
       loadingImageUrl: input.loadingImageUrl ?? current.loadingImageUrl,
+      loadingImageUrls: input.loadingImageUrls ?? current.loadingImageUrls,
     });
 
     const wrapperPath = wrapperJsonPath(serverName);
@@ -210,7 +225,12 @@ export async function updateServerInstanceConfig(
 
     fs.mkdirSync(path.dirname(wrapperPath), { recursive: true });
     fs.writeFileSync(wrapperPath, `${JSON.stringify(wrapperData, null, 2)}\n`, 'utf-8');
-    await restartCmProxyForServer(serverName);
+    try {
+      await restartCmProxyForServer(serverName);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'CM proxy restart failed';
+      console.warn(`[server-config] ${serverName} CM proxy restart skipped:`, message);
+    }
   }
 
   return readServerInstanceConfig(serverName);

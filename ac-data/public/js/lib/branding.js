@@ -61,6 +61,23 @@ function readLoadingImageUrls(containerId) {
   return urls;
 }
 
+/** @returns {string|null} Error message for the first invalid URL, if any. */
+export function validateLoadingImageUrls(urls) {
+  for (let index = 0; index < urls.length; index += 1) {
+    const url = urls[index]?.trim();
+    if (!url) continue;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return `Loading screen #${index + 1}: use http(s) URL`;
+      }
+    } catch {
+      return `Loading screen #${index + 1}: invalid URL`;
+    }
+  }
+  return null;
+}
+
 /** Ensure the global loading URL list has at least one editable row. */
 export function seedLoadingUrlsList(refs) {
   if (!refs.loadingListMode || !refs.loadingListContainer) return;
@@ -88,7 +105,9 @@ function renderLoadingUrlsList(refs, urls) {
     <div class="loading-url-row" data-loading-url-row>
       <input
         class="input loading-url-input"
-        type="url"
+        type="text"
+        inputmode="url"
+        autocomplete="off"
         data-loading-url-input
         value="${escapeAttr(url)}"
         placeholder="https://..."

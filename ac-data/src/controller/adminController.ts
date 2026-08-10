@@ -261,6 +261,7 @@ export async function getServerInstanceConfigHandler(req: Request, res: Response
                     cmDescriptionBody: config.cmDescriptionBody,
                     bannerImageUrl: config.bannerImageUrl,
                     loadingImageUrl: config.loadingImageUrl,
+                    loadingImageUrls: config.loadingImageUrls,
                 }),
             ),
         });
@@ -285,6 +286,7 @@ export async function updateServerInstanceConfigHandler(req: Request, res: Respo
                     cmDescriptionBody: config.cmDescriptionBody,
                     bannerImageUrl: config.bannerImageUrl,
                     loadingImageUrl: config.loadingImageUrl,
+                    loadingImageUrls: config.loadingImageUrls,
                 }),
             ),
             servers: summarizeServers(),
@@ -298,13 +300,20 @@ export async function updateServerInstanceConfigHandler(req: Request, res: Respo
 export async function updateServerBrandingHandler(req: Request, res: Response): Promise<void> {
     try {
         const result = await saveAndApplyBranding(req.body ?? {});
+        const restartNote = result.cmProxiesRestarted
+            ? `${result.updatedWrapper} CM wrappers restarted`
+            : 'CM proxies not restarted (files updated)';
         res.json({
             ok: true,
-            message: `Branding applied to ${result.updatedIni} servers (${result.updatedWrapper} CM wrappers restarted)`,
+            message: result.warning
+                ? result.warning
+                : `Branding applied to ${result.updatedIni} servers (${restartNote})`,
             branding: result.branding,
             cmDescriptionPreview: buildCmDescription(result.branding),
             updatedIni: result.updatedIni,
             updatedWrapper: result.updatedWrapper,
+            cmProxiesRestarted: result.cmProxiesRestarted,
+            warning: result.warning,
             servers: summarizeServers(),
         });
     } catch (err: unknown) {

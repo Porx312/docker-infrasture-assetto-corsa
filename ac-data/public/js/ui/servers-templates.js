@@ -17,7 +17,7 @@ export function renderServersPanelHtml() {
         <span class="panel-count" id="serversCount"></span>
       </div>
       <p class="panel-note">Global branding applies to all instances. Click an instance below to override branding for that server only.</p>
-      <form id="brandingForm" class="branding-form">
+      <form id="brandingForm" class="branding-form" novalidate>
         ${renderBrandingFieldsHtml(GLOBAL_BRANDING_REFS, {
           descriptionRows: 3,
           cmBodyRows: 5,

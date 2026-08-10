@@ -6,6 +6,7 @@ import {
   readBranding,
   setCmPreviewHtml,
   seedLoadingUrlsList,
+  validateLoadingImageUrls,
 } from '../lib/branding.js';
 import { closeModal, openModal } from '../lib/modal.js';
 import { showToast } from '../lib/toast.js';
@@ -22,7 +23,7 @@ let activeServerName = null;
 /** Bumps when branding is saved so in-flight GET /branding cannot overwrite the form. */
 let brandingLoadSeq = 0;
 
-const SERVER_BRANDING_REFS = brandingRefs('sc');
+const SERVER_BRANDING_REFS = brandingRefs('sc', { loadingListMode: true });
 
 /**
  * @param {HTMLElement} container
@@ -77,6 +78,12 @@ async function saveGlobalBranding() {
   if (!(btn instanceof HTMLButtonElement)) return;
 
   const payload = readBranding(GLOBAL_BRANDING_REFS);
+  const urlError = validateLoadingImageUrls(payload.loadingImageUrls ?? []);
+  if (urlError) {
+    showToast(urlError, 'error');
+    return;
+  }
+
   const saveSeq = ++brandingLoadSeq;
 
   btn.disabled = true;
@@ -87,7 +94,7 @@ async function saveGlobalBranding() {
     if (saveSeq !== brandingLoadSeq) return;
 
     if (data.ok) {
-      showToast(data.message || 'Branding saved');
+      showToast(data.warning || data.message || 'Branding saved');
       fillBranding(GLOBAL_BRANDING_REFS, data.branding ?? payload);
       brandingLoadSeq += 1;
       renderChips(data.servers);
@@ -164,6 +171,7 @@ function fillServerFields(config) {
     cmDescriptionBody: String(config.cmDescriptionBody ?? ''),
     bannerImageUrl: String(config.bannerImageUrl ?? ''),
     loadingImageUrl: String(config.loadingImageUrl ?? ''),
+    loadingImageUrls: Array.isArray(config.loadingImageUrls) ? config.loadingImageUrls : undefined,
   });
 }
 
@@ -181,10 +189,19 @@ export async function saveServerConfig(e) {
   btn.disabled = true;
   btn.textContent = 'Saving…';
 
+  const payload = readServerFields();
+  const urlError = validateLoadingImageUrls(payload.loadingImageUrls ?? []);
+  if (urlError) {
+    showToast(urlError, 'error');
+    btn.disabled = false;
+    btn.textContent = 'Save branding';
+    return;
+  }
+
   try {
     const { data } = await apiPut(
       `/servers/${encodeURIComponent(activeServerName)}/config`,
-      readServerFields(),
+      payload,
     );
 
     if (data.ok) {
@@ -210,6 +227,7 @@ export async function saveServerConfig(e) {
 }
 
 export function initServerConfigModal() {
+  seedLoadingUrlsList(SERVER_BRANDING_REFS);
   bindBrandingPreview(SERVER_BRANDING_REFS);
   document.getElementById('serverConfigForm')?.addEventListener('submit', saveServerConfig);
 }
