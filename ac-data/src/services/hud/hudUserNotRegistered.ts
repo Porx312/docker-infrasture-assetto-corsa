@@ -1,10 +1,10 @@
+import { getHudRedisClient, isHudRedisConfigured } from './hudRedis.js';
 import {
-  getHudRedisClient,
-  hudRedisDel,
-  hudRedisGet,
-  hudRedisSet,
-  isHudRedisConfigured,
-} from './hudRedis.js';
+  clearUserStatusFlag,
+  markUserStatusFlag,
+  readUserStatusFlag,
+  userStatusFlagRedisKey,
+} from './userStatusFlag.js';
 
 export const USER_NOT_REGISTERED_REDIS_PREFIX =
   process.env.USER_NOT_REGISTERED_REDIS_PREFIX || 'ac:user:not_registered:';
@@ -16,8 +16,15 @@ export const USER_NOT_REGISTERED_TTL_SEC = Number(
   process.env.USER_NOT_REGISTERED_TTL_SEC || 86_400,
 );
 
+const FLAG_CONFIG = {
+  redisPrefix: USER_NOT_REGISTERED_REDIS_PREFIX,
+  channel: USER_NOT_REGISTERED_CHANNEL,
+  ttlSec: USER_NOT_REGISTERED_TTL_SEC,
+  logLabel: 'user-registration',
+};
+
 export function userNotRegisteredRedisKey(steamId: string): string {
-  return `${USER_NOT_REGISTERED_REDIS_PREFIX}${steamId.trim()}`;
+  return userStatusFlagRedisKey(USER_NOT_REGISTERED_REDIS_PREFIX, steamId);
 }
 
 export type UserNotRegisteredMessage = {
@@ -31,11 +38,7 @@ export type UserRegisteredWelcomeMessage = {
 };
 
 export async function readUserNotRegistered(steamId: string): Promise<boolean> {
-  if (!isHudRedisConfigured()) {
-    return false;
-  }
-  const value = await hudRedisGet(userNotRegisteredRedisKey(steamId));
-  return value !== null;
+  return readUserStatusFlag(USER_NOT_REGISTERED_REDIS_PREFIX, steamId);
 }
 
 type MarkNotRegisteredFn = (
@@ -50,25 +53,6 @@ export function setMarkUserNotRegisteredForTests(fn: MarkNotRegisteredFn | null)
   markUserNotRegisteredOverride = fn;
 }
 
-async function markUserNotRegisteredImpl(
-  steamId: string,
-  options?: { publish?: boolean },
-): Promise<void> {
-  const trimmed = steamId.trim();
-  if (!trimmed || trimmed.startsWith('unknown_') || !isHudRedisConfigured()) {
-    return;
-  }
-
-  const key = userNotRegisteredRedisKey(trimmed);
-  const message: UserNotRegisteredMessage = { steamId: trimmed, ts: Date.now() };
-  const redis = await getHudRedisClient();
-  await hudRedisSet(key, '1', USER_NOT_REGISTERED_TTL_SEC);
-  if (options?.publish !== false) {
-    await redis.publish(USER_NOT_REGISTERED_CHANNEL, JSON.stringify(message));
-  }
-  console.log(`[user-registration] marked steamId=${trimmed}`);
-}
-
 export async function markUserNotRegistered(
   steamId: string,
   options?: { publish?: boolean },
@@ -77,16 +61,11 @@ export async function markUserNotRegistered(
     await markUserNotRegisteredOverride(steamId, options);
     return;
   }
-  await markUserNotRegisteredImpl(steamId, options);
+  await markUserStatusFlag(FLAG_CONFIG, steamId, options);
 }
 
 export async function clearUserNotRegistered(steamId: string): Promise<void> {
-  const trimmed = steamId.trim();
-  if (!trimmed || !isHudRedisConfigured()) {
-    return;
-  }
-  await hudRedisDel(userNotRegisteredRedisKey(trimmed));
-  console.log(`[user-registration] cleared steamId=${trimmed}`);
+  await clearUserStatusFlag(USER_NOT_REGISTERED_REDIS_PREFIX, steamId, FLAG_CONFIG.logLabel);
 }
 
 /** Pub/sub after worker refresh clears not_registered (Steam linked mid-session). */

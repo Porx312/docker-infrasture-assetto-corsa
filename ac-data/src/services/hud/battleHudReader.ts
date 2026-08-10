@@ -36,6 +36,7 @@ export function normalizeBattlePlayerSnapshot(
     car_name: player.car_name ?? carId,
     score: player.score,
     ...(player.role ? { role: player.role } : {}),
+    ...(player.aheadOnTrack !== undefined ? { aheadOnTrack: player.aheadOnTrack } : {}),
     ...(player.avatar_url ? { avatar_url: player.avatar_url } : {}),
   };
   return mergeCosmeticFields(normalized, snapshotCosmeticSource(player));
@@ -60,6 +61,7 @@ export function mapProfileToBattlePlayer(
     car_name: profile.car_name || carId,
     score: base.score,
     ...(base.role ? { role: base.role } : {}),
+    ...(base.aheadOnTrack !== undefined ? { aheadOnTrack: base.aheadOnTrack } : {}),
     ...(profile.avatar_url ? { avatar_url: profile.avatar_url } : {}),
     ...(base.display_style ? { display_style: base.display_style } : {}),
     ...(base.frame_url ? { frame_url: base.frame_url } : {}),

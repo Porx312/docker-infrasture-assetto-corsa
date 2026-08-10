@@ -170,10 +170,9 @@ export async function refreshPlayerJoinFromConvex(
     return;
   }
 
-  await invalidateHudCachesForSteamId(trimmed);
-
   try {
     const context = await fetchPlayerJoinContextImpl(trimmed);
+    await invalidateHudCachesForSteamId(trimmed);
     await applyPlayerJoinContext(trimmed, context, options);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

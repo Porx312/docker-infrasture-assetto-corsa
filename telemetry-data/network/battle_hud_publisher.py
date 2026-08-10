@@ -264,6 +264,8 @@ def build_battle_snapshot(
     countdown = _arming_countdown_sec(manager)
     if countdown is not None:
         snapshot["armingCountdownSec"] = countdown
+    if resolved_state == "arming" and getattr(manager, "arm_proximity_since", 0.0) > 0.0:
+        snapshot["armProximitySince"] = manager.arm_proximity_since
 
     if cancel_reason:
         snapshot["cancelReason"] = cancel_reason

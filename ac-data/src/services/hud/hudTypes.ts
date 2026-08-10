@@ -200,6 +200,8 @@ export type HudBattlePlayer = {
   car_name: string;
   score: number;
   role?: 'lead' | 'chase';
+  /** Live track position vs opponent (from telemetry); drives gap bar direction in HUD. */
+  aheadOnTrack?: boolean;
   display_style?: HudDisplayStyle;
   frame_url?: string;
   input_type?: HudInputType;
@@ -245,6 +247,7 @@ export type HudBattleOk = {
     | 'cancelled'
     | 'none';
   armingCountdownSec?: number;
+  armProximitySince?: number;
   serverName: string;
   track: string;
   trackConfig: string;

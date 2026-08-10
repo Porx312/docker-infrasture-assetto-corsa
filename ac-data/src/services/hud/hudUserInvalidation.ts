@@ -1,10 +1,9 @@
 import {
-  getHudRedisClient,
-  hudRedisDel,
-  hudRedisGet,
-  hudRedisSet,
-  isHudRedisConfigured,
-} from './hudRedis.js';
+  clearUserStatusFlag,
+  markUserStatusFlag,
+  readUserStatusFlag,
+  userStatusFlagRedisKey,
+} from './userStatusFlag.js';
 
 export const USER_INVALIDATED_REDIS_PREFIX =
   process.env.USER_INVALIDATED_REDIS_PREFIX || 'ac:user:invalidated:';
@@ -12,8 +11,15 @@ export const USER_INVALIDATED_CHANNEL =
   process.env.USER_INVALIDATED_CHANNEL || 'ac:user:invalidated';
 export const USER_INVALIDATED_TTL_SEC = Number(process.env.USER_INVALIDATED_TTL_SEC || 86_400);
 
+const FLAG_CONFIG = {
+  redisPrefix: USER_INVALIDATED_REDIS_PREFIX,
+  channel: USER_INVALIDATED_CHANNEL,
+  ttlSec: USER_INVALIDATED_TTL_SEC,
+  logLabel: 'user-ban',
+};
+
 export function userInvalidatedRedisKey(steamId: string): string {
-  return `${USER_INVALIDATED_REDIS_PREFIX}${steamId.trim()}`;
+  return userStatusFlagRedisKey(USER_INVALIDATED_REDIS_PREFIX, steamId);
 }
 
 export type UserInvalidatedMessage = {
@@ -22,11 +28,7 @@ export type UserInvalidatedMessage = {
 };
 
 export async function readUserInvalidated(steamId: string): Promise<boolean> {
-  if (!isHudRedisConfigured()) {
-    return false;
-  }
-  const value = await hudRedisGet(userInvalidatedRedisKey(steamId));
-  return value !== null;
+  return readUserStatusFlag(USER_INVALIDATED_REDIS_PREFIX, steamId);
 }
 
 type MarkInvalidatedFn = (
@@ -41,25 +43,6 @@ export function setMarkUserInvalidatedForTests(fn: MarkInvalidatedFn | null): vo
   markUserInvalidatedOverride = fn;
 }
 
-async function markUserInvalidatedImpl(
-  steamId: string,
-  options?: { publish?: boolean },
-): Promise<void> {
-  const trimmed = steamId.trim();
-  if (!trimmed || trimmed.startsWith('unknown_') || !isHudRedisConfigured()) {
-    return;
-  }
-
-  const key = userInvalidatedRedisKey(trimmed);
-  const message: UserInvalidatedMessage = { steamId: trimmed, ts: Date.now() };
-  const redis = await getHudRedisClient();
-  await hudRedisSet(key, '1', USER_INVALIDATED_TTL_SEC);
-  if (options?.publish !== false) {
-    await redis.publish(USER_INVALIDATED_CHANNEL, JSON.stringify(message));
-  }
-  console.log(`[user-ban] marked steamId=${trimmed}`);
-}
-
 export async function markUserInvalidated(
   steamId: string,
   options?: { publish?: boolean },
@@ -68,14 +51,9 @@ export async function markUserInvalidated(
     await markUserInvalidatedOverride(steamId, options);
     return;
   }
-  await markUserInvalidatedImpl(steamId, options);
+  await markUserStatusFlag(FLAG_CONFIG, steamId, options);
 }
 
 export async function clearUserInvalidated(steamId: string): Promise<void> {
-  const trimmed = steamId.trim();
-  if (!trimmed || !isHudRedisConfigured()) {
-    return;
-  }
-  await hudRedisDel(userInvalidatedRedisKey(trimmed));
-  console.log(`[user-ban] cleared steamId=${trimmed}`);
+  await clearUserStatusFlag(USER_INVALIDATED_REDIS_PREFIX, steamId, FLAG_CONFIG.logLabel);
 }

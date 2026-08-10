@@ -40,7 +40,7 @@ def test_parse_pref_notify_message_legacy_accept_battle():
 
 
 @patch("core.user_prefs_notify.settings")
-@patch("core.user_prefs_notify.send_chat")
+@patch("core.steam_id_chat_notify.send_chat")
 def test_notify_pref_change_accept_battle(mock_send_chat, mock_settings):
     mock_settings.USER_PREFS_NOTIFY_ENABLED = True
     mock_settings.USER_PREFS_ACCEPT_BATTLE_DISABLED_MESSAGE = "Battles disabled."
@@ -60,7 +60,7 @@ def test_notify_pref_change_accept_battle(mock_send_chat, mock_settings):
 
 
 @patch("core.user_prefs_notify.settings")
-@patch("core.user_prefs_notify.send_chat")
+@patch("core.steam_id_chat_notify.send_chat")
 def test_notify_pref_change_save_time(mock_send_chat, mock_settings):
     mock_settings.USER_PREFS_NOTIFY_ENABLED = True
     mock_settings.USER_PREFS_SAVE_TIME_ENABLED_MESSAGE = "Times saved."

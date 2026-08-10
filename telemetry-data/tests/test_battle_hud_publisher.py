@@ -162,6 +162,19 @@ def test_build_battle_snapshot_role_in_launching():
     assert snapshot["player2"]["role"] == "chase"
 
 
+def test_build_battle_snapshot_arming_includes_proximity_since():
+    import time
+
+    server = _FakeServerState()
+    mgr = _pair_manager()
+    mgr.state = "IDLE"
+    mgr.arm_proximity_since = time.time() - 1.0
+    snapshot = publisher.build_battle_snapshot(server, mgr, hud_state="arming")
+    assert snapshot["state"] == "arming"
+    assert snapshot["armingCountdownSec"] >= 1
+    assert snapshot["armProximitySince"] == mgr.arm_proximity_since
+
+
 def test_build_battle_snapshot_terminal_cancel_fields():
     server = _FakeServerState()
     mgr = _pair_manager()

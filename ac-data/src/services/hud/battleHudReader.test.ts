@@ -23,6 +23,47 @@ const profile: HudProfile = {
   input_type: 'wheel',
 };
 
+test('normalizeBattlePlayerSnapshot preserves aheadOnTrack from Redis snapshot', () => {
+  const ahead = normalizeBattlePlayerSnapshot({
+    steamId: 'steam-a',
+    name: 'Alice',
+    car: 'ks_toyota_gt86',
+    score: 1,
+    role: 'lead',
+    aheadOnTrack: true,
+  });
+
+  assert.equal(ahead.aheadOnTrack, true);
+  assert.equal(ahead.role, 'lead');
+
+  const behind = normalizeBattlePlayerSnapshot({
+    steamId: 'steam-a',
+    name: 'Alice',
+    car: 'ks_toyota_gt86',
+    score: 1,
+    role: 'lead',
+    aheadOnTrack: false,
+  });
+
+  assert.equal(behind.aheadOnTrack, false);
+});
+
+test('mapProfileToBattlePlayer preserves aheadOnTrack from battle snapshot', () => {
+  const base = normalizeBattlePlayerSnapshot({
+    steamId: 'steam-a',
+    name: 'Alice',
+    car_id: 'legacy_car',
+    score: 2,
+    role: 'lead',
+    aheadOnTrack: false,
+  });
+
+  const merged = mapProfileToBattlePlayer(base, profile);
+
+  assert.equal(merged.aheadOnTrack, false);
+  assert.equal(merged.role, 'lead');
+});
+
 test('normalizeBattlePlayerSnapshot maps legacy car to car_id', () => {
   const normalized = normalizeBattlePlayerSnapshot({
     steamId: 'steam-a',

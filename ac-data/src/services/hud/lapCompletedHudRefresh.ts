@@ -27,6 +27,18 @@ import type {
   PlayerCacheParams,
   SessionQueryParams,
 } from './hudTypes.js';
+import { isTransientHudErrorReason, TRANSIENT_HUD_ERROR_REASONS } from './hudTransientReasons.js';
+import {
+  invalidateHudCachesForSteamId,
+  invalidatePlayerCache,
+  invalidateSessionCache,
+} from './hudSessionCache.js';
+
+export {
+  invalidateHudCachesForSteamId,
+  invalidatePlayerCache,
+  invalidateSessionCache,
+} from './hudSessionCache.js';
 
 const HUD_SESSION_RIVALS_RETRY_ATTEMPTS = Number(process.env.HUD_SESSION_RIVALS_RETRY_ATTEMPTS || 3);
 const HUD_SESSION_RIVALS_RETRY_MS = Number(process.env.HUD_SESSION_RIVALS_RETRY_MS || 300);
@@ -112,12 +124,6 @@ let fetchHudSessionImpl: FetchHudSessionFn = fetchHudSession;
 export function setFetchHudSessionForTests(fn: FetchHudSessionFn | null): void {
   fetchHudSessionImpl = fn ?? fetchHudSession;
 }
-
-const TRANSIENT_HUD_ERROR_REASONS = new Set<string>([
-  'server_not_found',
-  'track_not_found',
-  'car_not_found',
-]);
 
 /** TTL for caching failed HUD reads; null means do not cache. */
 export function hudErrorCacheTtlSec(reason: string, defaultTtlSec: number): number | null {
@@ -207,7 +213,7 @@ function isTransientHudFailure(result: HudPlayerResult | HudSessionResult): bool
   if (result.ok) {
     return false;
   }
-  return result.reason === 'player_not_connected' || TRANSIENT_HUD_ERROR_REASONS.has(result.reason);
+  return result.reason === 'player_not_connected' || isTransientHudErrorReason(result.reason);
 }
 
 async function readCachedSessionFallback(redisKey: string): Promise<HudSessionResult | null> {
@@ -316,25 +322,6 @@ function normalizeSessionResult(result: HudSessionResult): HudSessionResult {
     return { ...result, profile: null };
   }
   return { ...result, profile };
-}
-
-export async function invalidatePlayerCache(params: PlayerCacheParams): Promise<void> {
-  const cacheKey = buildPlayerCacheKey(params);
-  await hudRedisDel(playerRedisKey(cacheKey));
-}
-
-export async function invalidateSessionCache(params: SessionQueryParams): Promise<void> {
-  await hudRedisDel(sessionRedisKey(buildSessionCacheKey(params)));
-}
-
-export async function invalidateHudCachesForSteamId(steamId: string): Promise<void> {
-  const trimmed = steamId.trim();
-  if (!trimmed || trimmed.startsWith('unknown_')) {
-    return;
-  }
-  const params = { steamId: trimmed };
-  await invalidatePlayerCache(params);
-  await invalidateSessionCache(params);
 }
 
 export async function bumpBoardVersionsForLap(job: {

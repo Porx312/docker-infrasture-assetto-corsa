@@ -55,7 +55,7 @@ router.post('/worker/refresh-user', (req: Request, res: Response) => {
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`[hud-worker] refresh-user failed steamId=${steamId}: ${message}`);
-      res.status(500).json({ ok: false, error: message });
+      res.status(503).json({ ok: false, convexRefreshFailed: true, error: message, steamId });
     });
 });
 

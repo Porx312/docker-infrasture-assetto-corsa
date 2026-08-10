@@ -1,45 +1,25 @@
 import time
 from unittest.mock import MagicMock, patch
 
-from core import settings
 from core.server_registry import register_server, reset_registry_for_tests
 from core.session_manager import DriverInfo, ServerState
 from core.user_ban_enforcer import (
-    _parse_hud_player_banned,
-    hud_player_redis_key,
+    _handle_invalidation_message,
     is_steam_id_banned,
     kick_driver,
     kick_steam_id_everywhere,
     user_invalidated_redis_key,
 )
+from core.user_status_cache import reset_user_status_cache_for_tests
+
+
+def setup_function():
+    reset_registry_for_tests()
+    reset_user_status_cache_for_tests()
 
 
 def test_user_invalidated_redis_key():
     assert user_invalidated_redis_key("76561199000000001") == "ac:user:invalidated:76561199000000001"
-
-
-def test_hud_player_redis_key():
-    assert hud_player_redis_key("76561199000000001") == "ac:hud:player:76561199000000001"
-
-
-def test_parse_hud_player_banned_reason():
-    raw = '{"ok": false, "reason": "user_invalidated"}'
-    assert _parse_hud_player_banned(raw) is True
-
-
-def test_parse_hud_player_banned_profile_flag():
-    raw = '{"ok": true, "profile": {"isInvalidated": true}}'
-    assert _parse_hud_player_banned(raw) is True
-
-
-def test_parse_hud_player_banned_snake_case_profile_flag():
-    raw = '{"ok": true, "profile": {"is_invalidated": true}}'
-    assert _parse_hud_player_banned(raw) is True
-
-
-def test_parse_hud_player_banned_valid_profile():
-    raw = '{"ok": true, "profile": {"isInvalidated": false}}'
-    assert _parse_hud_player_banned(raw) is False
 
 
 @patch("core.user_ban_enforcer.settings.USER_BAN_ENABLED", True)
@@ -57,21 +37,25 @@ def test_is_steam_id_banned_reads_primary_key(mock_get_client):
 @patch("core.user_ban_enforcer.settings.USER_BAN_ENABLED", True)
 @patch("core.user_ban_enforcer.settings.REDIS_HOST", "127.0.0.1")
 @patch("core.redis_client.get_redis_client")
-def test_is_steam_id_banned_ignores_stale_hud_player_cache(mock_get_client):
+def test_is_steam_id_banned_uses_ttl_cache(mock_get_client):
     redis = MagicMock()
-    player_key = hud_player_redis_key("steam-b")
-
-    def _get(key):
-        if key == user_invalidated_redis_key("steam-b"):
-            return None
-        if key == player_key:
-            return '{"ok": false, "reason": "user_invalidated"}'
-        return None
-
-    redis.get.side_effect = _get
+    redis.get.return_value = "1"
     mock_get_client.return_value = redis
 
-    assert is_steam_id_banned("steam-b") is False
+    assert is_steam_id_banned("steam-cache") is True
+    assert is_steam_id_banned("steam-cache", quiet=True) is True
+    assert redis.get.call_count == 1
+
+
+@patch("core.user_ban_enforcer.settings.USER_BAN_ENABLED", False)
+def test_is_steam_id_banned_disabled_flag():
+    assert is_steam_id_banned("76561199000000001") is False
+
+
+@patch("core.user_ban_enforcer.kick_steam_id_everywhere")
+def test_handle_invalidation_message_parses_json(mock_kick):
+    _handle_invalidation_message('{"steamId":"76561199000000001","ts":1}')
+    mock_kick.assert_called_once_with("76561199000000001")
 
 
 @patch("core.user_ban_enforcer.execute_warn_then_kick", return_value=True)

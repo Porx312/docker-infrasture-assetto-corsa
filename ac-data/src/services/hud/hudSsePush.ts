@@ -1,12 +1,13 @@
 import { fetchHudVersion, isHudConvexConfigured } from './hudConvex.js';
 import { normalizeHudProfile } from './hudProfile.js';
+import { invalidateSessionCache } from './hudSessionCache.js';
 import {
   fetchHudSessionWithRetry,
   getSessionCached,
-  invalidateSessionCache,
   sessionLeaderboardFingerprint,
 } from './lapCompletedHudRefresh.js';
 import { markUserInvalidated } from './hudUserInvalidation.js';
+import { TRANSIENT_SSE_SESSION_REASONS } from './hudTransientReasons.js';
 import type { HudSessionResult, HudVersionOk, HudVersionResult } from './hudTypes.js';
 
 export type PushHudUpdateOptions = {
@@ -164,13 +165,6 @@ function shouldSkipSessionPush(steamId: string, session: HudSessionResult): bool
   }
   return true;
 }
-
-const TRANSIENT_SSE_SESSION_REASONS = new Set<string>([
-  'server_not_found',
-  'track_not_found',
-  'car_not_found',
-  'player_not_connected',
-]);
 
 function sessionHasProfile(session: HudSessionResult): boolean {
   return session.ok && session.profile != null;

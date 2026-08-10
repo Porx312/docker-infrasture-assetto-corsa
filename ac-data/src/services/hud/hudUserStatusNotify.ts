@@ -36,6 +36,7 @@ export async function refreshHudUserStatusFromConvex(
     console.warn(
       `[hud-user-status] Convex refresh failed for steamId=${trimmed}${reasonSuffix}: ${message}`,
     );
+    throw error;
   }
 
   const cached = await getSessionCached({ steamId: trimmed });

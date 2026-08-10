@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
-import json
 import threading
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from core import settings
 from core.logging_config import get_logger
+from core.redis_pubsub_subscriber import parse_steam_id_message, run_pubsub_subscriber_loop
 from core.server_registry import find_driver_by_steam_id
 from core.session_manager import DriverInfo
 from core.user_ban_enforcer import is_steam_id_banned
 from core.user_kick_common import execute_warn_then_kick, find_driver_on_server
+from core.user_status_cache import read_not_registered_cached, write_not_registered_cached
 
 if TYPE_CHECKING:
     from core.session_manager import ServerState
@@ -38,6 +39,12 @@ def is_steam_id_not_registered(steam_id: str, *, quiet: bool = False) -> bool:
     if is_steam_id_banned(trimmed, quiet=True):
         return False
 
+    cached = read_not_registered_cached(trimmed)
+    if cached is not None:
+        if cached and not quiet:
+            log.info("registration check: steamId=%s not registered (cache)", trimmed)
+        return cached
+
     if not settings.REDIS_HOST:
         return False
 
@@ -45,18 +52,14 @@ def is_steam_id_not_registered(steam_id: str, *, quiet: bool = False) -> bool:
         from core.redis_client import get_redis_client
 
         redis = get_redis_client()
-        if redis.get(user_not_registered_redis_key(trimmed)):
-            if not quiet:
-                log.info("registration check: steamId=%s not registered", trimmed)
-            return True
-        return False
+        not_registered = bool(redis.get(user_not_registered_redis_key(trimmed)))
+        write_not_registered_cached(trimmed, not_registered)
+        if not_registered and not quiet:
+            log.info("registration check: steamId=%s not registered", trimmed)
+        return not_registered
     except Exception as exc:
         log.warning("registration check failed for %s: %s", trimmed, exc)
         return False
-
-
-def _find_driver_on_server(server_state: ServerState, guid: str) -> DriverInfo | None:
-    return find_driver_on_server(server_state, guid)
 
 
 def kick_unregistered_car(
@@ -144,7 +147,7 @@ def schedule_deferred_registration_kick(server_state: ServerState, driver: Drive
                 )
                 return
 
-        current = _find_driver_on_server(server_state, guid)
+        current = find_driver_on_server(server_state, guid)
         if current is None:
             log.info(
                 "[%s] deferred registration kick skipped (driver gone) guid=%s",
@@ -220,52 +223,18 @@ def kick_steam_id_everywhere_unregistered(
 
 
 def _handle_not_registered_message(raw: str) -> None:
-    trimmed = raw.strip()
-    if not trimmed:
+    steam_id = parse_steam_id_message(raw)
+    if not steam_id:
         return
-
-    steam_id: str | None = None
-    try:
-        payload: Any = json.loads(trimmed)
-        if isinstance(payload, dict):
-            value = payload.get("steamId") or payload.get("steam_id")
-            if isinstance(value, str) and value.strip():
-                steam_id = value.strip()
-    except (TypeError, json.JSONDecodeError):
-        pass
-
-    if steam_id is None:
-        steam_id = trimmed
-
     kick_steam_id_everywhere_unregistered(steam_id)
 
 
 def _registration_subscriber_loop() -> None:
-    if not settings.REDIS_HOST:
-        log.info("user registration subscriber disabled (REDIS_HOST missing)")
-        return
-
-    try:
-        from core.redis_client import get_redis_blocking_client
-
-        redis = get_redis_blocking_client()
-        pubsub = redis.pubsub(ignore_subscribe_messages=True)
-        pubsub.subscribe(settings.USER_NOT_REGISTERED_CHANNEL)
-        log.info(
-            "user registration subscriber listening on %s",
-            settings.USER_NOT_REGISTERED_CHANNEL,
-        )
-
-        for message in pubsub.listen():
-            if message.get("type") != "message":
-                continue
-            data = message.get("data")
-            if isinstance(data, bytes):
-                data = data.decode("utf-8", errors="replace")
-            if isinstance(data, str):
-                _handle_not_registered_message(data)
-    except Exception:
-        log.exception("user registration subscriber stopped")
+    run_pubsub_subscriber_loop(
+        settings.USER_NOT_REGISTERED_CHANNEL,
+        _handle_not_registered_message,
+        log_label="user registration subscriber",
+    )
 
 
 def start_user_registration_subscriber() -> None:

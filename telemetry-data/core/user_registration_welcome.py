@@ -8,8 +8,8 @@ from typing import Any
 
 from core import settings
 from core.logging_config import get_logger
-from core.server_registry import find_driver_by_steam_id
-from core.session_manager import send_chat
+from core.redis_pubsub_subscriber import run_pubsub_subscriber_loop
+from core.steam_id_chat_notify import notify_steam_id_chat
 
 log = get_logger("user_registration_welcome")
 
@@ -25,30 +25,11 @@ def notify_registered_welcome(steam_id: str) -> int:
     if not trimmed or trimmed.startswith("unknown_"):
         return 0
 
-    message = settings.USER_REGISTERED_WELCOME_MESSAGE
-    matches = find_driver_by_steam_id(trimmed)
-    sent = 0
-
-    for server_state, driver in matches:
-        car_id = driver.car_id
-        if car_id is None or not server_state.last_server_addr:
-            continue
-        send_chat(server_state, car_id, message)
-        sent += 1
-        log.info(
-            "[%s] registration welcome chat steamId=%s car=%s",
-            server_state.port,
-            trimmed,
-            car_id,
-        )
-
-    if sent == 0:
-        log.info(
-            "registration welcome chat: steamId=%s but no active driver with car_id",
-            trimmed,
-        )
-
-    return sent
+    return notify_steam_id_chat(
+        trimmed,
+        settings.USER_REGISTERED_WELCOME_MESSAGE,
+        log_label="registration welcome",
+    )
 
 
 def _parse_registered_message(raw: str) -> str | None:
@@ -78,31 +59,11 @@ def _handle_registered_message(raw: str) -> None:
 
 
 def _registered_welcome_subscriber_loop() -> None:
-    if not settings.REDIS_HOST:
-        log.info("registration welcome subscriber disabled (REDIS_HOST missing)")
-        return
-
-    try:
-        from core.redis_client import get_redis_blocking_client
-
-        redis = get_redis_blocking_client()
-        pubsub = redis.pubsub(ignore_subscribe_messages=True)
-        pubsub.subscribe(settings.USER_REGISTERED_CHANNEL)
-        log.info(
-            "registration welcome subscriber listening on %s",
-            settings.USER_REGISTERED_CHANNEL,
-        )
-
-        for message in pubsub.listen():
-            if message.get("type") != "message":
-                continue
-            data = message.get("data")
-            if isinstance(data, bytes):
-                data = data.decode("utf-8", errors="replace")
-            if isinstance(data, str):
-                _handle_registered_message(data)
-    except Exception:
-        log.exception("registration welcome subscriber stopped")
+    run_pubsub_subscriber_loop(
+        settings.USER_REGISTERED_CHANNEL,
+        _handle_registered_message,
+        log_label="registration welcome subscriber",
+    )
 
 
 def start_user_registered_welcome_subscriber() -> None:

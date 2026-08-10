@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-import json
 import threading
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from core import settings
 from core.logging_config import get_logger
+from core.redis_pubsub_subscriber import parse_steam_id_message, run_pubsub_subscriber_loop
 from core.server_registry import find_driver_by_steam_id
 from core.session_manager import DriverInfo
 from core.user_kick_common import execute_warn_then_kick, find_driver_on_server
+from core.user_status_cache import read_banned_cached, write_banned_cached
 
 if TYPE_CHECKING:
     from core.session_manager import ServerState
@@ -26,33 +27,6 @@ def user_invalidated_redis_key(steam_id: str) -> str:
     return f"{settings.USER_INVALIDATED_REDIS_PREFIX}{steam_id.strip()}"
 
 
-def hud_player_redis_key(steam_id: str) -> str:
-    return f"ac:hud:player:{steam_id.strip()}"
-
-
-def _parse_hud_player_banned(raw: str | None) -> bool:
-    if not raw:
-        return False
-    try:
-        payload = json.loads(raw)
-    except (TypeError, json.JSONDecodeError):
-        return False
-
-    if not isinstance(payload, dict):
-        return False
-
-    if payload.get("ok") is False and payload.get("reason") == "user_invalidated":
-        return True
-
-    profile = payload.get("profile")
-    if isinstance(profile, dict) and (
-        profile.get("isInvalidated") is True or profile.get("is_invalidated") is True
-    ):
-        return True
-
-    return False
-
-
 def is_steam_id_banned(steam_id: str, *, quiet: bool = False) -> bool:
     if not settings.USER_BAN_ENABLED:
         return False
@@ -61,6 +35,12 @@ def is_steam_id_banned(steam_id: str, *, quiet: bool = False) -> bool:
     if not trimmed or trimmed.startswith("unknown_"):
         return False
 
+    cached = read_banned_cached(trimmed)
+    if cached is not None:
+        if cached and not quiet:
+            log.info("ban check: steamId=%s banned (cache)", trimmed)
+        return cached
+
     if not settings.REDIS_HOST:
         return False
 
@@ -68,17 +48,14 @@ def is_steam_id_banned(steam_id: str, *, quiet: bool = False) -> bool:
         from core.redis_client import get_redis_client
 
         redis = get_redis_client()
-        if redis.get(user_invalidated_redis_key(trimmed)):
-            if not quiet:
-                log.info("ban check: steamId=%s banned (invalidated key)", trimmed)
-            return True
-        return False
+        banned = bool(redis.get(user_invalidated_redis_key(trimmed)))
+        write_banned_cached(trimmed, banned)
+        if banned and not quiet:
+            log.info("ban check: steamId=%s banned (invalidated key)", trimmed)
+        return banned
     except Exception as exc:
         log.warning("ban check failed for %s: %s", trimmed, exc)
         return False
-
-
-from core.user_kick_common import find_driver_on_server, execute_warn_then_kick
 
 
 def kick_banned_car(
@@ -219,49 +196,18 @@ def kick_steam_id_everywhere(steam_id: str, reason: str = "user_invalidated") ->
 
 
 def _handle_invalidation_message(raw: str) -> None:
-    trimmed = raw.strip()
-    if not trimmed:
+    steam_id = parse_steam_id_message(raw)
+    if not steam_id:
         return
-
-    steam_id: str | None = None
-    try:
-        payload: Any = json.loads(trimmed)
-        if isinstance(payload, dict):
-            value = payload.get("steamId") or payload.get("steam_id")
-            if isinstance(value, str) and value.strip():
-                steam_id = value.strip()
-    except (TypeError, json.JSONDecodeError):
-        pass
-
-    if steam_id is None:
-        steam_id = trimmed
-
     kick_steam_id_everywhere(steam_id)
 
 
 def _ban_subscriber_loop() -> None:
-    if not settings.REDIS_HOST:
-        log.info("user ban subscriber disabled (REDIS_HOST missing)")
-        return
-
-    try:
-        from core.redis_client import get_redis_blocking_client
-
-        redis = get_redis_blocking_client()
-        pubsub = redis.pubsub(ignore_subscribe_messages=True)
-        pubsub.subscribe(settings.USER_INVALIDATED_CHANNEL)
-        log.info("user ban subscriber listening on %s", settings.USER_INVALIDATED_CHANNEL)
-
-        for message in pubsub.listen():
-            if message.get("type") != "message":
-                continue
-            data = message.get("data")
-            if isinstance(data, bytes):
-                data = data.decode("utf-8", errors="replace")
-            if isinstance(data, str):
-                _handle_invalidation_message(data)
-    except Exception:
-        log.exception("user ban subscriber stopped")
+    run_pubsub_subscriber_loop(
+        settings.USER_INVALIDATED_CHANNEL,
+        _handle_invalidation_message,
+        log_label="user ban subscriber",
+    )
 
 
 def start_user_ban_subscriber() -> None:

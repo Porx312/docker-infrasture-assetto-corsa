@@ -5,12 +5,19 @@ from core import settings
 from core.server_registry import register_server, reset_registry_for_tests
 from core.session_manager import DriverInfo, ServerState
 from core.user_registration_enforcer import (
+    _handle_not_registered_message,
     is_steam_id_not_registered,
     kick_unregistered_driver,
     kick_steam_id_everywhere_unregistered,
     schedule_deferred_registration_kick,
     user_not_registered_redis_key,
 )
+from core.user_status_cache import reset_user_status_cache_for_tests
+
+
+def setup_function():
+    reset_registry_for_tests()
+    reset_user_status_cache_for_tests()
 
 
 def test_user_not_registered_redis_key():
@@ -194,3 +201,28 @@ def test_maybe_kick_unregistered_driver_on_car_update_skips_wait_client_loaded(
 
     mock_kick.assert_called_once()
     assert mock_kick.call_args.kwargs.get("wait_client_loaded") is False
+
+
+@patch("core.user_registration_enforcer.settings.USER_REGISTRATION_REQUIRED", True)
+@patch("core.user_registration_enforcer.settings.REDIS_HOST", "127.0.0.1")
+@patch("core.user_registration_enforcer.is_steam_id_banned", return_value=False)
+@patch("core.redis_client.get_redis_client")
+def test_is_steam_id_not_registered_uses_ttl_cache(mock_get_client, _mock_banned):
+    redis = MagicMock()
+    redis.get.return_value = "1"
+    mock_get_client.return_value = redis
+
+    assert is_steam_id_not_registered("steam-cache") is True
+    assert is_steam_id_not_registered("steam-cache", quiet=True) is True
+    assert redis.get.call_count == 1
+
+
+@patch("core.user_registration_enforcer.settings.USER_REGISTRATION_REQUIRED", False)
+def test_is_steam_id_not_registered_disabled_flag():
+    assert is_steam_id_not_registered("76561199000000001") is False
+
+
+@patch("core.user_registration_enforcer.kick_steam_id_everywhere_unregistered")
+def test_handle_not_registered_message_parses_json(mock_kick):
+    _handle_not_registered_message('{"steamId":"76561199000000001","ts":1}')
+    mock_kick.assert_called_once_with("76561199000000001")

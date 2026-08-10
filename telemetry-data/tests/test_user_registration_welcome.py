@@ -23,7 +23,7 @@ def test_parse_registered_message():
 
 
 @patch("core.user_registration_welcome.settings")
-@patch("core.user_registration_welcome.send_chat")
+@patch("core.steam_id_chat_notify.send_chat")
 def test_notify_registered_welcome_sends_private_chat(mock_send_chat, mock_settings):
     mock_settings.USER_REGISTERED_WELCOME_ENABLED = True
     mock_settings.USER_REGISTERED_WELCOME_MESSAGE = "Steam linked — welcome."
