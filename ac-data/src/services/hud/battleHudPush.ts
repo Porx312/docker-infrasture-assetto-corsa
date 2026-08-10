@@ -44,9 +44,20 @@ function emitToRoom(room: string, event: BattleHudPushEvent, payload: unknown): 
 function scheduleBattleClear(room: string): void {
   cancelClearTimer(room);
   const timer = setTimeout(() => {
-    clearTimers.delete(room);
-    const payload: HudBattleErr = { ok: false, reason: 'no_battle' };
-    emitToRoom(room, 'battle', payload);
+    void (async () => {
+      clearTimers.delete(room);
+      const params = parseBattleScopeKey(room);
+      if (params) {
+        const result = await battleSnapshotFetcher(params);
+        if (result.ok && shouldScheduleClear(result)) {
+          emitToRoom(room, 'battle', result);
+          scheduleBattleClear(room);
+          return;
+        }
+      }
+      const payload: HudBattleErr = { ok: false, reason: 'no_battle' };
+      emitToRoom(room, 'battle', payload);
+    })();
   }, battleClearDelayMs());
   clearTimers.set(room, timer);
 }
