@@ -3,6 +3,7 @@ import { Router, type Request, type Response } from 'express';
 import { handleHudStreamSse } from '../services/hud/hudStreamSse.js';
 import { handleHudSnapshot } from '../services/hud/hudSnapshot.js';
 import { refreshHudUserStatusFromConvex } from '../services/hud/hudUserStatusNotify.js';
+import { getHudConvexQueryStats } from '../services/hud/hudConvexQueryStats.js';
 import {
   isWorkerRequestAuthorized,
   readSteamIdFromWorkerRequest,
@@ -56,6 +57,16 @@ router.post('/worker/refresh-user', (req: Request, res: Response) => {
       console.error(`[hud-worker] refresh-user failed steamId=${steamId}: ${message}`);
       res.status(500).json({ ok: false, error: message });
     });
+});
+
+/** Worker diagnostics: in-process Convex HUD query counters (since ac-data start). */
+router.get('/worker/convex-query-stats', (req: Request, res: Response) => {
+  if (!isWorkerRequestAuthorized(req)) {
+    res.status(401).json({ ok: false, error: 'unauthorized' });
+    return;
+  }
+
+  res.json({ ok: true, ...getHudConvexQueryStats() });
 });
 
 export default router;

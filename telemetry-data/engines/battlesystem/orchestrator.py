@@ -1,5 +1,6 @@
 import time
 
+from core import settings
 from core.logging_config import get_logger
 from core.hud_sse_presence import filter_hud_eligible, is_hud_sse_active
 from core.user_prefs import filter_battle_accept_eligible
@@ -32,6 +33,7 @@ class BattleManager:
         self.pair_managers = {}  # (guid_a, guid_b) sorted -> PairBattleManager
         self.guid_to_pair = {}  # guid -> pair key
         self.recent_pair_cooldowns = {}  # (guid_a, guid_b) sorted -> expires_at
+        self.declined_battle_notify_cooldowns = {}  # (eligible_guid, declined_guid) -> expires_at
 
         # External callbacks (same contract as legacy manager).
         self.on_battle_start = None
@@ -90,6 +92,67 @@ class BattleManager:
                 if self.guid_to_pair.get(g) == key:
                     self.guid_to_pair.pop(g, None)
 
+    def _notify_near_declined_opponents(
+        self,
+        eligible: set[str],
+        declined: list[str],
+        now: float,
+    ) -> None:
+        if (
+            not settings.BATTLE_CHAT_ENABLED
+            or not settings.BATTLE_DECLINED_NOTIFY_ENABLED
+            or not self.on_chat_message
+            or not eligible
+            or not declined
+        ):
+            return
+
+        cooldown_sec = settings.BATTLE_DECLINED_NOTIFY_COOLDOWN_SEC
+        self.declined_battle_notify_cooldowns = {
+            key: expires_at
+            for key, expires_at in self.declined_battle_notify_cooldowns.items()
+            if expires_at > now
+        }
+
+        for eligible_guid in eligible:
+            if eligible_guid in self.guid_to_pair:
+                continue
+            eligible_car = self.cars.get(eligible_guid)
+            if not eligible_car:
+                continue
+
+            for declined_guid in declined:
+                if declined_guid in self.guid_to_pair:
+                    continue
+                declined_car = self.cars.get(declined_guid)
+                if not declined_car:
+                    continue
+                if (
+                    eligible_car.speed <= BATTLE_ARM_MIN_SPEED_KMH
+                    or declined_car.speed <= BATTLE_ARM_MIN_SPEED_KMH
+                ):
+                    continue
+                if not is_within_battle_gap(
+                    eligible_car.pos,
+                    declined_car.pos,
+                    BATTLE_ARM_MAX_GAP_METERS,
+                ):
+                    continue
+
+                notify_key = (eligible_guid, declined_guid)
+                if self.declined_battle_notify_cooldowns.get(notify_key, 0.0) > now:
+                    continue
+
+                opponent_name = self.player_names.get(declined_guid, declined_guid)
+                message = settings.BATTLE_DECLINED_OPPONENT_MESSAGE.format(player=opponent_name)
+                self.on_chat_message(eligible_guid, message)
+                self.declined_battle_notify_cooldowns[notify_key] = now + cooldown_sec
+                log.info(
+                    "declined battle notify to %s (opponent %s)",
+                    self.player_names.get(eligible_guid, eligible_guid),
+                    opponent_name,
+                )
+
     def _try_matchmake(self):
         now = time.time()
         self.recent_pair_cooldowns = {
@@ -113,6 +176,9 @@ class BattleManager:
                 return
 
         battle_eligible = filter_battle_accept_eligible(free)
+        declined = [g for g in free if g not in battle_eligible]
+        if declined and battle_eligible:
+            self._notify_near_declined_opponents(battle_eligible, declined, now)
         free = [g for g in free if g in battle_eligible]
         if len(free) < 2:
             return
@@ -168,6 +234,7 @@ class BattleManager:
             self.pair_managers.clear()
             self.guid_to_pair.clear()
             self.recent_pair_cooldowns.clear()
+            self.declined_battle_notify_cooldowns.clear()
             return
         log.info(
             "battle config arm_gap=%.0fm arm_speed=%.0f km/h launch_timeout=%.0fs "

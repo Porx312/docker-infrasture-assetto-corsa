@@ -11,6 +11,7 @@ import {
   fetchPlayerJoinContext,
   fetchWorkerSyncVersion,
 } from './hudConvex.js';
+import { resetHudConvexQueryStatsForTests } from './hudConvexQueryStats.js';
 
 function fetchFailedError(): TypeError {
   return new TypeError('fetch failed', { cause: new Error('read ECONNRESET') });
@@ -28,6 +29,7 @@ function mockClientThrowing(): void {
 }
 
 test('fetchHudVersion returns convex_unreachable on fetch failed', async () => {
+  resetHudConvexQueryStatsForTests();
   mockClientThrowing();
   try {
     const result = await fetchHudVersion({ steamId: '76561199000000001', now: Date.now() });

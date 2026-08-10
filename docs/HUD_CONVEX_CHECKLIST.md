@@ -20,8 +20,33 @@ Verify after deploy:
 
 ```bash
 ./scripts/verify-convex-hud-session.sh YOUR_STEAM_ID
-# Run twice; version string should be identical when rank/rivals unchanged
+./scripts/verify-convex-hud-version-stable.sh YOUR_STEAM_ID
+# Run version-stable twice; version string should be identical when rank/rivals unchanged
 ```
+
+## Query volume diagnostics (ac-data)
+
+Convex `getHudSession` / `getHudVersion` are called only from **ac-data**, not from the in-game overlay.
+
+| Symptom in Convex dashboard | Likely cause |
+|-----------------------------|--------------|
+| Steady `getHudVersion` ~12/min/player | Overlay **poll** mode (`GET /hud/snapshot` every 5s) |
+| Bursts on lap PB | `lap_completed` refresh + rival fan-out + retries |
+| Duplicate session+version pairs | Fixed: pub/sub `bumpPlayerVersion` now uses Redis cache push |
+
+**Measure on VPS:**
+
+```bash
+# In-process counters (since ac-data restart)
+./scripts/verify-hud-convex-query-volume.sh
+
+# Optional: log every 60s to ac-data.log
+HUD_CONVEX_QUERY_LOG_INTERVAL_MS=60000
+```
+
+Worker endpoint: `GET /hud/worker/convex-query-stats` (header `X-Worker-Secret`).
+
+See also [`HUD_TIME_ATTACK_INTEGRATION.md`](HUD_TIME_ATTACK_INTEGRATION.md) env table for retry/fan-out tuning.
 
 ## Fleet / VPS
 

@@ -1,5 +1,6 @@
 import '../../config/loadEnv.js';
 import { ensureConvexClient } from '../convexClient.js';
+import { recordHudConvexQuery } from './hudConvexQueryStats.js';
 import type {
   HudSessionResult,
   HudVersionQueryParams,
@@ -36,6 +37,7 @@ function workerArgs(extra: Record<string, unknown> = {}): Record<string, unknown
 }
 
 async function runHudConvexQuery<T>(label: string, fn: () => Promise<T>): Promise<T | { ok: false; reason: 'convex_unreachable' }> {
+  recordHudConvexQuery(label);
   try {
     return await fn();
   } catch (err) {

@@ -10,6 +10,7 @@ import hudRoutes from './routes/hudRoutes.js';
 import { clientLauncherMiddleware } from './middleware/clientLauncherMiddleware.js';
 import { hudMiddleware } from './middleware/hudMiddleware.js';
 import { initHudPushHub } from './services/hud/battleHudPush.js';
+import { startHudConvexQueryStatsLogging } from './services/hud/hudConvexQueryStats.js';
 import { startRedisConvexBridge } from './services/redisConvexBridge.js';
 import { startRedisConfigApplier } from './services/redisConfigApplier.js';
 import { startServerPoolMonitor } from './services/serverPool.js';
@@ -119,6 +120,7 @@ app.use('/admin', express.static(ADMIN_PUBLIC_PATH, {
 
 // ------------------------ START SERVER ------------------------
 initHudPushHub();
+startHudConvexQueryStatsLogging();
 
 app.listen(PORT, BIND_HOST, async () => {
   void startRedisConvexBridge();

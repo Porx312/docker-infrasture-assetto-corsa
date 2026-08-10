@@ -226,10 +226,14 @@ export async function pushHudUpdateForSteamId(
     return;
   }
 
+  const cachedSession = testHooks?.getSessionCached
+    ? await testHooks.getSessionCached(steamId)
+    : await getSessionCached({ steamId });
+
   if (options?.preferCachedSession && !bypassCache) {
     const session = testHooks?.loadSession
       ? await testHooks.loadSession(steamId, false)
-      : await getSessionCached({ steamId });
+      : cachedSession;
     if (!session.ok) {
       if (session.reason === 'user_invalidated') {
         await markUserInvalidated(steamId);
@@ -251,6 +255,10 @@ export async function pushHudUpdateForSteamId(
     return;
   }
 
+  if (options?.skipIfSessionUnchanged && cachedSession.ok && shouldSkipSessionPush(steamId, cachedSession)) {
+    return;
+  }
+
   const versionResult = testHooks?.fetchVersion
     ? await testHooks.fetchVersion(steamId)
     : await fetchHudVersion({
@@ -259,11 +267,23 @@ export async function pushHudUpdateForSteamId(
       });
 
   if (!versionResult.ok) {
-    const cachedSession = await getSessionCached({ steamId });
     if (!cachedSession.ok && cachedSession.reason === 'user_invalidated') {
       await markUserInvalidated(steamId);
     }
     emitToSteamId(steamId, 'hud_error', buildHudErrorEvent(steamId, versionResult.reason));
+    return;
+  }
+
+  if (!bypassCache && cachedSession.ok && cachedSession.version === versionResult.version) {
+    if (options?.skipIfSessionUnchanged && shouldSkipSessionPush(steamId, cachedSession)) {
+      return;
+    }
+    const versionForClient: HudVersionOk = {
+      ...versionResult,
+      version: cachedSession.version,
+    };
+    emitHudVersionToSteamId(steamId, versionForClient);
+    emitHudSessionToSteamId(steamId, cachedSession);
     return;
   }
 

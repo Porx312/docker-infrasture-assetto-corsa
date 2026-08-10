@@ -185,14 +185,86 @@ test('pushHudUpdateForSteamId skips emit when skipIfSessionUnchanged and fingerp
     },
   };
 
+  let fetchVersionCalls = 0;
   setHudSsePushTestHooks({
-    fetchVersion: async () => version,
+    fetchVersion: async () => {
+      fetchVersionCalls += 1;
+      return version;
+    },
+    getSessionCached: async () => session,
     loadSession: async () => session,
   });
 
   try {
     await pushHudUpdateForSteamId(steamId, false, { skipIfSessionUnchanged: true });
     assert.equal(events.length, 0);
+    assert.equal(fetchVersionCalls, 0);
+  } finally {
+    setHudSsePushTestHooks(null);
+    unregister();
+    resetHudSseConnectionsForTests();
+  }
+});
+
+test('pushHudUpdateForSteamId skips getHudSession when Redis version matches getHudVersion', async () => {
+  const events: Array<{ event: string; data: unknown }> = [];
+
+  const unregister = registerHudSseConnection({
+    steamId,
+    lastVersionFingerprint: null,
+    listener: (event, data) => {
+      events.push({ event, data });
+    },
+  });
+
+  const version: HudVersionOk = {
+    ok: true,
+    version: 'srv:track:layout:car:9',
+    lbVersion: 'srv:track:layout:car',
+    playerVersion: 42,
+  };
+
+  const cachedSession: HudSessionOk = {
+    ok: true,
+    version: version.version,
+    context: {
+      server_id: 's1',
+      server_name: 'test',
+      track_id: 'pk_akina',
+      track_name: 'Akina',
+      layout_id: 'downhill',
+      layout_name: 'Downhill',
+      car_id: 'ae86',
+      car_name: 'AE86',
+      player_steam_id: steamId,
+    },
+    profile: {
+      name: 'Pilot',
+      rank: 3,
+      tier: 4,
+      best_lap_ms: 118_000,
+      car_name: 'AE86',
+      car_id: 'ae86',
+      steam_id: steamId,
+      rivals: { above: null, below: null },
+    },
+  };
+
+  let loadCalls = 0;
+  setHudSsePushTestHooks({
+    fetchVersion: async () => version,
+    getSessionCached: async () => cachedSession,
+    loadSession: async () => {
+      loadCalls += 1;
+      return cachedSession;
+    },
+  });
+
+  try {
+    await pushHudUpdateForSteamId(steamId, false);
+    assert.equal(loadCalls, 0);
+    assert.equal(events.length, 2);
+    assert.equal((events[1]?.data as { profile?: { rank: number } }).profile?.rank, 3);
   } finally {
     setHudSsePushTestHooks(null);
     unregister();

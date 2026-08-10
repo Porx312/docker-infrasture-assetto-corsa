@@ -74,7 +74,11 @@ export function initHudPushHub(): void {
     onPlayerUpdate: (update) => {
       const parsed = parsePlayerScopeKey(update.scopeKey);
       if (parsed) {
-        void pushHudUpdateForSteamId(parsed.cacheKey, true);
+        // Cache was just written by refreshPlayerHudCache; avoid duplicate Convex fetch.
+        void pushHudUpdateForSteamId(parsed.cacheKey, false, {
+          preferCachedSession: true,
+          skipIfSessionUnchanged: true,
+        });
       }
     },
   });
