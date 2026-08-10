@@ -81,3 +81,14 @@ def test_lap_completed_unified_without_type_publishes(mock_send, server_state):
     server_state.battle_manager.handle_lap_completed.assert_called_once_with(
         "76561199230780195"
     )
+
+
+@patch("core.handlers.lap_completed.send_server_event")
+def test_lap_completed_publishes_regardless_of_save_time_pref(mock_send, server_state):
+    """saveTime is enforced in ac-data Convex ingest only; telemetry always publishes."""
+    runtime_config.set_server_modes(
+        [{"serverName": "server", "displayName": "pord", "type": "time-attack"}]
+    )
+    process_packet(_lap_completed_packet(), server_state, ("127.0.0.1", 12001))
+    mock_send.assert_called_once()
+    assert mock_send.call_args.args[0] == "lap_completed"

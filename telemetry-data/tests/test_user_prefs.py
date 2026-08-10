@@ -52,3 +52,15 @@ def test_redis_key_helpers():
         accept_battle_redis_key("76561199000000001")
         == "ac:user:prefs:accept_battle:76561199000000001"
     )
+
+
+def test_telemetry_does_not_gate_lap_publish_on_save_time():
+    """saveTime Redis key exists for ac-data; telemetry must not filter lap_completed on it."""
+    import inspect
+
+    from core.handlers import lap_completed as lap_handler
+
+    source = inspect.getsource(lap_handler)
+    assert "save_time" not in source
+    assert "saveTime" not in source
+    assert "user_prefs" not in source

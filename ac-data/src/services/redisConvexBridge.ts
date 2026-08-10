@@ -18,7 +18,7 @@ import {
   handleEventAfterIngest,
   handleEventBeforeIngest,
 } from './eventHandlers/index.js';
-import { shouldSkipLapCompletedIngest } from './eventHandlers/lapCompleted.js';
+import { partitionCoalescedByIngestPrefs } from './ingestPrefPartition.js';
 import { buildIngestEvent } from './ingestEventBuilder.js';
 import {
   isNonRetryableIngestError,
@@ -246,21 +246,6 @@ function appendToIngestBuffer(state: IngestBufferState, items: PendingIngestMess
     state.startedAt = Date.now();
   }
   state.items.push(...items);
-}
-
-async function partitionCoalescedByIngestPrefs(
-  coalesced: PendingIngestMessage[],
-): Promise<{ forward: PendingIngestMessage[]; localOnly: PendingIngestMessage[] }> {
-  const forward: PendingIngestMessage[] = [];
-  const localOnly: PendingIngestMessage[] = [];
-  for (const item of coalesced) {
-    if (item.event === 'lap_completed' && (await shouldSkipLapCompletedIngest(item.payload))) {
-      localOnly.push(item);
-    } else {
-      forward.push(item);
-    }
-  }
-  return { forward, localOnly };
 }
 
 /**

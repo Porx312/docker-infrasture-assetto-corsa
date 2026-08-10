@@ -13,13 +13,25 @@ function lapSteamIdFromPayload(payload: EventPayload): string {
   return typeof lapData.steamId === 'string' ? lapData.steamId.trim() : '';
 }
 
+type SaveTimeReader = (steamId: string) => Promise<boolean>;
+
+let saveTimeReaderForTests: SaveTimeReader | null = null;
+
+/** Override Redis readSaveTimeEnabled in unit tests (no Redis required). */
+export function setSaveTimeReaderForTests(reader: SaveTimeReader | null): void {
+  saveTimeReaderForTests = reader;
+}
+
 /** Skip Convex ingest when user opted out of saving lap times (HUD still updated locally). */
 export async function shouldSkipLapCompletedIngest(payload: EventPayload): Promise<boolean> {
   const steamId = lapSteamIdFromPayload(payload);
   if (!steamId) {
     return false;
   }
-  return !(await readSaveTimeEnabled(steamId));
+  const enabled = saveTimeReaderForTests
+    ? await saveTimeReaderForTests(steamId)
+    : await readSaveTimeEnabled(steamId);
+  return !enabled;
 }
 
 export async function handleLapCompletedAfterIngest(payload: EventPayload): Promise<void> {

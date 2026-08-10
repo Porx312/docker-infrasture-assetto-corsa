@@ -1,8 +1,9 @@
 """Matchmaking gated on acceptBattle user pref."""
 
 import time
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+from core.user_prefs import accept_battle_redis_key, reset_user_prefs_cache_for_tests
 from engines.battlesystem.config import BATTLE_ARM_MIN_SPEED_KMH
 from engines.battlesystem.models import CarState
 from engines.battlesystem.orchestrator import BattleManager
@@ -97,3 +98,52 @@ def test_matchmake_pairs_when_both_accept_battle(mock_filter):
     key = manager._pair_key("steam-a", "steam-b")
     assert manager.guid_to_pair.get("steam-a") == key
     assert manager.guid_to_pair.get("steam-b") == key
+
+
+@patch("core.user_prefs.settings")
+@patch("engines.battlesystem.orchestrator.BATTLE_REQUIRE_HUD_SSE", False)
+def test_matchmake_excludes_declined_via_redis_mget(mock_settings):
+    """End-to-end: Redis acceptBattle=0 → filter_battle_accept_eligible → no pairing."""
+    mock_settings.REDIS_HOST = "localhost"
+    reset_user_prefs_cache_for_tests()
+
+    mock_redis = MagicMock()
+    mock_redis.mget.return_value = [None, b"0"]
+
+    manager = BattleManager()
+    manager.set_server_mode(True)
+    _seed_orchestrator_car(manager, "steam-a", (0.0, 0.0, 0.0))
+    _seed_orchestrator_car(manager, "steam-b", (10.0, 0.0, 0.0))
+
+    with patch("core.redis_client.get_redis_client", return_value=mock_redis):
+        manager._try_matchmake()
+
+    assert "steam-a" not in manager.guid_to_pair
+    assert "steam-b" not in manager.guid_to_pair
+    mock_redis.mget.assert_called_once_with(
+        [accept_battle_redis_key("steam-a"), accept_battle_redis_key("steam-b")]
+    )
+
+
+@patch("core.user_prefs.settings")
+@patch("engines.battlesystem.orchestrator.BATTLE_REQUIRE_HUD_SSE", False)
+def test_matchmake_pairs_when_redis_mget_both_accept(mock_settings):
+    """End-to-end: Redis defaults (None) → both eligible → pair created."""
+    mock_settings.REDIS_HOST = "localhost"
+    reset_user_prefs_cache_for_tests()
+
+    mock_redis = MagicMock()
+    mock_redis.mget.return_value = [None, None]
+
+    manager = BattleManager()
+    manager.set_server_mode(True)
+    _seed_orchestrator_car(manager, "steam-a", (0.0, 0.0, 0.0))
+    _seed_orchestrator_car(manager, "steam-b", (10.0, 0.0, 0.0))
+
+    with patch("core.redis_client.get_redis_client", return_value=mock_redis):
+        manager._try_matchmake()
+
+    key = manager._pair_key("steam-a", "steam-b")
+    assert manager.guid_to_pair.get("steam-a") == key
+    assert manager.guid_to_pair.get("steam-b") == key
+    mock_redis.mget.assert_called_once()
