@@ -41,7 +41,13 @@ router.post('/worker/refresh-user', (req: Request, res: Response) => {
     return;
   }
 
-  void refreshHudUserStatusFromConvex(steamId)
+  const body = req.body as { reason?: unknown } | undefined;
+  const reason = typeof body?.reason === 'string' ? body.reason.trim() : undefined;
+
+  void refreshHudUserStatusFromConvex(steamId, {
+    publishEnforcement: true,
+    reason,
+  })
     .then(() => {
       res.json({ ok: true, steamId });
     })

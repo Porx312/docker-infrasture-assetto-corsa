@@ -161,3 +161,24 @@ Env: `USER_REGISTRATION_REQUIRED`, `USER_NOT_REGISTERED_REDIS_PREFIX`, `USER_NOT
 `USER_NOT_REGISTERED_KICK_MESSAGE`, `USER_KICK_WARN_DELAY_SEC`.
 
 Verify: `./scripts/verify-user-registration-pipeline.sh [steamId]`
+
+## User profile prefs (`saveTime`, `acceptBattle`)
+
+Convex profile fields (default **true** when missing) mirrored to Redis on `player_join` for
+fast worker reads. See [`docs/CONVEX_USER_PREFS.md`](../docs/CONVEX_USER_PREFS.md).
+
+| Key | Writer | Reader | Value when disabled |
+|-----|--------|--------|---------------------|
+| `ac:user:prefs:save_time:{steamId}` | ac-data (`hudUserPrefs.ts`) | ac-data ingest filter (`lap_completed` → skip Convex) | `"0"` (key deleted when enabled) |
+| `ac:user:prefs:accept_battle:{steamId}` | ac-data (`hudUserPrefs.ts`) | telemetry-data battle matchmaking | `"0"` (key deleted when enabled) |
+| Pub/sub `ac:user:prefs:notify` | ac-data on `acceptBattle` toggle (worker push) | telemetry-data → private chat to player | — |
+
+- **`saveTime=false`**: lap still updates HUD locally; ac-data skips Convex batch ingest for that event
+- **`acceptBattle=false`**: player excluded from `_try_matchmake` (drives normally, no pairing)
+- **`acceptBattle` toggle** (Convex `refresh-user`): private server chat to that player only (`USER_PREFS_ACCEPT_BATTLE_*_MESSAGE`)
+
+TTL: `USER_PREFS_TTL_SEC` (default 86400), refreshed on each join.
+
+Env: `USER_PREFS_SAVE_TIME_PREFIX`, `USER_PREFS_ACCEPT_BATTLE_PREFIX`, `USER_PREFS_NOTIFY_CHANNEL`, `USER_PREFS_NOTIFY_ENABLED`, `USER_PREFS_ACCEPT_BATTLE_ENABLED_MESSAGE`, `USER_PREFS_ACCEPT_BATTLE_DISABLED_MESSAGE`.
+
+Verify: `./scripts/verify-user-prefs.sh [steamId]`

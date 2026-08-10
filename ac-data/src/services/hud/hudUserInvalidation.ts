@@ -29,7 +29,19 @@ export async function readUserInvalidated(steamId: string): Promise<boolean> {
   return value !== null;
 }
 
-export async function markUserInvalidated(
+type MarkInvalidatedFn = (
+  steamId: string,
+  options?: { publish?: boolean },
+) => Promise<void>;
+
+let markUserInvalidatedOverride: MarkInvalidatedFn | null = null;
+
+/** Test helper: override markUserInvalidated. */
+export function setMarkUserInvalidatedForTests(fn: MarkInvalidatedFn | null): void {
+  markUserInvalidatedOverride = fn;
+}
+
+async function markUserInvalidatedImpl(
   steamId: string,
   options?: { publish?: boolean },
 ): Promise<void> {
@@ -46,6 +58,17 @@ export async function markUserInvalidated(
     await redis.publish(USER_INVALIDATED_CHANNEL, JSON.stringify(message));
   }
   console.log(`[user-ban] marked steamId=${trimmed}`);
+}
+
+export async function markUserInvalidated(
+  steamId: string,
+  options?: { publish?: boolean },
+): Promise<void> {
+  if (markUserInvalidatedOverride) {
+    await markUserInvalidatedOverride(steamId, options);
+    return;
+  }
+  await markUserInvalidatedImpl(steamId, options);
 }
 
 export async function clearUserInvalidated(steamId: string): Promise<void> {

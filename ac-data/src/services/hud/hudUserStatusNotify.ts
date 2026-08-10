@@ -1,10 +1,20 @@
 import { isHudConvexConfigured } from './hudConvex.js';
 import { getSessionCached } from './lapCompletedHudRefresh.js';
-import { refreshPlayerJoinFromConvex } from './playerJoinContext.js';
+import {
+  refreshPlayerJoinFromConvex,
+  type ApplyPlayerJoinContextOptions,
+} from './playerJoinContext.js';
 import { pushHudUpdateForSteamId } from './hudSsePush.js';
 
+export type RefreshHudUserStatusOptions = ApplyPlayerJoinContextOptions & {
+  reason?: string;
+};
+
 /** Fetch Convex join context (ban + session cache), then push SSE to connected HUD clients. */
-export async function refreshHudUserStatusFromConvex(steamId: string): Promise<void> {
+export async function refreshHudUserStatusFromConvex(
+  steamId: string,
+  options?: RefreshHudUserStatusOptions,
+): Promise<void> {
   const trimmed = steamId.trim();
   if (!trimmed || trimmed.startsWith('unknown_')) {
     return;
@@ -15,12 +25,16 @@ export async function refreshHudUserStatusFromConvex(steamId: string): Promise<v
     return;
   }
 
+  const reasonSuffix = options?.reason ? ` reason=${options.reason}` : '';
+
   try {
-    await refreshPlayerJoinFromConvex(trimmed);
+    await refreshPlayerJoinFromConvex(trimmed, {
+      publishEnforcement: options?.publishEnforcement,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn(
-      `[hud-user-status] Convex refresh failed for steamId=${trimmed}: ${message}`,
+      `[hud-user-status] Convex refresh failed for steamId=${trimmed}${reasonSuffix}: ${message}`,
     );
   }
 

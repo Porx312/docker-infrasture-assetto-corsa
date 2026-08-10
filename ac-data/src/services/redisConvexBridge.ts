@@ -19,6 +19,7 @@ import {
   handleEventAfterIngest,
   handleEventBeforeIngest,
 } from './eventHandlers/index.js';
+import { shouldSkipLapCompletedIngest } from './eventHandlers/lapCompleted.js';
 import { buildIngestEvent } from './ingestEventBuilder.js';
 import {
   isNonRetryableIngestError,
@@ -249,6 +250,21 @@ function appendToIngestBuffer(state: IngestBufferState, items: PendingIngestMess
   state.items.push(...items);
 }
 
+async function partitionCoalescedByIngestPrefs(
+  coalesced: PendingIngestMessage[],
+): Promise<{ forward: PendingIngestMessage[]; localOnly: PendingIngestMessage[] }> {
+  const forward: PendingIngestMessage[] = [];
+  const localOnly: PendingIngestMessage[] = [];
+  for (const item of coalesced) {
+    if (item.event === 'lap_completed' && (await shouldSkipLapCompletedIngest(item.payload))) {
+      localOnly.push(item);
+    } else {
+      forward.push(item);
+    }
+  }
+  return { forward, localOnly };
+}
+
 /**
  * Flush one chunk to Convex. Returns messages that must stay in the buffer
  * (retryable failures). Empty array means the chunk was fully resolved.
@@ -259,14 +275,26 @@ async function flushIngestChunk(
 ): Promise<PendingIngestMessage[]> {
   const coalesced = coalesceIngestBatch(chunk);
   const droppedStatus = chunk.length - coalesced.length;
+  const { forward, localOnly } = await partitionCoalescedByIngestPrefs(coalesced);
 
-  for (const { payload, event } of coalesced) {
+  for (const { payload, event } of forward) {
     await handleEventBeforeIngest(event, payload);
   }
 
-  const ingestResult = await forwardBatchToConvex(coalesced.map((p) => p.payload));
-  const partitioned = partitionIngestResults(coalesced, ingestResult);
-  const { toAck, toRetry } = resolveChunkAckPlan(chunk, coalesced, partitioned);
+  const ingestResult =
+    forward.length > 0
+      ? await forwardBatchToConvex(forward.map((p) => p.payload))
+      : { ok: true, processed: 0, failed: 0, results: [] };
+  const partitioned = partitionIngestResults(forward, ingestResult);
+  const { toAck, toRetry } = resolveChunkAckPlan(chunk, forward, partitioned);
+  const localOnlyIds = new Set(localOnly.map((m) => m.msg.id));
+  const ackIds = new Set(toAck.map((m) => m.msg.id));
+
+  if (localOnly.length > 0) {
+    console.log(
+      `[redis-bridge] skipped Convex ingest for ${localOnly.length} lap_completed (saveTime=false)`,
+    );
+  }
 
   if (partitioned.nonRetryableCount > 0) {
     console.warn(
@@ -276,18 +304,20 @@ async function flushIngestChunk(
 
   if (droppedStatus > 0 && toRetry.length === 0) {
     console.log(
-      `[redis-bridge] ingested ${coalesced.length} events (coalesced ${droppedStatus} server_status)`,
+      `[redis-bridge] ingested ${forward.length} events (coalesced ${droppedStatus} server_status)`,
     );
   }
 
-  const ackIds = new Set(toAck.map((m) => m.msg.id));
   for (const { msg, payload, event } of chunk) {
+    if (localOnlyIds.has(msg.id)) {
+      await handleEventAfterIngest(event, payload);
+      await client.xAck(REDIS_STREAM_KEY, GROUP, msg.id);
+      continue;
+    }
     if (!ackIds.has(msg.id)) {
       continue;
     }
-    // After-ingest only for messages that were actually forwarded (or kept
-    // after coalesce). Dropped duplicate server_status just get XACK.
-    const wasForwarded = coalesced.some((c) => c.msg.id === msg.id);
+    const wasForwarded = forward.some((c) => c.msg.id === msg.id);
     if (wasForwarded) {
       await handleEventAfterIngest(event, payload);
     }
@@ -311,7 +341,7 @@ async function flushIngestChunk(
     '[redis-bridge] convex batch ingest failed (retrying):',
     toRetry.length,
     'of',
-    coalesced.length,
+    forward.length,
     'events',
     droppedStatus > 0 ? `(coalesced ${droppedStatus} duplicate server_status)` : '',
     errorMsg,

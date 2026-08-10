@@ -7,5 +7,5 @@ export async function refreshHudAfterPlayerJoin(steamId: string): Promise<void> 
     return;
   }
 
-  await refreshHudUserStatusFromConvex(trimmed);
+  await refreshHudUserStatusFromConvex(trimmed, { publishEnforcement: false });
 }

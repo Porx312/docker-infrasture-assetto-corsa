@@ -46,6 +46,10 @@ export type HudProfile = {
   display_style?: HudDisplayStyle;
   frame_url?: string;
   input_type?: HudInputType;
+  /** When false, laps are not persisted to Convex leaderboard (default true). */
+  saveTime?: boolean;
+  /** When false, player is excluded from battle matchmaking (default true). */
+  acceptBattle?: boolean;
   /** Added by ac-data on SSE (`rivals.above`); Convex does not send this field. */
   rival?: HudRival | null;
 };

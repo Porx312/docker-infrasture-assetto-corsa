@@ -5,7 +5,7 @@ import {
   playerRedisKey,
   sessionRedisKey,
 } from './hudCacheKeys.js';
-import { isProfileInvalidated, playerResultFromSession } from './hudProfile.js';
+import { isProfileInvalidated, normalizeHudProfile, playerResultFromSession } from './hudProfile.js';
 import {
   clearUserInvalidated,
   markUserInvalidated,
@@ -14,6 +14,7 @@ import {
   clearUserNotRegistered,
   markUserNotRegistered,
 } from './hudUserNotRegistered.js';
+import { syncUserPrefsFromProfile } from './hudUserPrefs.js';
 import {
   invalidateHudCachesForSteamId,
   persistPlayerCacheResult,
@@ -100,15 +101,22 @@ function normalizeSessionForCache(result: HudSessionResult): HudSessionResult {
   return result;
 }
 
+export type ApplyPlayerJoinContextOptions = {
+  /** When true (worker refresh-user), pub/sub kick fires for ban / not-registered mid-session. */
+  publishEnforcement?: boolean;
+};
+
 /** Persist ban + HUD caches from unified player join context. */
 export async function applyPlayerJoinContext(
   steamId: string,
   context: PlayerJoinContextResult,
+  options?: ApplyPlayerJoinContextOptions,
 ): Promise<{ player: HudPlayerResult; session: HudSessionResult }> {
   const trimmed = steamId.trim();
   const user = context.user ?? readJoinUser(context as unknown as Record<string, unknown>, trimmed);
   const invalidated = isUserInvalidated(context, user);
   const notRegistered = !context.ok && context.reason === 'user_not_found';
+  const publish = options?.publishEnforcement === true;
 
   let session = normalizeSessionForCache(defaultSessionResult(context));
   let player = normalizePlayerForCache(playerResultFromSession(session));
@@ -116,10 +124,10 @@ export async function applyPlayerJoinContext(
   if (invalidated) {
     player = { ok: false, reason: 'user_invalidated' };
     session = { ok: false, reason: 'user_invalidated' };
-    await markUserInvalidated(trimmed, { publish: false });
+    await markUserInvalidated(trimmed, { publish });
     await clearUserNotRegistered(trimmed);
   } else if (notRegistered) {
-    await markUserNotRegistered(trimmed, { publish: false });
+    await markUserNotRegistered(trimmed, { publish });
     await clearUserInvalidated(trimmed);
   } else {
     await clearUserInvalidated(trimmed);
@@ -133,15 +141,24 @@ export async function applyPlayerJoinContext(
   }
   await persistSessionCacheResult(sessionRedisKey(buildSessionCacheKey(params)), session);
 
+  const rawProfile = session.ok ? session.profile : player.ok ? player.profile : null;
+  const profile = rawProfile ? normalizeHudProfile(rawProfile) : null;
+  await syncUserPrefsFromProfile(trimmed, profile, {
+    notifyAcceptBattleChange: options?.publishEnforcement === true,
+  });
+
   console.log(
-    `[player-join] steamId=${trimmed} invalidated=${invalidated} notRegistered=${notRegistered} player=${player.ok ? 'ok' : player.reason} session=${session.ok ? 'ok' : session.reason}`,
+    `[player-join] steamId=${trimmed} invalidated=${invalidated} notRegistered=${notRegistered} publishEnforcement=${publish} player=${player.ok ? 'ok' : player.reason} session=${session.ok ? 'ok' : session.reason}`,
   );
 
   return { player, session };
 }
 
-/** Single Convex fetch on player_join: user invalidation + HUD cache seed. */
-export async function refreshPlayerJoinFromConvex(steamId: string): Promise<void> {
+/** Single Convex fetch on player_join or worker refresh-user. */
+export async function refreshPlayerJoinFromConvex(
+  steamId: string,
+  options?: ApplyPlayerJoinContextOptions,
+): Promise<void> {
   const trimmed = steamId.trim();
   if (!trimmed || trimmed.startsWith('unknown_') || !isHudConvexConfigured()) {
     return;
@@ -151,7 +168,7 @@ export async function refreshPlayerJoinFromConvex(steamId: string): Promise<void
 
   try {
     const context = await fetchPlayerJoinContextImpl(trimmed);
-    await applyPlayerJoinContext(trimmed, context);
+    await applyPlayerJoinContext(trimmed, context, options);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn(

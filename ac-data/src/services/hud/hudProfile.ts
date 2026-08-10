@@ -34,6 +34,24 @@ function readBoolean(source: Record<string, unknown>, ...keys: string[]): boolea
   return false;
 }
 
+/** Read boolean pref with opt-out default (missing / undefined → defaultTrue). */
+function readBooleanOrDefault(
+  source: Record<string, unknown>,
+  defaultTrue: boolean,
+  ...keys: string[]
+): boolean {
+  for (const key of keys) {
+    const value = source[key];
+    if (value === true) {
+      return true;
+    }
+    if (value === false) {
+      return false;
+    }
+  }
+  return defaultTrue;
+}
+
 function coerceDisplayStyle(raw: unknown): HudDisplayStyle | undefined {
   if (!raw || typeof raw !== 'object') {
     return undefined;
@@ -183,6 +201,9 @@ export function coerceHudProfile(
   if (source.isInvalidated === true || source.is_invalidated === true) {
     profile.isInvalidated = true;
   }
+
+  profile.saveTime = readBooleanOrDefault(source, true, 'saveTime', 'save_time');
+  profile.acceptBattle = readBooleanOrDefault(source, true, 'acceptBattle', 'accept_battle');
 
   applyCosmeticFields(profile, source);
 

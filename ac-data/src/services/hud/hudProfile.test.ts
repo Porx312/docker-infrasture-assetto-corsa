@@ -180,3 +180,34 @@ test('coerceHudProfile preserves display_style, frame_url, and input_type', () =
   assert.equal(normalized?.rivals.above?.frame_url, 'https://cdn.example.com/frames/silver.png');
   assert.equal(normalized?.rivals.above?.input_type, 'controller');
 });
+
+test('normalizeHudProfile defaults saveTime and acceptBattle to true', () => {
+  const normalized = normalizeHudProfile({
+    ...validProfile,
+    rivals: { above: null, below: null },
+  });
+  assert.equal(normalized?.saveTime, true);
+  assert.equal(normalized?.acceptBattle, true);
+});
+
+test('normalizeHudProfile parses explicit saveTime and acceptBattle false', () => {
+  const normalized = normalizeHudProfile({
+    ...validProfile,
+    saveTime: false,
+    acceptBattle: false,
+    save_time: true,
+    accept_battle: true,
+  });
+  assert.equal(normalized?.saveTime, false);
+  assert.equal(normalized?.acceptBattle, false);
+});
+
+test('normalizeHudProfile accepts snake_case prefs', () => {
+  const normalized = normalizeHudProfile({
+    ...validProfile,
+    save_time: false,
+    accept_battle: false,
+  });
+  assert.equal(normalized?.saveTime, false);
+  assert.equal(normalized?.acceptBattle, false);
+});

@@ -1,6 +1,8 @@
 # Convex: `getPlayerJoinContext` (worker query)
 
-ac-data calls this **once per `player_join`** to sync ban state and seed HUD Redis cache. No polling.
+ac-data calls `getPlayerJoinContext` on **`player_join`** (fallback) and when Convex pushes **`POST /hud/worker/refresh-user`** (immediate). No polling.
+
+See [`CONVEX_PUSH_USER_SYNC.md`](CONVEX_PUSH_USER_SYNC.md) for when Convex must schedule refresh.
 
 There is **no separate `getHudPlayer` query**. HUD profile data comes only from `session` (same shape as `hud:getHudSession`). ac-data derives the local Redis key `ac:hud:player:*` from `session.profile`.
 
@@ -77,6 +79,8 @@ Remove legacy `CONVEX_HUD_PLAYER_QUERY` if still present in `.env.local`.
       "tier": 2,
       "best_lap_ms": 275432,
       "elo": 1180,
+      "saveTime": true,
+      "acceptBattle": true,
       "rivals": { "above": { "…": "…" }, "below": { "…": "…" } }
     }
   }
@@ -107,15 +111,16 @@ Remove legacy `CONVEX_HUD_PLAYER_QUERY` if still present in `.env.local`.
 
 - `markUserInvalidated` / `clearUserInvalidated` from `user.isInvalidated` or `reason`
 - `markUserNotRegistered` / `clearUserNotRegistered` when top-level `reason === user_not_found`
+- `syncUserPrefsFromProfile` → `ac:user:prefs:save_time:*` and `ac:user:prefs:accept_battle:*`
 - Writes `ac:hud:session:*` and derives `ac:hud:player:*` from `session.profile`
 - SSE push reads cache (`preferCachedSession`) — no extra Convex HUD fetch on join
 
 When `user_not_found`, telemetry-data sends a private chat warning then kicks the player from the server
 (see [`telemetry-data/REDIS_CONTRACT.md`](../telemetry-data/REDIS_CONTRACT.md)).
 
-### Push HUD when Convex invalidates / re-validates (mid-session)
+### Push user state when Convex changes (mid-session)
 
-When an admin toggles `users.isInvalidated` in Convex, call ac-data so connected overlays receive SSE immediately (without waiting for reconnect or lap):
+When ban, registration, or privacy prefs change while the player is connected, Convex must call ac-data immediately (do not wait for reconnect):
 
 ```http
 POST http://AC_DATA_HOST:3000/hud/worker/refresh-user
@@ -123,52 +128,26 @@ Content-Type: application/json
 
 {
   "workerSecret": "<CONVEX_WORKER_SECRET>",
-  "steamId": "76561199230780195"
+  "steamId": "76561199230780195",
+  "reason": "invalidated"
 }
 ```
 
+Optional `reason`: `"invalidated"`, `"revalidated"`, `"registered"`, `"prefs"` (logging only).
+
 Header alternative: `X-Worker-Secret: <CONVEX_WORKER_SECRET>`
 
-ac-data runs `getPlayerJoinContext` → updates Redis ban + HUD cache → pushes `hud_error` (`user_invalidated`) or `hud_version` + `hud_session` (re-validated).
+ac-data runs `getPlayerJoinContext` → updates Redis (ban, not-registered, prefs, HUD cache) → pushes SSE → **pub/sub kick** when ban or `user_not_found` (`publishEnforcement: true` on this endpoint only).
 
-**Convex (ProjectD)** — schedule from the mutation that sets `isInvalidated`:
+Schedule from **every** mutation that changes playable state:
 
-```typescript
-"use node";
+| Event | Call refresh-user |
+|-------|-------------------|
+| `users.isInvalidated` toggle | Yes |
+| Steam link / user registered | Yes |
+| `saveTime` / `acceptBattle` toggle | Yes |
 
-import { internalAction } from "./_generated/server";
-import { v } from "convex/values";
-
-export const notifyAcDataHudRefresh = internalAction({
-  args: { steamId: v.string() },
-  returns: v.null(),
-  handler: async (_ctx, args) => {
-    const baseUrl = process.env.AC_DATA_BASE_URL;
-    const workerSecret = process.env.CONVEX_WORKER_SECRET;
-    if (!baseUrl || !workerSecret) {
-      console.warn("[hud] AC_DATA_BASE_URL or CONVEX_WORKER_SECRET missing");
-      return null;
-    }
-    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/hud/worker/refresh-user`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ workerSecret, steamId: args.steamId.trim() }),
-    });
-    if (!response.ok) {
-      console.warn("[hud] ac-data refresh-user failed", await response.text());
-    }
-    return null;
-  },
-});
-```
-
-In the user invalidate/revalidate mutation:
-
-```typescript
-await ctx.scheduler.runAfter(0, internal.workerActions.notifyAcDataHudRefresh, {
-  steamId: user.steamId,
-});
-```
+Full Convex action + examples: [`CONVEX_PUSH_USER_SYNC.md`](CONVEX_PUSH_USER_SYNC.md).
 
 Set `AC_DATA_BASE_URL` in the Convex dashboard (e.g. `http://127.0.0.1:3000` dev, prod URL on VPS).
 
@@ -181,6 +160,8 @@ cd ac-data && npm run build
 ./scripts/verify-convex-player-join.sh --expect-invalidated STEAM_BANEADO_OFFLINE
 ./scripts/verify-convex-hud-session.sh STEAM_CONECTADO
 ./scripts/verify-user-ban-pipeline.sh STEAM_ID
+./scripts/verify-user-prefs.sh STEAM_ID
+./scripts/verify-hud-worker-refresh.sh STEAM_ID prefs
 ```
 
 After Convex deploy + `./stop.sh && ./start.sh dev`, connect with a banned user and confirm:

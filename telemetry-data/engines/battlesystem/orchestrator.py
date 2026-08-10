@@ -2,6 +2,7 @@ import time
 
 from core.logging_config import get_logger
 from core.hud_sse_presence import filter_hud_eligible, is_hud_sse_active
+from core.user_prefs import filter_battle_accept_eligible
 from engines.battlesystem.models import CarState, TougeBattle
 from engines.battlesystem.pair_manager import PairBattleManager
 from engines.battlesystem.config import (
@@ -110,6 +111,11 @@ class BattleManager:
             free = [g for g in free if g in eligible]
             if len(free) < 2:
                 return
+
+        battle_eligible = filter_battle_accept_eligible(free)
+        free = [g for g in free if g in battle_eligible]
+        if len(free) < 2:
+            return
 
         # Greedy nearest-neighbor matching under lock constraints.
         while len(free) >= 2:

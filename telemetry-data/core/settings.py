@@ -78,6 +78,23 @@ HUD_VER_TTL_SEC = _env_int("HUD_VER_TTL_SEC", "3600")
 BATTLE_REQUIRE_HUD_SSE = _env_bool("BATTLE_REQUIRE_HUD_SSE", "false")
 HUD_SSE_REDIS_PREFIX = os.getenv("HUD_SSE_REDIS_PREFIX", "ac:hud:sse:").strip()
 
+USER_PREFS_SAVE_TIME_PREFIX = os.getenv(
+    "USER_PREFS_SAVE_TIME_PREFIX", "ac:user:prefs:save_time:"
+).strip()
+USER_PREFS_ACCEPT_BATTLE_PREFIX = os.getenv(
+    "USER_PREFS_ACCEPT_BATTLE_PREFIX", "ac:user:prefs:accept_battle:"
+).strip()
+USER_PREFS_NOTIFY_CHANNEL = os.getenv("USER_PREFS_NOTIFY_CHANNEL", "ac:user:prefs:notify").strip()
+USER_PREFS_NOTIFY_ENABLED = _env_bool("USER_PREFS_NOTIFY_ENABLED", "true")
+USER_PREFS_ACCEPT_BATTLE_ENABLED_MESSAGE = os.getenv(
+    "USER_PREFS_ACCEPT_BATTLE_ENABLED_MESSAGE",
+    "Battles enabled — you can be matched with rivals.",
+).strip()
+USER_PREFS_ACCEPT_BATTLE_DISABLED_MESSAGE = os.getenv(
+    "USER_PREFS_ACCEPT_BATTLE_DISABLED_MESSAGE",
+    "Battles disabled — you will not be matched with rivals.",
+).strip()
+
 USER_BAN_ENABLED = _env_bool("USER_BAN_ENABLED", "true")
 USER_INVALIDATED_REDIS_PREFIX = os.getenv(
     "USER_INVALIDATED_REDIS_PREFIX", "ac:user:invalidated:"

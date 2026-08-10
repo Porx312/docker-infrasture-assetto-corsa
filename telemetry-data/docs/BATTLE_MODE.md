@@ -54,6 +54,7 @@ En cada `update()` de telemetría (`orchestrator._try_matchmake`):
 3. Algoritmo **greedy nearest-neighbor**: el par más cercano que cumple condiciones se bloquea primero; se repite hasta agotar candidatos
 4. Un jugador solo puede estar en **una** batalla a la vez (`guid_to_pair`). Si la pareja queda separada en IDLE **10 s** (`BATTLE_PAIR_IDLE_SEPARATED_RELEASE_SEC`) o sin llegar a ACTIVE en **120 s** (`BATTLE_PAIR_MAX_PREACTIVE_LOCK_SEC`), el lock se disuelve y pueden emparejarse con otros
 5. Con `BATTLE_REQUIRE_HUD_SSE=true`, solo entran candidatos con overlay conectado (`ac:hud:sse:{steamId}` escrito por ac-data en `GET /hud/stream` o renovado en `GET /hud/snapshot`). Si un jugador pierde el overlay durante una batalla, la pareja se disuelve con `cancelReason: hud_disconnected`. Con `BATTLE_REQUIRE_HUD_SSE=false` (recomendado para mezcla HUD/vanilla), el emparejamiento no exige overlay; el chat fallback cubre a quien no tenga clave activa.
+6. Solo entran candidatos con **`acceptBattle` activo** (pref Redis `ac:user:prefs:accept_battle:{steamId}` ausente o distinto de `"0"`). Con `acceptBattle=false` el piloto conduce con normalidad pero no se empareja; el rival puede buscar otra pareja.
 
 ## Máquina de estados por pareja
 
