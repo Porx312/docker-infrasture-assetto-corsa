@@ -13,6 +13,8 @@ import {
 import {
   clearUserNotRegistered,
   markUserNotRegistered,
+  publishUserRegisteredWelcome,
+  readUserNotRegistered,
 } from './hudUserNotRegistered.js';
 import { syncUserPrefsFromProfile } from './hudUserPrefs.js';
 import {
@@ -117,6 +119,7 @@ export async function applyPlayerJoinContext(
   const invalidated = isUserInvalidated(context, user);
   const notRegistered = !context.ok && context.reason === 'user_not_found';
   const publish = options?.publishEnforcement === true;
+  const wasNotRegistered = publish ? await readUserNotRegistered(trimmed) : false;
 
   let session = normalizeSessionForCache(defaultSessionResult(context));
   let player = normalizePlayerForCache(playerResultFromSession(session));
@@ -132,6 +135,9 @@ export async function applyPlayerJoinContext(
   } else {
     await clearUserInvalidated(trimmed);
     await clearUserNotRegistered(trimmed);
+    if (publish && wasNotRegistered) {
+      await publishUserRegisteredWelcome(trimmed);
+    }
   }
 
   const params = { steamId: trimmed };
@@ -144,7 +150,7 @@ export async function applyPlayerJoinContext(
   const rawProfile = session.ok ? session.profile : player.ok ? player.profile : null;
   const profile = rawProfile ? normalizeHudProfile(rawProfile) : null;
   await syncUserPrefsFromProfile(trimmed, profile, {
-    notifyAcceptBattleChange: options?.publishEnforcement === true,
+    notifyPrefChanges: options?.publishEnforcement === true,
   });
 
   console.log(

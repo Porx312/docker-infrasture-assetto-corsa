@@ -105,7 +105,7 @@ USER_REGISTRATION_REQUIRED=true
 Unregistered Steam IDs (`user_not_found` from Convex) are kicked after a private chat warning.
 Verify: `./scripts/verify-user-registration-pipeline.sh [steamId]`
 
-9. **Profile prefs (`saveTime`, `acceptBattle`)** — Convex fields on `session.profile`; ac-data mirrors to `ac:user:prefs:*` on join or worker push. `saveTime=false` skips lap Convex ingest (HUD still local). `acceptBattle=false` excludes from new battle matchmaking. See [`docs/CONVEX_USER_PREFS.md`](docs/CONVEX_USER_PREFS.md) and [`docs/CONVEX_PUSH_USER_SYNC.md`](docs/CONVEX_PUSH_USER_SYNC.md). Verify: `./scripts/verify-user-prefs.sh [steamId]`
+9. **Profile prefs (`saveTime`, `acceptBattle`)** — Convex fields on `session.profile`; ac-data mirrors to `ac:user:prefs:*` on join or worker push. `saveTime=false` skips lap Convex ingest (HUD still local). `acceptBattle=false` excludes from new battle matchmaking. Mid-session requires Convex `notifyAcDataHudRefresh` → `POST /hud/worker/refresh-user`. See [`docs/CONVEX_USER_PREFS.md`](docs/CONVEX_USER_PREFS.md) and [`docs/CONVEX_PUSH_USER_SYNC.md`](docs/CONVEX_PUSH_USER_SYNC.md). Verify: `./scripts/verify-user-prefs.sh [steamId]`, `./scripts/verify-push-sync-live.sh [steamId] [reason]`
 
 Session-only HUD: no `getHudPlayer` / `CONVEX_HUD_PLAYER_QUERY`. See [`docs/CONVEX_PLAYER_JOIN_CONTEXT.md`](docs/CONVEX_PLAYER_JOIN_CONTEXT.md).
 

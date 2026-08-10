@@ -100,10 +100,47 @@ Env in Convex dashboard: `AC_DATA_BASE_URL`, `CONVEX_WORKER_SECRET` (same as wor
 | Steam link / register | Clears `not_registered`; can keep playing |
 | `saveTime=false` | Next lap skips Convex ingest; HUD local OK |
 | `acceptBattle=false` | No **new** battles; active battle continues until FINISHED |
-| `acceptBattle` toggle | Private in-game chat to that player only (enabled/disabled message) |
+| `acceptBattle` / `saveTime` toggle | Private in-game chat to that player only (one message per pref changed) |
+| Steam link / register | Clears `not_registered` + welcome chat; **no** kick |
 
-See also [`telemetry-data/REDIS_CONTRACT.md`](../telemetry-data/REDIS_CONTRACT.md) pub/sub `ac:user:prefs:notify`.
+See also [`telemetry-data/REDIS_CONTRACT.md`](../telemetry-data/REDIS_CONTRACT.md) pub/sub `ac:user:prefs:notify` and `ac:user:registered`.
 
 See also [`CONVEX_PLAYER_JOIN_CONTEXT.md`](CONVEX_PLAYER_JOIN_CONTEXT.md), [`CONVEX_USER_PREFS.md`](CONVEX_USER_PREFS.md).
 
-Verify: `./scripts/verify-hud-worker-refresh.sh STEAM_ID`
+## ProjectD deployment checklist
+
+Convex lives in **ProjectD** (not this repo). After merging ac-data/telemetry changes:
+
+1. Deploy `notifyAcDataHudRefresh` internal action (see above) if not already in ProjectD
+2. Wire `ctx.scheduler.runAfter(0, internal.*.notifyAcDataHudRefresh, …)` on:
+   - `users.isInvalidated` toggle → `reason: "invalidated"` or `"revalidated"`
+   - Steam link / account created → `reason: "registered"`
+   - Privacy prefs mutation → `reason: "prefs"`
+3. Set **Convex dashboard** env (not VPS `.env.local`):
+   - `AC_DATA_BASE_URL` — public URL to ac-data (e.g. `https://dev-api.projectd.space` from `STAGING_API_HOST`; **not** `127.0.0.1:3000`)
+   - `CONVEX_WORKER_SECRET` — same value as VPS `.env.local`
+
+Verify from Convex logs: successful `POST …/hud/worker/refresh-user` (no 401/502).
+
+## Troubleshooting: “only works on reconnect”
+
+If ban, registration clear, or pref chat **only** apply after the player leaves and rejoins:
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| Manual `./scripts/verify-hud-worker-refresh.sh` works in-game | Convex webhook not deployed or env missing | Deploy `notifyAcDataHudRefresh` + dashboard env |
+| Manual refresh fails | ac-data unreachable or wrong secret | Check Caddy/TLS, `CONVEX_WORKER_SECRET`, `ac-data.log` |
+| Redis updates but no kick/chat | telemetry not subscribed or player has no `car_id` | Restart telemetry; check `telemetry-data.log` for pub/sub |
+| Kick delayed ~45s | Old code waited for `client_loaded` on mid-session kick | Ensure telemetry has `wait_client_loaded=False` on pub/sub + CAR_UPDATE kicks |
+
+**Quick test while connected in-game:**
+
+```bash
+./scripts/verify-push-sync-live.sh STEAM_ID invalidated
+# or: registered / prefs
+```
+
+- If manual refresh **works** → fix Convex webhook (`AC_DATA_BASE_URL`, scheduler calls)
+- If manual refresh **fails** → fix ac-data / Redis / telemetry on the VPS
+
+Verify: `./scripts/verify-hud-worker-refresh.sh STEAM_ID`, `./scripts/verify-push-sync-live.sh STEAM_ID`

@@ -1,4 +1,4 @@
-"""Private in-game chat when acceptBattle pref changes (pub/sub from ac-data)."""
+"""Private in-game chat when acceptBattle or saveTime pref changes (pub/sub from ac-data)."""
 
 from __future__ import annotations
 
@@ -17,15 +17,23 @@ _subscriber_started = False
 _subscriber_lock = threading.Lock()
 
 
-def accept_battle_enabled_message() -> str:
-    return settings.USER_PREFS_ACCEPT_BATTLE_ENABLED_MESSAGE
+def _message_for_pref(pref: str, enabled: bool) -> str | None:
+    if pref in ("acceptBattle", "accept_battle"):
+        return (
+            settings.USER_PREFS_ACCEPT_BATTLE_ENABLED_MESSAGE
+            if enabled
+            else settings.USER_PREFS_ACCEPT_BATTLE_DISABLED_MESSAGE
+        )
+    if pref in ("saveTime", "save_time"):
+        return (
+            settings.USER_PREFS_SAVE_TIME_ENABLED_MESSAGE
+            if enabled
+            else settings.USER_PREFS_SAVE_TIME_DISABLED_MESSAGE
+        )
+    return None
 
 
-def accept_battle_disabled_message() -> str:
-    return settings.USER_PREFS_ACCEPT_BATTLE_DISABLED_MESSAGE
-
-
-def notify_accept_battle_change(steam_id: str, accept_battle: bool) -> int:
+def notify_pref_change(steam_id: str, pref: str, enabled: bool) -> int:
     """Send private server chat to every connected instance of steam_id."""
     if not settings.USER_PREFS_NOTIFY_ENABLED:
         return 0
@@ -34,7 +42,11 @@ def notify_accept_battle_change(steam_id: str, accept_battle: bool) -> int:
     if not trimmed or trimmed.startswith("unknown_"):
         return 0
 
-    message = accept_battle_enabled_message() if accept_battle else accept_battle_disabled_message()
+    message = _message_for_pref(pref, enabled)
+    if not message:
+        log.warning("user prefs notify: unknown pref %r", pref)
+        return 0
+
     matches = find_driver_by_steam_id(trimmed)
     sent = 0
 
@@ -42,39 +54,43 @@ def notify_accept_battle_change(steam_id: str, accept_battle: bool) -> int:
         car_id = driver.car_id
         if car_id is None:
             log.warning(
-                "acceptBattle chat skipped: no car_id port=%s steamId=%s",
+                "pref chat skipped: no car_id port=%s steamId=%s pref=%s",
                 server_state.port,
                 trimmed,
+                pref,
             )
             continue
         if not server_state.last_server_addr:
             log.warning(
-                "acceptBattle chat skipped: no cmd addr port=%s steamId=%s",
+                "pref chat skipped: no cmd addr port=%s steamId=%s pref=%s",
                 server_state.port,
                 trimmed,
+                pref,
             )
             continue
         send_chat(server_state, car_id, message)
         sent += 1
         log.info(
-            "[%s] acceptBattle chat steamId=%s acceptBattle=%s car=%s",
+            "[%s] pref chat steamId=%s pref=%s enabled=%s car=%s",
             server_state.port,
             trimmed,
-            accept_battle,
+            pref,
+            enabled,
             car_id,
         )
 
     if sent == 0:
         log.info(
-            "acceptBattle chat: steamId=%s acceptBattle=%s but no active driver with car_id",
+            "pref chat: steamId=%s pref=%s enabled=%s but no active driver with car_id",
             trimmed,
-            accept_battle,
+            pref,
+            enabled,
         )
 
     return sent
 
 
-def _parse_accept_battle_message(raw: str) -> tuple[str, bool] | None:
+def _parse_pref_notify_message(raw: str) -> tuple[str, str, bool] | None:
     trimmed = raw.strip()
     if not trimmed:
         return None
@@ -91,23 +107,39 @@ def _parse_accept_battle_message(raw: str) -> tuple[str, bool] | None:
     if not isinstance(steam_raw, str) or not steam_raw.strip():
         return None
 
-    accept_raw = payload.get("acceptBattle")
-    if accept_raw is None:
-        accept_raw = payload.get("accept_battle")
-    if accept_raw is not True and accept_raw is not False:
+    pref_raw = payload.get("pref")
+    enabled: bool | None = None
+
+    if isinstance(pref_raw, str) and pref_raw.strip():
+        pref = pref_raw.strip()
+        enabled_raw = payload.get("enabled")
+        if enabled_raw is True:
+            enabled = True
+        elif enabled_raw is False:
+            enabled = False
+    elif payload.get("acceptBattle") is True or payload.get("acceptBattle") is False:
+        pref = "acceptBattle"
+        enabled = payload.get("acceptBattle") is True
+    elif payload.get("accept_battle") is True or payload.get("accept_battle") is False:
+        pref = "acceptBattle"
+        enabled = payload.get("accept_battle") is True
+    else:
         return None
 
-    return steam_raw.strip(), accept_raw
+    if enabled is None:
+        return None
+
+    return steam_raw.strip(), pref, enabled
 
 
 def _handle_prefs_notify_message(raw: str) -> None:
-    parsed = _parse_accept_battle_message(raw)
+    parsed = _parse_pref_notify_message(raw)
     if parsed is None:
         log.warning("user prefs notify: invalid payload %r", raw[:200])
         return
 
-    steam_id, accept_battle = parsed
-    notify_accept_battle_change(steam_id, accept_battle)
+    steam_id, pref, enabled = parsed
+    notify_pref_change(steam_id, pref, enabled)
 
 
 def _prefs_notify_subscriber_loop() -> None:

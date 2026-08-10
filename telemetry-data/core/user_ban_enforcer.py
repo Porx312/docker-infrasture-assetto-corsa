@@ -189,7 +189,7 @@ def maybe_kick_banned_driver_on_car_update(
         guid,
         driver.car_id,
     )
-    kick_driver(server_state, driver, "user_invalidated_mid_session")
+    kick_driver(server_state, driver, "user_invalidated_mid_session", wait_client_loaded=False)
 
 
 def kick_steam_id_everywhere(steam_id: str, reason: str = "user_invalidated") -> int:
@@ -199,7 +199,7 @@ def kick_steam_id_everywhere(steam_id: str, reason: str = "user_invalidated") ->
     matches = find_driver_by_steam_id(steam_id)
     kicked = 0
     for server_state, driver in matches:
-        kick_driver(server_state, driver, reason)
+        kick_driver(server_state, driver, reason, wait_client_loaded=False)
         kicked += 1
 
     if kicked == 0:

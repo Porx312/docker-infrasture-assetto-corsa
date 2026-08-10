@@ -164,6 +164,30 @@ def test_kick_steam_id_everywhere_on_all_servers(mock_kick):
 
     assert kicked == 2
     assert mock_kick.call_count == 2
+    for call in mock_kick.call_args_list:
+        assert call.kwargs.get("wait_client_loaded") is False
+
+
+@patch("core.user_ban_enforcer.kick_driver")
+@patch("core.user_ban_enforcer.is_steam_id_banned", return_value=True)
+def test_maybe_kick_banned_driver_on_car_update_skips_wait_client_loaded(
+    _mock_banned,
+    mock_kick,
+):
+    reset_registry_for_tests()
+    server = ServerState(12001, 8081, "track", "layout", "Test Server")
+    driver = DriverInfo("Pilot", "76561199000000001", "ks_toyota_gt86")
+    driver.car_id = 3
+    server.active_drivers[3] = driver
+    server.guid_to_driver[driver.guid] = driver
+
+    from core.user_ban_enforcer import maybe_kick_banned_driver_on_car_update
+
+    with patch("core.user_ban_enforcer.settings.USER_BAN_ENABLED", True):
+        maybe_kick_banned_driver_on_car_update(server, driver)
+
+    mock_kick.assert_called_once()
+    assert mock_kick.call_args.kwargs.get("wait_client_loaded") is False
 
 
 def test_find_driver_by_steam_id_uses_last_known_cache():

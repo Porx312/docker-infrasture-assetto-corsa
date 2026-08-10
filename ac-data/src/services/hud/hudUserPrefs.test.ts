@@ -9,7 +9,7 @@ import {
   readAcceptBattleEnabled,
   readSaveTimeEnabled,
   saveTimeRedisKey,
-  setPublishAcceptBattlePrefChangeForTests,
+  setPublishPrefChangeForTests,
   syncUserPrefsFromProfile,
   USER_PREFS_TTL_SEC,
 } from './hudUserPrefs.js';
@@ -86,46 +86,47 @@ test('USER_PREFS_TTL_SEC defaults to one day', () => {
   assert.equal(USER_PREFS_TTL_SEC, 86_400);
 });
 
-test('syncUserPrefsFromProfile notifies acceptBattle change on worker push', async () => {
+test('syncUserPrefsFromProfile notifies pref changes on worker push', async () => {
   if (!isHudRedisConfigured()) {
     return;
   }
 
-  const notifications: Array<{ steamId: string; acceptBattle: boolean }> = [];
-  setPublishAcceptBattlePrefChangeForTests(async (id, acceptBattle) => {
-    notifications.push({ steamId: id, acceptBattle });
+  const notifications: Array<{ steamId: string; pref: string; enabled: boolean }> = [];
+  setPublishPrefChangeForTests(async (id, pref, enabled) => {
+    notifications.push({ steamId: id, pref, enabled });
   });
 
   try {
     await clearUserPrefs(steamId);
-    await syncUserPrefsFromProfile(steamId, baseProfile, { notifyAcceptBattleChange: true });
+    await syncUserPrefsFromProfile(steamId, baseProfile, { notifyPrefChanges: true });
     assert.equal(notifications.length, 0);
 
     await syncUserPrefsFromProfile(
       steamId,
       { ...baseProfile, acceptBattle: false },
-      { notifyAcceptBattleChange: true },
+      { notifyPrefChanges: true },
     );
-    assert.deepEqual(notifications, [{ steamId, acceptBattle: false }]);
+    assert.deepEqual(notifications, [{ steamId, pref: 'acceptBattle', enabled: false }]);
 
     await syncUserPrefsFromProfile(
       steamId,
-      { ...baseProfile, acceptBattle: true },
-      { notifyAcceptBattleChange: true },
+      { ...baseProfile, acceptBattle: true, saveTime: false },
+      { notifyPrefChanges: true },
     );
     assert.deepEqual(notifications, [
-      { steamId, acceptBattle: false },
-      { steamId, acceptBattle: true },
+      { steamId, pref: 'acceptBattle', enabled: false },
+      { steamId, pref: 'acceptBattle', enabled: true },
+      { steamId, pref: 'saveTime', enabled: false },
     ]);
 
     await syncUserPrefsFromProfile(
       steamId,
-      { ...baseProfile, acceptBattle: false },
-      { notifyAcceptBattleChange: false },
+      { ...baseProfile, acceptBattle: false, saveTime: true },
+      { notifyPrefChanges: false },
     );
-    assert.equal(notifications.length, 2);
+    assert.equal(notifications.length, 3);
   } finally {
-    setPublishAcceptBattlePrefChangeForTests(null);
+    setPublishPrefChangeForTests(null);
     await clearUserPrefs(steamId);
   }
 });

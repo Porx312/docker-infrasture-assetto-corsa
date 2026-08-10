@@ -94,6 +94,21 @@ USER_PREFS_ACCEPT_BATTLE_DISABLED_MESSAGE = os.getenv(
     "USER_PREFS_ACCEPT_BATTLE_DISABLED_MESSAGE",
     "Battles disabled — you will not be matched with rivals.",
 ).strip()
+USER_PREFS_SAVE_TIME_ENABLED_MESSAGE = os.getenv(
+    "USER_PREFS_SAVE_TIME_ENABLED_MESSAGE",
+    "Lap times will be saved to the leaderboard.",
+).strip()
+USER_PREFS_SAVE_TIME_DISABLED_MESSAGE = os.getenv(
+    "USER_PREFS_SAVE_TIME_DISABLED_MESSAGE",
+    "Lap times are local only — not saved to the leaderboard.",
+).strip()
+
+USER_REGISTERED_CHANNEL = os.getenv("USER_REGISTERED_CHANNEL", "ac:user:registered").strip()
+USER_REGISTERED_WELCOME_ENABLED = _env_bool("USER_REGISTERED_WELCOME_ENABLED", "true")
+USER_REGISTERED_WELCOME_MESSAGE = os.getenv(
+    "USER_REGISTERED_WELCOME_MESSAGE",
+    "Steam linked — welcome to ProjectD servers.",
+).strip()
 
 USER_BAN_ENABLED = _env_bool("USER_BAN_ENABLED", "true")
 USER_INVALIDATED_REDIS_PREFIX = os.getenv(

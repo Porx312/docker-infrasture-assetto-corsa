@@ -171,14 +171,16 @@ fast worker reads. See [`docs/CONVEX_USER_PREFS.md`](../docs/CONVEX_USER_PREFS.m
 |-----|--------|--------|---------------------|
 | `ac:user:prefs:save_time:{steamId}` | ac-data (`hudUserPrefs.ts`) | ac-data ingest filter (`lap_completed` → skip Convex) | `"0"` (key deleted when enabled) |
 | `ac:user:prefs:accept_battle:{steamId}` | ac-data (`hudUserPrefs.ts`) | telemetry-data battle matchmaking | `"0"` (key deleted when enabled) |
-| Pub/sub `ac:user:prefs:notify` | ac-data on `acceptBattle` toggle (worker push) | telemetry-data → private chat to player | — |
+| Pub/sub `ac:user:prefs:notify` | ac-data on pref toggle (worker push) | telemetry-data → private chat to player | JSON `{ steamId, pref, enabled, ts }` |
+| Pub/sub `ac:user:registered` | ac-data when `not_registered` clears (worker `registered`) | telemetry-data → welcome chat | JSON `{ steamId, ts }` |
 
 - **`saveTime=false`**: lap still updates HUD locally; ac-data skips Convex batch ingest for that event
 - **`acceptBattle=false`**: player excluded from `_try_matchmake` (drives normally, no pairing)
-- **`acceptBattle` toggle** (Convex `refresh-user`): private server chat to that player only (`USER_PREFS_ACCEPT_BATTLE_*_MESSAGE`)
+- **Pref toggle** (Convex `refresh-user`): private server chat per changed pref (`USER_PREFS_*_MESSAGE`)
+- **Steam link** (Convex `refresh-user` reason `registered`): welcome chat if player was `not_registered`
 
 TTL: `USER_PREFS_TTL_SEC` (default 86400), refreshed on each join.
 
-Env: `USER_PREFS_SAVE_TIME_PREFIX`, `USER_PREFS_ACCEPT_BATTLE_PREFIX`, `USER_PREFS_NOTIFY_CHANNEL`, `USER_PREFS_NOTIFY_ENABLED`, `USER_PREFS_ACCEPT_BATTLE_ENABLED_MESSAGE`, `USER_PREFS_ACCEPT_BATTLE_DISABLED_MESSAGE`.
+Env: `USER_PREFS_SAVE_TIME_PREFIX`, `USER_PREFS_ACCEPT_BATTLE_PREFIX`, `USER_PREFS_NOTIFY_CHANNEL`, `USER_PREFS_NOTIFY_ENABLED`, `USER_PREFS_ACCEPT_BATTLE_*_MESSAGE`, `USER_PREFS_SAVE_TIME_*_MESSAGE`, `USER_REGISTERED_CHANNEL`, `USER_REGISTERED_WELCOME_MESSAGE`, `USER_REGISTERED_WELCOME_ENABLED`.
 
-Verify: `./scripts/verify-user-prefs.sh [steamId]`
+Verify: `./scripts/verify-user-prefs.sh [steamId]`, `./scripts/verify-push-sync-live.sh [steamId]`

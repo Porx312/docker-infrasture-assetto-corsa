@@ -39,7 +39,7 @@ args: {
 }
 ```
 
-After patch, schedule `notifyAcDataHudRefresh` with `reason: "prefs"` (see [`CONVEX_PUSH_USER_SYNC.md`](CONVEX_PUSH_USER_SYNC.md)). If the player is connected, telemetry-data sends a **private server chat** when `acceptBattle` changes (not on `player_join`).
+After patch, schedule `notifyAcDataHudRefresh` with `reason: "prefs"` (see [`CONVEX_PUSH_USER_SYNC.md`](CONVEX_PUSH_USER_SYNC.md)). If the player is connected, telemetry-data sends a **private server chat** for each pref that changed (`acceptBattle` or `saveTime`; not on `player_join`).
 
 ## Ingest gate (authoritative)
 
@@ -58,4 +58,4 @@ ac-data also skips forwarding when Redis pref `ac:user:prefs:save_time:{steamId}
 | `saveTime` | `true` | No Convex lap persistence; HUD still shows local lap times |
 | `acceptBattle` | `true` | telemetry-data excludes player from battle matchmaking |
 
-Verify worker bridge: `./scripts/verify-user-prefs.sh [steamId]`
+Verify worker bridge: `./scripts/verify-user-prefs.sh [steamId]`, `./scripts/verify-push-sync-live.sh [steamId] prefs`

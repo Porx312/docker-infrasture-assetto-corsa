@@ -184,7 +184,7 @@ def maybe_kick_unregistered_driver_on_car_update(
         guid,
         driver.car_id,
     )
-    kick_unregistered_driver(server_state, driver, "user_not_found_mid_session")
+    kick_unregistered_driver(server_state, driver, "user_not_found_mid_session", wait_client_loaded=False)
 
 
 def kick_steam_id_everywhere_unregistered(
@@ -200,7 +200,7 @@ def kick_steam_id_everywhere_unregistered(
     matches = find_driver_by_steam_id(steam_id)
     kicked = 0
     for server_state, driver in matches:
-        kick_unregistered_driver(server_state, driver, reason)
+        kick_unregistered_driver(server_state, driver, reason, wait_client_loaded=False)
         kicked += 1
 
     if kicked == 0:
