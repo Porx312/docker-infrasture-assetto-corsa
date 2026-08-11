@@ -44,6 +44,9 @@ telemetry-data/redis_applied_config_versions.json
 ac-data/projectd-hud/releases/
 ac-data/projectd-launcher/releases/
 
+# Server Manager local config (may contain Steam credentials)
+config.yml
+
 # AC server fleet — per-instance config (Convex/ac-data, CM scripts)
 server/cfg/
 server/**/cfg/

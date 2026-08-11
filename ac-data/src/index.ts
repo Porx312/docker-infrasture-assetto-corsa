@@ -1,4 +1,5 @@
 import './config/loadEnv.js';
+import { assertSecurityConfiguration } from './config/securityStartup.js';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import path from 'path';
@@ -22,6 +23,8 @@ if (!SERVERS_PATH) {
     console.error(`❌ SERVERS_PATH no está definido en ${resolveEnvFilePath()}`);
     process.exit(1);
 }
+
+assertSecurityConfiguration();
 
 // Last-resort safety net: primary error handling is in hudConvex + HUD routes.
 process.on('unhandledRejection', (reason) => {

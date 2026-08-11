@@ -3,6 +3,7 @@ import fs from 'fs';
 import multer from 'multer';
 import path from 'path';
 import { adminAuth } from '../middleware/adminAuth.js';
+import { adminLoginRateLimiter } from '../middleware/adminLoginRateLimiter.js';
 import {
     adminLogin,
     adminLogout,
@@ -61,7 +62,7 @@ router.get('/login', (_req, res) => {
     res.sendFile(path.join(VIEWS_PATH, 'login.html'));
 });
 
-router.post('/login', adminLogin);
+router.post('/login', adminLoginRateLimiter, adminLogin);
 router.post('/logout', adminLogout);
 router.get('/dashboard', adminAuth, (_req, res) => {
     res.sendFile(path.join(VIEWS_PATH, 'dashboard.html'));

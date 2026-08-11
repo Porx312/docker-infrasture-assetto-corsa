@@ -1,17 +1,18 @@
 ################################################################################
-#                      Assetto Server Manager Configuration
+# Assetto Server Manager Configuration (template — copy to config.yml locally)
+# Do NOT commit config.yml with real credentials.
 ################################################################################
 
 steam:
-  username: projectdtouge
-  password: Porx_31245
+  username: YOUR_STEAM_USERNAME
+  password: ${STEAM_PASSWORD}
   install_path: assetto
   executable_path: acServer
   force_update: false
 
 http:
-  hostname: 0.0.0.0:8772
-  session_key: CHANGE_THIS_TO_SOMETHING_RANDOM_12345
+  hostname: 127.0.0.1:8772
+  session_key: GENERATE_A_RANDOM_SESSION_KEY
   session_store_type: cookie
 
 store:

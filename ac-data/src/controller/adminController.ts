@@ -41,6 +41,10 @@ export async function adminLogin(req: Request, res: Response): Promise<void> {
     }
 
     const creds = getAdminCredentials();
+    if (!creds) {
+        res.status(503).json({ error: 'Service unavailable', message: 'Admin credentials not configured' });
+        return;
+    }
 
     if (username !== creds.username || password !== creds.password) {
         res.status(401).json({ error: 'Unauthorized', message: 'Invalid credentials' });

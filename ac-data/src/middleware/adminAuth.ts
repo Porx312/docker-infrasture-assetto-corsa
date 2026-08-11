@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.ADMIN_JWT_SECRET || 'admin-secret-key-change-in-production';
+const JWT_SECRET = process.env.ADMIN_JWT_SECRET || '';
 
 /** SameSite=None requires Secure; for HTTP admin panel use Lax (same origin). */
 const cookieSecure =
@@ -26,10 +26,16 @@ export interface AuthPayload {
 }
 
 export function generateToken(username: string): string {
+    if (!JWT_SECRET) {
+        throw new Error('ADMIN_JWT_SECRET is not configured');
+    }
     return jwt.sign({ username }, JWT_SECRET, { expiresIn: '24h' });
 }
 
 export function verifyToken(token: string): AuthPayload | null {
+    if (!JWT_SECRET) {
+        return null;
+    }
     try {
         return jwt.verify(token, JWT_SECRET) as AuthPayload;
     } catch {
@@ -55,9 +61,11 @@ export function adminAuth(req: Request, res: Response, next: NextFunction): void
     next();
 }
 
-export function getAdminCredentials(): { username: string; password: string } {
-    return {
-        username: process.env.ADMIN_USER || 'admin',
-        password: process.env.ADMIN_PASS || 'admin123',
-    };
+export function getAdminCredentials(): { username: string; password: string } | null {
+    const username = (process.env.ADMIN_USER || '').trim();
+    const password = (process.env.ADMIN_PASS || '').trim();
+    if (!username || !password) {
+        return null;
+    }
+    return { username, password };
 }

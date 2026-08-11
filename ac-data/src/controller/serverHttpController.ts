@@ -9,6 +9,21 @@ import {
   stopServerCore,
   type ServerConfigPayload,
 } from './controller.js';
+import { assertValidServerName } from '../services/serverInstanceConfig.js';
+
+function requireValidServerName(serverName: string | undefined, res: Response): string | null {
+  if (!serverName) {
+    res.status(400).json({ error: 'serverName es requerido' });
+    return null;
+  }
+  try {
+    assertValidServerName(serverName);
+  } catch {
+    res.status(400).json({ error: 'Invalid server name' });
+    return null;
+  }
+  return serverName;
+}
 
 function firstParam(v: string | string[] | undefined): string | undefined {
   if (v === undefined) return undefined;
@@ -52,29 +67,29 @@ export const getServers = (_req: Request, res: Response) => {
 };
 
 export const startServer = (req: Request, res: Response) => {
-  const serverName = firstParam(req.params.serverName);
-  if (!serverName) return res.status(400).json({ error: 'serverName es requerido' });
+  const serverName = requireValidServerName(firstParam(req.params.serverName), res);
+  if (!serverName) return;
   const result = startServerCore(serverName);
   return res.status(result.ok ? 200 : 400).json(result);
 };
 
 export const stopServer = async (req: Request, res: Response) => {
-  const serverName = firstParam(req.params.serverName);
-  if (!serverName) return res.status(400).json({ error: 'serverName es requerido' });
+  const serverName = requireValidServerName(firstParam(req.params.serverName), res);
+  if (!serverName) return;
   const result = await stopServerCore(serverName);
   return res.status(result.ok ? 200 : 400).json(result);
 };
 
 export const restartServer = async (req: Request, res: Response) => {
-  const serverName = firstParam(req.params.serverName);
-  if (!serverName) return res.status(400).json({ error: 'serverName es requerido' });
+  const serverName = requireValidServerName(firstParam(req.params.serverName), res);
+  if (!serverName) return;
   const result = await restartServerCore(serverName);
   return res.status(result.ok ? 200 : 400).json(result);
 };
 
 export const configureServer = (req: Request, res: Response) => {
-  const serverName = firstParam(req.params.serverName);
-  if (!serverName) return res.status(400).json({ error: 'serverName es requerido' });
+  const serverName = requireValidServerName(firstParam(req.params.serverName), res);
+  if (!serverName) return;
   const payload = (req.body ?? {}) as ServerConfigPayload;
   const result = applyServerConfiguration(serverName, payload);
   return res.status(result.ok ? 200 : 400).json(result);

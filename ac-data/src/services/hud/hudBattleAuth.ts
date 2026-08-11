@@ -1,10 +1,9 @@
-const HUD_API_KEY = process.env.HUD_API_KEY || '';
-
 export function isHudApiKeyValid(provided: unknown): boolean {
-  if (!HUD_API_KEY) {
-    return true;
+  const hudApiKey = (process.env.HUD_API_KEY || '').trim();
+  if (!hudApiKey) {
+    return false;
   }
-  return typeof provided === 'string' && provided === HUD_API_KEY;
+  return typeof provided === 'string' && provided === hudApiKey;
 }
 
 export function requireHudApiKeyFromQuery(
