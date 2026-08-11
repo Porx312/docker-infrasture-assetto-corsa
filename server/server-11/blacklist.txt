@@ -1,0 +1,1 @@
+/home/jose/assetto-install/assetto/server/blacklist.txt

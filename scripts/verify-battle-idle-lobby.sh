@@ -30,6 +30,10 @@ INSTANCE="${AC_INSTANCE_ID:-default}"
 REDIS_CLI=(redis-cli)
 [[ -n "${REDIS_HOST:-}" ]] && REDIS_CLI+=(-h "$REDIS_HOST")
 [[ -n "${REDIS_PORT:-}" ]] && REDIS_CLI+=(-p "$REDIS_PORT")
+[[ -n "${REDIS_USERNAME:-}" ]] && REDIS_CLI+=(--user "$REDIS_USERNAME")
+[[ -n "${REDIS_PASSWORD:-}" ]] && REDIS_CLI+=(-a "$REDIS_PASSWORD")
+[[ "${REDIS_SSL:-false}" == "true" ]] && REDIS_CLI+=(--tls)
+[[ -n "${REDIS_DB:-}" && "$REDIS_DB" != "0" ]] && REDIS_CLI+=(-n "$REDIS_DB")
 
 echo "=== Battle idle lobby / arming cancel checks ==="
 echo "steamId=$STEAM_ID instance=$INSTANCE"

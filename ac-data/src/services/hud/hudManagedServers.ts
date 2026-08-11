@@ -44,5 +44,26 @@ export function updateManagedServersFromSnapshot(rows: ManagedServerRow[]): void
 
 export function lookupManagedServer(displayServerName: string): ManagedServer | null {
   const key = displayKey(displayServerName);
-  return byDisplayName.get(key) ?? null;
+  const direct = byDisplayName.get(key);
+  if (direct) {
+    return direct;
+  }
+
+  // Convex worker sync may truncate long displayName vs live server_cfg NAME (post-audit mismatch).
+  let best: ManagedServer | null = null;
+  let bestDelta = Number.POSITIVE_INFINITY;
+  for (const [indexedKey, entry] of byDisplayName.entries()) {
+    if (key.startsWith(indexedKey) || indexedKey.startsWith(key)) {
+      const delta = Math.abs(key.length - indexedKey.length);
+      if (delta < bestDelta) {
+        best = entry;
+        bestDelta = delta;
+      }
+    }
+  }
+  if (best && bestDelta <= 16) {
+    return best;
+  }
+
+  return null;
 }

@@ -204,6 +204,9 @@ WATCH_PID=""
 if [[ -n "$WATCH_SSE_STEAM" && "$DRY_RUN" -eq 0 ]]; then
   ENC_STEAM="$(python3 -c "import urllib.parse; print(urllib.parse.quote('''$WATCH_SSE_STEAM'''))")"
   SSE_URL="http://${HUD_HOST}/hud/stream?steamId=${ENC_STEAM}"
+  if [[ -n "${HUD_API_KEY:-}" ]]; then
+    SSE_URL="${SSE_URL}&api_key=$(python3 -c "import urllib.parse; print(urllib.parse.quote('''${HUD_API_KEY}'''))")"
+  fi
   echo "=== SSE watch (background): $SSE_URL ==="
   (
     curl -sN "$SSE_URL" 2>/dev/null | while IFS= read -r line; do
@@ -387,12 +390,30 @@ def seed_hud_session_cache(steam_id: str, profile: dict) -> None:
     )
 
 
+def seed_hud_presence(steam_id: str) -> None:
+    """Seed ac:hud:presence so /hud/snapshot and SSE can resolve serverName."""
+    if DRY_RUN:
+        return
+    record = {
+        "serverName": SERVER_NAME,
+        "track": TRACK,
+        "trackConfig": TRACK_CONFIG,
+        "carModel": CAR,
+        "updatedAt": int(time.time() * 1000),
+    }
+    payload = json.dumps(record, separators=(",", ":"), ensure_ascii=False)
+    ttl = max(BATTLE_TTL, 600)
+    run_redis("SET", f"ac:hud:presence:{steam_id}", payload, "EX", str(ttl))
+
+
 def init_profiles() -> None:
     global P1_PROFILE, P2_PROFILE
     P1_PROFILE = build_player_profile(P1, NAME_P1, CAR_NAME_P1, AVATAR_P1, TIER_P1, ELO_P1)
     P2_PROFILE = build_player_profile(P2, NAME_P2, CAR_NAME_P2, AVATAR_P2, TIER_P2, ELO_P2)
     seed_hud_session_cache(P1, P1_PROFILE)
     seed_hud_session_cache(P2, P2_PROFILE)
+    seed_hud_presence(P1)
+    seed_hud_presence(P2)
     print(
         "profiles:",
         f"p1={P1_PROFILE['name']} tier={P1_PROFILE['tier']} elo={P1_PROFILE['elo']}",

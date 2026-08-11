@@ -23,6 +23,24 @@ test('updateManagedServersFromSnapshot indexes by displayName', () => {
   assert.equal(match.type, 'time-attack');
 });
 
+test('lookupManagedServer matches when Convex displayName is truncated vs live NAME', () => {
+  resetManagedServersForTests();
+  updateManagedServersFromSnapshot([
+    {
+      serverName: 'server',
+      displayName:
+        'ProjectD |Akina Downhill | Competitive Touge Time Attack | Global Leaderboards | discord.gg/3Fqbg8a6',
+      type: 'unified',
+    },
+  ]);
+
+  const liveName =
+    'ProjectD |Akina Downhill | Competitive Touge Time Attack | Global Leaderboards | discord.gg/3Fqbg8a6qf ℹ18081';
+  const match = lookupManagedServer(liveName);
+  assert.ok(match);
+  assert.equal(match.folderSlug, 'server');
+});
+
 test('lookupManagedServer returns null for unknown server', () => {
   resetManagedServersForTests();
   assert.equal(lookupManagedServer('Random Public Server'), null);
