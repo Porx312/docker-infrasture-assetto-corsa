@@ -2,6 +2,7 @@ import '../config/loadEnv.js';
 import type { RedisClientType } from 'redis';
 import {
   coalesceIngestBatch,
+  pendingHasPlayerJoin,
   shouldFlushIngestBuffer,
   WORKER_INGEST_FLUSH_INTERVAL_MS,
   WORKER_INGEST_MAX_BATCH_SIZE,
@@ -17,6 +18,7 @@ import { publishWorkerErrorEvent } from './activity/activityService.js';
 import {
   handleEventAfterIngest,
   handleEventBeforeIngest,
+  handlePlayerJoinBeforeIngest,
 } from './eventHandlers/index.js';
 import { partitionCoalescedByIngestPrefs } from './ingestPrefPartition.js';
 import { buildIngestEvent } from './ingestEventBuilder.js';
@@ -94,7 +96,10 @@ function sleep(ms: number): Promise<void> {
 const CONFIG_ONLY_EVENTS = new Set<string>([
   'server_config_snapshot',
   'server_config_applied',
+  'worker_error',
 ]);
+
+const PENDING_RECLAIM_INTERVAL_MS = Number(process.env.REDIS_PENDING_RECLAIM_INTERVAL_MS || 310_000);
 
 function parseIngestBatchResult(raw: unknown): IngestBatchResult {
   if (!raw || typeof raw !== 'object') return {};
@@ -248,6 +253,21 @@ function appendToIngestBuffer(state: IngestBufferState, items: PendingIngestMess
   state.items.push(...items);
 }
 
+/** Force the coalesce timer so player_join batches flush immediately. */
+function markIngestBufferFlushReady(state: IngestBufferState): void {
+  if (state.items.length > 0) {
+    state.startedAt = Date.now() - INGEST_FLUSH_INTERVAL_MS - 1;
+  }
+}
+
+async function onPlayerJoinMessagesRead(items: PendingIngestMessage[]): Promise<void> {
+  for (const { payload, event } of items) {
+    if (event === 'player_join') {
+      await handlePlayerJoinBeforeIngest(payload);
+    }
+  }
+}
+
 /**
  * Flush one chunk to Convex. Returns messages that must stay in the buffer
  * (retryable failures). Empty array means the chunk was fully resolved.
@@ -274,8 +294,9 @@ async function flushIngestChunk(
   const ackIds = new Set(toAck.map((m) => m.msg.id));
 
   if (localOnly.length > 0) {
+    const localOnlyTypes = [...new Set(localOnly.map((m) => m.event))];
     console.log(
-      `[redis-bridge] skipped Convex ingest for ${localOnly.length} lap_completed (saveTime=false)`,
+      `[redis-bridge] skipped Convex ingest for ${localOnly.length} event(s) (local-only): ${localOnlyTypes.join(', ')}`,
     );
   }
 
@@ -397,8 +418,15 @@ async function reclaimStalePendingMessages(
     }
 
     if (pending.length > 0) {
+      await onPlayerJoinMessagesRead(pending);
       appendToIngestBuffer(buffer, pending);
-      console.log(`[redis-bridge] reclaimed ${pending.length} stale pending message(s)`);
+      if (pendingHasPlayerJoin(pending)) {
+        markIngestBufferFlushReady(buffer);
+      }
+      const eventTypes = [...new Set(pending.map((p) => p.event))];
+      console.log(
+        `[redis-bridge] reclaimed ${pending.length} stale pending message(s) eventTypes=[${eventTypes.join(', ')}]`,
+      );
     }
 
     if (cursor === '0-0') {
@@ -463,11 +491,12 @@ async function runEventsConsumerLoop(client: RedisClientType): Promise<void> {
     console.error('[redis-bridge] pending reclaim error:', formatFlushError(err));
   }
 
-  let loopCount = 0;
+  let lastReclaimAt = Date.now();
   while (true) {
     try {
-      loopCount += 1;
-      if (loopCount % 60 === 0) {
+      const now = Date.now();
+      if (now - lastReclaimAt >= PENDING_RECLAIM_INTERVAL_MS) {
+        lastReclaimAt = now;
         try {
           await reclaimStalePendingMessages(client, buffer);
         } catch (err) {
@@ -499,7 +528,11 @@ async function runEventsConsumerLoop(client: RedisClientType): Promise<void> {
             }
             pending.push({ msg, payload, event });
           }
+          await onPlayerJoinMessagesRead(pending);
           appendToIngestBuffer(buffer, pending);
+          if (pendingHasPlayerJoin(pending)) {
+            markIngestBufferFlushReady(buffer);
+          }
         }
       }
 

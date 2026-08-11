@@ -127,6 +127,16 @@ def server_status_loop(servers):
             else:
                 should_publish = previous_sig is None or change_due or heartbeat_due
 
+            if (
+                should_publish
+                and heartbeat_due
+                and not change_due
+                and previous_sig is not None
+                and len(players) == 0
+                and not settings.SERVER_STATUS_HEARTBEAT_WHEN_EMPTY
+            ):
+                should_publish = False
+
             if not should_publish:
                 continue
 

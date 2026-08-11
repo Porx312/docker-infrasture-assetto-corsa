@@ -37,7 +37,24 @@ function cancelClearTimer(room: string): void {
   }
 }
 
+function battlePushLogEnabled(): boolean {
+  return (process.env.HUD_BATTLE_PUSH_LOG ?? 'false').trim().toLowerCase() === 'true';
+}
+
+function logBattlePush(room: string, payload: HudBattleOk | HudBattleErr): void {
+  if (!battlePushLogEnabled()) {
+    return;
+  }
+  const listeners = roomListeners.get(room)?.size ?? 0;
+  const state = payload.ok ? payload.state : payload.reason;
+  const version = payload.ok && payload.version ? payload.version : '-';
+  console.log(`[battle-push] room=${room} state=${state} version=${version} listeners=${listeners}`);
+}
+
 function emitToRoom(room: string, event: BattleHudPushEvent, payload: unknown): void {
+  if (event === 'battle' && payload && typeof payload === 'object') {
+    logBattlePush(room, payload as HudBattleOk | HudBattleErr);
+  }
   const listeners = roomListeners.get(room);
   if (!listeners) {
     return;

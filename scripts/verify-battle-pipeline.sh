@@ -76,5 +76,19 @@ HUD_BASE_URL="$BASE_URL" "$ROOT/scripts/verify-battle-hud.sh" "$STEAM_ID" || {
 }
 
 echo ""
+echo "--- 5/5 ac-data battle room resubscribe + push log hooks ---"
+if rg -q 'refreshBattleRoomSubscription' "$ROOT/ac-data/src/services/hud/hudStreamSseBattleRoom.ts" 2>/dev/null; then
+  echo "OK: battle room resubscribe helper present"
+else
+  echo "FAIL: missing hudStreamSseBattleRoom.ts"
+  exit 1
+fi
+if rg -q 'HUD_BATTLE_PUSH_LOG' "$ROOT/ac-data/src/services/hud/battleHudPush.ts" 2>/dev/null; then
+  echo "OK: HUD_BATTLE_PUSH_LOG hook present"
+else
+  echo "WARN: HUD_BATTLE_PUSH_LOG not found"
+fi
+echo "Live sync watch: ./scripts/verify-battle-live-sync.sh STEAM_ID"
+echo ""
 echo "PASS: battle pipeline checks complete"
 echo "Overlay URL: ${BASE_URL%/hud}/hud/stream?steamId=${STEAM_ID}"

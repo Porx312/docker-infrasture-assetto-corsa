@@ -82,6 +82,20 @@ echo "=== Recent player_join (ac:events) ==="
 rc xrevrange ac:events + - COUNT 100 2>/dev/null | grep -E "player_join|${STEAM_ID}" | head -8 || echo "(none recent)"
 echo ""
 
+echo "=== Ingest PEL (XPENDING) ==="
+XPENDING_SUMMARY="$(rc XPENDING ac:events ac-data-consumers 2>/dev/null || true)"
+if [[ -n "$XPENDING_SUMMARY" ]]; then
+  PENDING_COUNT="$(echo "$XPENDING_SUMMARY" | head -1 | tr -d ' ')"
+  echo "pending_count: ${PENDING_COUNT:-?}"
+  echo "$XPENDING_SUMMARY" | head -5
+  if [[ -n "${PENDING_COUNT:-}" && "$PENDING_COUNT" =~ ^[0-9]+$ && "$PENDING_COUNT" -gt 1000 ]]; then
+    echo "WARN: large XPENDING backlog — run ./scripts/clear-ingest-pending.sh dev --apply --all"
+  fi
+else
+  echo "(XPENDING unavailable)"
+fi
+echo ""
+
 echo "=== Interpretation ==="
 cat <<EOF
 | Check                         | OK when |
@@ -89,6 +103,7 @@ cat <<EOF
 | ac:hud:presence               | JSON with serverName/track while in server |
 | SSE HTTP 200                  | Opens stream (not 404 player_not_connected) |
 | Convex session ok             | rank/elo/profile in getHudSession |
+| XPENDING ac-data-consumers    | near 0; if >1000 run clear-ingest-pending.sh |
 | hud_session in SSE            | ./scripts/verify-hud-overlay-contract.sh $STEAM_ID (or HUD_HOST=dev-api.projectd.space ...) |
 
 If SSE shows \`hud_error\` with \`server_not_found\` but presence exists, ac-data retries

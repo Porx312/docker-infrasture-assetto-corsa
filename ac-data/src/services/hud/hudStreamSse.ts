@@ -3,22 +3,20 @@ import type { Request, Response } from 'express';
 import {
   initHudPushHub,
   isHudSseEnabled,
-  sendInitialBattleSnapshot,
-  subscribeBattleHudRoom,
   unsubscribeBattleHudRoom,
   type BattleHudRoomListener,
 } from './battleHudPush.js';
-import { battleRoomFromParams } from './hudBattleRooms.js';
 import { requireHudApiKeyFromQuery } from './hudBattleAuth.js';
 import {
-  refreshPlayerPresence,
   registerBattleSsePresence,
   resolvePlayerPresence,
   unregisterBattleSsePresence,
 } from './hudPlayerPresence.js';
+import { getSessionCached } from './lapCompletedHudRefresh.js';
 import {
   registerHudSseConnection,
   sendInitialHudSseSnapshot,
+  pushHudUpdateForSteamId,
   type HudSseConnection,
 } from './hudSsePush.js';
 import { isHudRedisConfigured } from './hudRedis.js';
@@ -28,6 +26,10 @@ import {
   renewHudSsePresence,
 } from './hudSsePresence.js';
 import { writeSseEvent } from './hudStreamSseFormat.js';
+import {
+  refreshBattleRoomSubscription,
+  type BattleRoomSubscription,
+} from './hudStreamSseBattleRoom.js';
 
 const SSE_KEEPALIVE_MS = Number(process.env.HUD_SSE_KEEPALIVE_MS || 30_000);
 
@@ -67,8 +69,6 @@ export async function handleHudStreamSse(req: Request, res: Response): Promise<v
   await markHudSseConnected(steamId);
   initHudPushHub();
 
-  const battleRoom = battleRoomFromParams(resolved.presence.serverName, steamId);
-
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -89,14 +89,25 @@ export async function handleHudStreamSse(req: Request, res: Response): Promise<v
     writeSseEvent(res, event, payload);
   };
 
-  subscribeBattleHudRoom(battleRoom, battleListener);
-  void sendInitialBattleSnapshot(battleRoom, battleListener);
+  let battleSubscription: BattleRoomSubscription | null = {
+    room: '',
+    listener: battleListener,
+  };
+  battleSubscription = await refreshBattleRoomSubscription(steamId, battleSubscription);
   void sendInitialHudSseSnapshot(hudConn);
 
   const keepalive = setInterval(() => {
     res.write(': keepalive\n\n');
-    void refreshPlayerPresence(resolved.presence);
     void renewHudSsePresence(steamId);
+    void (async () => {
+      const cached = await getSessionCached({ steamId });
+      if (!cached.ok && cached.reason === 'player_not_connected') {
+        await pushHudUpdateForSteamId(steamId, true);
+      }
+    })();
+    void refreshBattleRoomSubscription(steamId, battleSubscription).then((next) => {
+      battleSubscription = next;
+    });
   }, SSE_KEEPALIVE_MS);
 
   req.on('close', () => {
@@ -104,6 +115,8 @@ export async function handleHudStreamSse(req: Request, res: Response): Promise<v
     unregisterHud();
     unregisterBattleSsePresence(steamId);
     void clearHudSsePresence(steamId);
-    unsubscribeBattleHudRoom(battleRoom, battleListener);
+    if (battleSubscription) {
+      unsubscribeBattleHudRoom(battleSubscription.room, battleSubscription.listener);
+    }
   });
 }

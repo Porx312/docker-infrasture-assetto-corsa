@@ -13,6 +13,7 @@ from engines.battlesystem.config import (
     PAIR_IDLE_SEPARATED_RELEASE_SEC,
     PAIR_MAX_PREACTIVE_LOCK_SEC,
     PAIR_STICKY_TIMEOUT_SEC,
+    ROLE_ASSIGN_WAIT_SEC,
 )
 from engines.battlesystem.chat import (
     format_matchup,
@@ -267,10 +268,23 @@ def _handle_armed(manager, car1, car2, distance: float, now: float) -> None:
 def _handle_launching(manager, car1, car2, distance: float, now: float) -> None:
     # Once GO was sent, do not abort for opening gap or brief speed dips.
 
-    ok, _abort_reason = arming.can_assign_roles(car1, car2, manager.launch_trigger_time, now)
+    ok, abort_reason = arming.can_assign_roles(car1, car2, manager.launch_trigger_time, now)
     if not ok:
-        if (now - manager.launch_trigger_time) > LAUNCH_TIMEOUT_SEC:
-            log.info("launch role assign timeout, resetting")
+        elapsed = now - manager.launch_trigger_time
+        if elapsed > ROLE_ASSIGN_WAIT_SEC and elapsed <= ROLE_ASSIGN_WAIT_SEC + 0.5:
+            log.warning(
+                "launching role assign still waiting (%.1fs) %s vs %s reason=%s",
+                elapsed,
+                manager.battle.car1_guid if manager.battle else "?",
+                manager.battle.car2_guid if manager.battle else "?",
+                abort_reason,
+            )
+        if elapsed > LAUNCH_TIMEOUT_SEC:
+            log.info(
+                "launch role assign timeout (%.1fs > %.0fs), resetting",
+                elapsed,
+                LAUNCH_TIMEOUT_SEC,
+            )
             manager._reset_to_idle()
             return
         last_rep = getattr(manager, "_launching_hud_republished_at", 0.0)

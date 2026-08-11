@@ -1,15 +1,21 @@
 import { handleBattleFinishedAfterIngest } from './battleFinished.js';
 import { handleLapCompletedAfterIngest } from './lapCompleted.js';
-import { handlePlayerJoinAfterIngest } from './playerJoin.js';
+import { handlePlayerJoinAfterIngest, handlePlayerJoinBeforeIngest } from './playerJoin.js';
 import { handlePlayerLeaveAfterIngest } from './playerLeave.js';
 import { handleServerStatusBeforeIngest } from './serverStatus.js';
 import type { EventPayload } from './types.js';
 
 export { handleServerStatusBeforeIngest } from './serverStatus.js';
 
+export { handlePlayerJoinBeforeIngest } from './playerJoin.js';
+
 export async function handleEventBeforeIngest(event: string, payload: EventPayload): Promise<void> {
   if (event === 'server_status') {
     await handleServerStatusBeforeIngest(payload);
+    return;
+  }
+  if (event === 'player_join') {
+    await handlePlayerJoinBeforeIngest(payload);
   }
 }
 

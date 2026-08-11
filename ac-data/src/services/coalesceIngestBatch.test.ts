@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   coalesceIngestBatch,
+  pendingHasPlayerJoin,
   shouldFlushIngestBuffer,
   WORKER_INGEST_FLUSH_INTERVAL_MS,
   WORKER_INGEST_MAX_BATCH_SIZE,
@@ -56,4 +57,12 @@ test('shouldFlushIngestBuffer waits before interval', () => {
   const now = 10_000;
   const startedAt = now - (WORKER_INGEST_FLUSH_INTERVAL_MS - 1);
   assert.equal(shouldFlushIngestBuffer(3, startedAt, now), false);
+});
+
+test('pendingHasPlayerJoin detects player_join in a batch', () => {
+  assert.equal(
+    pendingHasPlayerJoin([msg('player_join', 'server-a', '1'), msg('server_status', 'server-a', '2')]),
+    true,
+  );
+  assert.equal(pendingHasPlayerJoin([msg('server_status', 'server-a', '1')]), false);
 });

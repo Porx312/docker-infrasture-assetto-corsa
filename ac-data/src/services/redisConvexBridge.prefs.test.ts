@@ -57,3 +57,64 @@ test('partitionCoalescedByIngestPrefs always forwards non-lap events', async () 
   assert.equal(localOnly.length, 1);
   assert.equal(localOnly[0]?.event, 'lap_completed');
 });
+
+function emptyServerStatusPending(id: string): PendingIngestMessage {
+  return {
+    msg: { id },
+    event: 'server_status',
+    payload: {
+      event: 'server_status',
+      serverName: 'server',
+      data: { players: [], trackName: 'ks_nordschleife', trackConfig: 'touristenfahrten' },
+    },
+  };
+}
+
+function populatedServerStatusPending(id: string): PendingIngestMessage {
+  return {
+    msg: { id },
+    event: 'server_status',
+    payload: {
+      event: 'server_status',
+      serverName: 'server',
+      data: {
+        players: [{ steamId: 'steam-a', name: 'A', carModel: 'ks_toyota_gt86' }],
+        trackName: 'ks_nordschleife',
+      },
+    },
+  };
+}
+
+test('partitionCoalescedByIngestPrefs routes empty server_status to localOnly when skip enabled', async () => {
+  const { forward, localOnly } = await partitionCoalescedByIngestPrefs(
+    [emptyServerStatusPending('3')],
+    async () => false,
+    true,
+  );
+
+  assert.equal(forward.length, 0);
+  assert.equal(localOnly.length, 1);
+  assert.equal(localOnly[0]?.event, 'server_status');
+});
+
+test('partitionCoalescedByIngestPrefs forwards populated server_status when skip enabled', async () => {
+  const { forward, localOnly } = await partitionCoalescedByIngestPrefs(
+    [populatedServerStatusPending('4')],
+    async () => false,
+    true,
+  );
+
+  assert.equal(forward.length, 1);
+  assert.equal(localOnly.length, 0);
+});
+
+test('partitionCoalescedByIngestPrefs forwards empty server_status when skip disabled', async () => {
+  const { forward, localOnly } = await partitionCoalescedByIngestPrefs(
+    [emptyServerStatusPending('5')],
+    async () => false,
+    false,
+  );
+
+  assert.equal(forward.length, 1);
+  assert.equal(localOnly.length, 0);
+});

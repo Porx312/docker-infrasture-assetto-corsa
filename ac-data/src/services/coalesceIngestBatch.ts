@@ -49,3 +49,7 @@ export function shouldFlushIngestBuffer(
   }
   return false;
 }
+
+export function pendingHasPlayerJoin(items: PendingIngestMessage[]): boolean {
+  return items.some((item) => item.event === 'player_join');
+}
