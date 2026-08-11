@@ -12,7 +12,11 @@ from engines.battlesystem.chat import (
     notify_player_chat,
     notify_touge_chat,
 )
-from engines.battlesystem.config import ARM_SUSTAINED_PROXIMITY_SEC, BATTLE_ARM_MIN_SPEED_KMH
+from engines.battlesystem.config import (
+    ARM_SUSTAINED_PROXIMITY_SEC,
+    BATTLE_ARM_CANCEL_SPEED_KMH,
+    BATTLE_ARM_MIN_SPEED_KMH,
+)
 from engines.battlesystem.scoring import award_point, finalize_abandon
 from engines.battlesystem.state_machine import process_pair_logic
 from tests.battlesystem.conftest import seed_car
@@ -74,8 +78,8 @@ def test_idle_armed_and_go_chat(_mock_overlay, pair_manager):
     pair_manager.state = "IDLE"
     pair_manager.player_names["guid_a"] = "Alpha"
     pair_manager.player_names["guid_b"] = "Beta"
-    seed_car(pair_manager, "guid_a", pos=(0, 0, 0), speed=50.0)
-    seed_car(pair_manager, "guid_b", pos=(10, 0, 0), speed=50.0)
+    seed_car(pair_manager, "guid_a", pos=(0, 0, 0), speed=BATTLE_ARM_CANCEL_SPEED_KMH + 5)
+    seed_car(pair_manager, "guid_b", pos=(10, 0, 0), speed=BATTLE_ARM_CANCEL_SPEED_KMH + 5)
 
     now = time.time()
     pair_manager.arm_proximity_since = now - (ARM_SUSTAINED_PROXIMITY_SEC + 0.1)

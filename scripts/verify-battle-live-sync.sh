@@ -98,7 +98,39 @@ except Exception:
 done
 
 echo ""
+echo "--- Source checks (battle start sync) ---"
+grep -q 'arming_violation_active' telemetry-data/engines/battlesystem/rules/arming.py \
+  && echo "  OK arming gap hysteresis (arming_violation_active)" \
+  || { echo "  FAIL missing arming_violation_active"; exit 1; }
+grep -q 'BATTLE_ARM_ABORT_GAP_METERS' telemetry-data/core/settings.py \
+  && echo "  OK BATTLE_ARM_ABORT_GAP_METERS configured" \
+  || { echo "  FAIL missing abort gap setting"; exit 1; }
+grep -q 'prepPhase' telemetry-data/network/battle_hud_publisher.py \
+  && echo "  OK prepPhase in battle snapshots" \
+  || { echo "  FAIL prepPhase missing"; exit 1; }
+grep -q 'rival_paired' ProjectD-HUD/common/api/battle/battle_phases.lua \
+  && echo "  OK rival_paired exits matchmaking UI" \
+  || { echo "  FAIL rival_paired missing"; exit 1; }
+grep -q 'should_ignore_stale_snapshot' ProjectD-HUD/common/api/battle_fetch.lua \
+  && echo "  OK snapshot version/revision guard" \
+  || { echo "  FAIL should_ignore_stale_snapshot missing"; exit 1; }
+grep -q 'apply_presentation_overlay' ProjectD-HUD/common/api/battle_fetch.lua \
+  && echo "  OK presentation-only overlay (no local countdown gameplay)" \
+  || { echo "  FAIL apply_presentation_overlay missing"; exit 1; }
+grep -q '! promote_ui_from_live_evidence' ProjectD-HUD/common/api/battle_fetch.lua 2>/dev/null \
+  || ! grep -q 'promote_ui_from_live_evidence' ProjectD-HUD/common/api/battle_fetch.lua \
+  && echo "  OK no promote_ui_from_live_evidence (server authority)" \
+  || { echo "  FAIL promote_ui_from_live_evidence still present"; exit 1; }
+grep -q '"revision"' telemetry-data/network/battle_hud_publisher.py \
+  && echo "  OK revision in battle snapshots" \
+  || { echo "  FAIL revision missing in publisher"; exit 1; }
+grep -q '"seq"' telemetry-data/engines/battlesystem/scoring.py \
+  && echo "  OK pointsLog seq in scoring" \
+  || { echo "  FAIL pointsLog seq missing"; exit 1; }
+echo ""
 echo "--- Interpretation ---"
 echo "Redis state=active + version changing but HUD stuck → client delivery (SSE/poll) or apply_snapshot blocked"
 echo "Redis key missing or state=pairing >60s → telemetry prep stuck or serverKey mismatch"
 echo "version frozen >120s → HUD_BATTLE_TTL / publish stopped; check BATTLE_HUD_ENABLED"
+echo "Post-battle plain 'Waiting for battle' → run ./scripts/verify-battle-idle-lobby.sh $STEAM_ID"
+echo "Countdown ignores brake → check countdownHint + cancelReason=arming_aborted in Redis during arming"

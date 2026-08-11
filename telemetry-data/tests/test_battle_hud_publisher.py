@@ -168,11 +168,23 @@ def test_build_battle_snapshot_arming_includes_proximity_since():
     server = _FakeServerState()
     mgr = _pair_manager()
     mgr.state = "IDLE"
+    mgr.pair_locked_at = time.time()
     mgr.arm_proximity_since = time.time() - 1.0
     snapshot = publisher.build_battle_snapshot(server, mgr, hud_state="arming")
     assert snapshot["state"] == "arming"
     assert snapshot["armingCountdownSec"] >= 1
     assert snapshot["armProximitySince"] == mgr.arm_proximity_since
+    assert snapshot["prepPhase"] == "arming"
+
+
+def test_build_battle_snapshot_pairing_includes_prep_fields():
+    server = _FakeServerState()
+    mgr = _pair_manager()
+    mgr.pair_locked_at = 123.0
+    snapshot = publisher.build_battle_snapshot(server, mgr, hud_state="pairing")
+    assert snapshot["state"] == "pairing"
+    assert snapshot["pairLocked"] is True
+    assert snapshot["prepPhase"] == "paired"
 
 
 def test_build_battle_snapshot_terminal_cancel_fields():
@@ -222,6 +234,59 @@ def test_format_cancel_and_abandon_labels():
     assert publisher.format_abandon_win_label(mgr, "steam-a", "gap_disappeared") == "win"
     assert publisher.format_finish_session_label(mgr, 50.0, is_draw=True, winner_guid=None) == "draw"
     assert publisher.format_finish_session_label(mgr, 50.0, is_draw=False, winner_guid="steam-a") == "win"
+
+
+@patch.object(publisher.settings, "AC_INSTANCE_ID", "default")
+@patch.object(publisher.settings, "BATTLE_HUD_ENABLED", True)
+@patch.object(publisher.settings, "REDIS_HOST", "localhost")
+@patch.object(publisher, "get_redis_client")
+def test_publish_includes_monotonic_revision(mock_get_redis):
+    redis = _FakeRedis()
+    mock_get_redis.return_value = redis
+    server = _FakeServerState()
+    mgr = _pair_manager()
+
+    publisher.publish_battle_hud(server, mgr, hud_state="active", force=True)
+
+    key_a = publisher._battle_cache_key("default_battle_test", "steam-a")
+    first = json.loads(redis.store[key_a])
+
+    publisher.publish_battle_hud(server, mgr, hud_state="active", force=True)
+
+    latest = json.loads(redis.store[key_a])
+    assert first["revision"] >= 1
+    assert latest["revision"] == first["revision"] + 1
+
+
+@patch.object(publisher.settings, "HUD_BATTLE_DEBOUNCE_MS", 5000)
+@patch.object(publisher.settings, "AC_INSTANCE_ID", "default")
+@patch.object(publisher.settings, "BATTLE_HUD_ENABLED", True)
+@patch.object(publisher.settings, "REDIS_HOST", "localhost")
+@patch.object(publisher, "get_redis_client")
+def test_phase_publish_not_debounced(mock_get_redis):
+    redis = _FakeRedis()
+    mock_get_redis.return_value = redis
+    server = _FakeServerState()
+    mgr = _pair_manager()
+
+    publisher.publish_battle_hud(server, mgr, hud_state="pairing", force=False)
+    publisher.publish_battle_hud(server, mgr, hud_state="arming", force=False)
+
+    key_a = publisher._battle_cache_key("default_battle_test", "steam-a")
+    payload = json.loads(redis.store[key_a])
+    assert payload["state"] == "arming"
+
+
+def test_build_points_log_includes_seq():
+    server = _FakeServerState()
+    mgr = _pair_manager()
+    mgr.battle.points_log = [
+        {"scorer": "steam-a", "reason": "overtake", "ts": 1, "seq": 1},
+        {"scorer": "steam-b", "reason": "overtake", "ts": 2, "seq": 2},
+    ]
+    snapshot = publisher.build_battle_snapshot(server, mgr, hud_state="active")
+    assert snapshot["pointsLog"][0]["seq"] == 1
+    assert snapshot["pointsLog"][1]["seq"] == 2
 
 
 @patch.object(publisher.settings, "AC_INSTANCE_ID", "default")

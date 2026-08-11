@@ -236,6 +236,7 @@ export type HudBattleLastEvent = {
 export type HudBattleOk = {
   ok: true;
   version: string;
+  revision?: number;
   battleId: string | null;
   state:
     | 'pairing'

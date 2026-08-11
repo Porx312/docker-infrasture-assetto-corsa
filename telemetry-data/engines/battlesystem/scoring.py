@@ -27,6 +27,7 @@ def append_points_log_entry(manager, reason: str, scorer=None, **extra) -> None:
         "scorer": scorer,
         "reason": reason,
         "ts": int(time.time() * 1000),
+        "seq": len(manager.battle.points_log) + 1,
     }
     if extra:
         entry.update(extra)

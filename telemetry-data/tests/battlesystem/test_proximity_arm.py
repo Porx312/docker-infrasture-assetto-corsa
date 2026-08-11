@@ -31,8 +31,11 @@ def test_is_overtake_scoring_gap():
 
 
 def test_can_arm_requires_gap_and_speed(pair_manager):
-    a = seed_car(pair_manager, "guid_a", pos=(0, 0, 0), speed=50)
-    b = seed_car(pair_manager, "guid_b", pos=(10, 0, 0), speed=50)
+    from engines.battlesystem.config import BATTLE_ARM_CANCEL_SPEED_KMH
+
+    speed = BATTLE_ARM_CANCEL_SPEED_KMH + 5.0
+    a = seed_car(pair_manager, "guid_a", pos=(0, 0, 0), speed=speed)
+    b = seed_car(pair_manager, "guid_b", pos=(10, 0, 0), speed=speed)
     assert arming.can_arm(a, b) is True
 
     too_far = BATTLE_ARM_MAX_GAP_METERS + 5.0

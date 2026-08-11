@@ -8,6 +8,7 @@ import time
 from core.logging_config import get_logger
 from engines.battlesystem.config import (
     ARM_SUSTAINED_PROXIMITY_SEC,
+    BATTLE_ARM_ABORT_GRACE_SEC,
     BATTLE_ARM_MIN_SPEED_KMH,
     LAUNCH_TIMEOUT_SEC,
     PAIR_IDLE_SEPARATED_RELEASE_SEC,
@@ -190,6 +191,7 @@ def _clear_arming_countdown(manager, *, notify_cancel: bool = False) -> None:
     had_announced = getattr(manager, "_arming_countdown_announced_sec", -1) >= 0
     manager.arm_proximity_since = 0.0
     manager._arming_countdown_announced_sec = -1
+    manager._arming_violation_since = 0.0
     if notify_cancel and was_arming and had_announced:
         notify_arming_cancelled(manager)
         from network.battle_hud_publisher import format_cancel_label, make_hud_event
@@ -202,32 +204,62 @@ def _clear_arming_countdown(manager, *, notify_cancel: bool = False) -> None:
             end_label=cancel_label,
             last_event=make_hud_event("arming_aborted", cancel_label),
         )
+        manager._mark_hud_cancel_hold()
+
+
+def _maybe_dissolve_separated_idle(manager, car1, car2, distance: float, now: float) -> None:
+    separated_since = getattr(manager, "_separated_since", 0.0)
+    if separated_since <= 0.0:
+        manager._separated_since = now
+    elif (now - separated_since) >= PAIR_IDLE_SEPARATED_RELEASE_SEC:
+        log.info(
+            "pair dissolved (separated idle %.0fs) %s vs %s gap=%.1fm",
+            now - separated_since,
+            car1.guid,
+            car2.guid,
+            distance,
+        )
+        _dissolve_pair(manager, reason="separated_idle")
 
 
 def _handle_idle(manager, car1, car2, distance: float, now: float) -> None:
-    if not arming.can_arm(car1, car2):
-        _clear_arming_countdown(manager, notify_cancel=True)
-        separated_since = getattr(manager, "_separated_since", 0.0)
-        if separated_since <= 0.0:
-            manager._separated_since = now
-        elif (now - separated_since) >= PAIR_IDLE_SEPARATED_RELEASE_SEC:
-            log.info(
-                "pair dissolved (separated idle %.0fs) %s vs %s gap=%.1fm",
-                now - separated_since,
-                car1.guid,
-                car2.guid,
-                distance,
-            )
-            _dissolve_pair(manager, reason="separated_idle")
+    in_countdown = manager.arm_proximity_since > 0.0
+    violated = arming.arming_violation_active(car1, car2)
+    can_start = arming.can_arm(car1, car2)
+
+    if in_countdown and violated:
+        vs = getattr(manager, "_arming_violation_since", 0.0)
+        if vs <= 0.0:
+            manager._arming_violation_since = now
+        elif (now - vs) >= BATTLE_ARM_ABORT_GRACE_SEC:
+            _clear_arming_countdown(manager, notify_cancel=True)
+            _maybe_dissolve_separated_idle(manager, car1, car2, distance, now)
+            return
+    elif in_countdown:
+        manager._arming_violation_since = 0.0
+    else:
+        manager._arming_violation_since = 0.0
+
+    if not can_start and not in_countdown:
+        _clear_arming_countdown(manager, notify_cancel=False)
+        _maybe_dissolve_separated_idle(manager, car1, car2, distance, now)
         return
+
+    if not can_start and in_countdown:
+        _maybe_notify_arming_countdown(manager, now)
+        manager._publish_hud(hud_state="arming", force=True)
+        return
+
     manager._separated_since = 0.0
     if manager.arm_proximity_since == 0.0:
         manager.arm_proximity_since = now
         manager._arming_countdown_announced_sec = -1
         _maybe_notify_arming_countdown(manager, now)
+        manager._publish_hud(hud_state="arming", force=True)
         return
     if (now - manager.arm_proximity_since) < ARM_SUSTAINED_PROXIMITY_SEC:
         _maybe_notify_arming_countdown(manager, now)
+        manager._publish_hud(hud_state="arming", force=True)
         return
     _clear_arming_countdown(manager, notify_cancel=False)
     manager.state = "ARMED"

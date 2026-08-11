@@ -61,7 +61,11 @@ sequenceDiagram
 **Reglas clave:**
 
 - Cada fase llega como **`battle` con snapshot completo** — reemplazar todo el estado local, no parchear campos sueltos.
+- Ignorar snapshots con **`revision`** o **`version`** menor que el último aplicado **para el mismo `battleId`** (evita regresiones por SSE/poll fuera de orden). Al cambiar `battleId` o tras latch/clear, el guard de revisión se resetea — no comparar revisiones entre batallas distintas.
+- **`revision`** es monotónico por batalla; **`version`** es timestamp ms de publicación (fallback si falta `revision`).
 - Los **toasts** son siempre **`lastEvent.label`** (una palabra en minúsculas). Dedup por `lastEvent.ts`.
+- **`pointsLog[].seq`** es monotónico por batalla; deduplicar entradas por `seq` al mergear.
+- El overlay **no debe** predecir fase, countdown ni scores localmente — solo renderizar el snapshot y animaciones de presentación (barra ARM, fade de toast, latch terminal).
 - **`endLabel`** repite la misma palabra en fin/cancel; puedes usar `lastEvent.label` o `endLabel` para el toast final.
 - **`pairing` → `arming` → …** no mandan toast; solo cambia `state` y campos asociados.
 - Tras `finished`/`cancelled`, **`battle` con `{ ok: false, reason: "no_battle" }`** ~5 s después es normal — no ocultar al instante (usar latch).
@@ -74,9 +78,10 @@ sequenceDiagram
 | Marcador yo / rival | `player1` / `player2` comparando `steamId` con el local |
 | Rol LEAD / CHASE | `player.role` en `state: active` |
 | Barra de separación | `gap3dM / disappearGapM` |
-| Cuenta atrás ARM | `armingCountdownSec` |
+| Cuenta atrás ARM | `armingCountdownSec` (servidor publica ~1 Hz en `arming`) |
+| Versión snapshot | `revision` (preferido), `version` (fallback) |
 | Ganador | `winnerSteamId`, `status` |
-| Feed de puntos (opcional) | `pointsLog[].label` |
+| Feed de puntos (opcional) | `pointsLog[].label` (dedup `pointsLog[].seq`) |
 
 ### Catálogo de toasts (texto en pantalla)
 
@@ -541,8 +546,22 @@ Al recibir snapshot con `state === "finished"` o `"cancelled"` (o en `battle` co
 
 Si `battleId` del snapshot cambia respecto al anterior:
 
-- Resetear `lastEventTs`, latch y toasts.
+- Resetear `lastEventTs`, latch, toasts y **guard de revisión** (`last_revision_battle_id`).
 - Evita mostrar puntos de la partida anterior en la nueva.
+
+### Diagnóstico de sync (`./scripts/trace-battle-sync.sh`)
+
+| Capa | Activación | Log |
+|------|------------|-----|
+| Servidor | `BATTLE_SYNC_TRACE=1` en `.env.local` | `[BATTLE_PUBLISH]` en `telemetry-data.log` |
+| ac-data | `HUD_BATTLE_PUSH_LOG=true` | `[battle-push]` en `ac-data.log` |
+| Cliente CSP | `ac.storage("ProjectD-HUD:battle_sync_trace", true):set()` | `[BATTLE_SYNC]` en debug CSP |
+
+Correlacionar con `./scripts/trace-battle-sync.sh --since 30m path/to/csp-client-a.log`.
+
+### Entrega LWW (fases cortas)
+
+Redis guarda **un** snapshot por jugador; cada publish sobrescribe el anterior. Fases muy breves (`armed`, `launching` en un solo tick) pueden no llegar al cliente aunque el servidor las publique. **No** rellenar countdown ni VS en el cliente — si tras el fix del guard siguen faltando fases intermedias, la opción arquitectural es **dwell time mínimo por fase en el servidor** (telemetry publish cadence), no parches Lua locales.
 
 ### Barra de separación
 

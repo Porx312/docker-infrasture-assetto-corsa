@@ -48,7 +48,13 @@ function logBattlePush(room: string, payload: HudBattleOk | HudBattleErr): void 
   const listeners = roomListeners.get(room)?.size ?? 0;
   const state = payload.ok ? payload.state : payload.reason;
   const version = payload.ok && payload.version ? payload.version : '-';
-  console.log(`[battle-push] room=${room} state=${state} version=${version} listeners=${listeners}`);
+  const revision =
+    payload.ok && payload.revision !== undefined && payload.revision !== null
+      ? String(payload.revision)
+      : '-';
+  console.log(
+    `[battle-push] room=${room} state=${state} version=${version} revision=${revision} listeners=${listeners}`,
+  );
 }
 
 function emitToRoom(room: string, event: BattleHudPushEvent, payload: unknown): void {

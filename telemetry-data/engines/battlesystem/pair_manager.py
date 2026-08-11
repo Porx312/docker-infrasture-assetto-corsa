@@ -1,4 +1,6 @@
 from core.logging_config import get_logger
+import time
+
 from engines.battlesystem.chat import notify_battle_cancelled
 from engines.battlesystem.config import (
     ARMED_CHAT_COOLDOWN_SEC,
@@ -43,6 +45,8 @@ class PairBattleManager:
         self.on_battle_end = None
         self.pair_locked_at = 0.0
         self._separated_since = 0.0
+        self._arming_violation_since = 0.0
+        self._hud_cancel_hold_until = 0.0
 
         self.battle_id = None
         self.finished_time = 0.0
@@ -137,6 +141,7 @@ class PairBattleManager:
         self.condition_start_time = 0.0
         self.arm_proximity_since = 0.0
         self._arming_countdown_announced_sec = -1
+        self._arming_violation_since = 0.0
         self.launch_trigger_time = 0.0
         for car in self.cars.values():
             car.end_run()
@@ -157,7 +162,14 @@ class PairBattleManager:
     def _award_point(self, winner_guid, reason="outrun", **kwargs):
         award_point(self, winner_guid, reason, **kwargs)
 
+    def _mark_hud_cancel_hold(self) -> None:
+        from core import settings
+
+        self._hud_cancel_hold_until = time.time() + settings.HUD_BATTLE_CLEAR_DELAY_SEC
+
     def _publish_hud(self, **kwargs) -> None:
+        if not kwargs.get("force") and time.time() < getattr(self, "_hud_cancel_hold_until", 0.0):
+            return
         if self.on_hud_update:
             self.on_hud_update(self, **kwargs)
 
@@ -166,6 +178,7 @@ class PairBattleManager:
         self.state = "IDLE"
         self.arm_proximity_since = 0.0
         self._arming_countdown_announced_sec = -1
+        self._arming_violation_since = 0.0
         from network.battle_hud_publisher import format_cancel_label, make_hud_event
 
         cancel_reason = "prestart_gap"
@@ -177,3 +190,4 @@ class PairBattleManager:
             end_label=cancel_label,
             last_event=make_hud_event(cancel_reason, cancel_label),
         )
+        self._mark_hud_cancel_hold()

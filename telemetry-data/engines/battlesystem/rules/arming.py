@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from core.logging_config import get_logger
 from engines.battlesystem.config import (
+    BATTLE_ARM_ABORT_GAP_METERS,
+    BATTLE_ARM_CANCEL_SPEED_KMH,
     BATTLE_ARM_MAX_GAP_METERS,
     BATTLE_ARM_MIN_SPEED_KMH,
     GAP_ABORT_MIN_BOTH_SPEED_KMH,
@@ -28,9 +30,28 @@ log = get_logger("battlesystem.arming")
 
 
 def can_arm(car1, car2) -> bool:
+    """Start/sustain arming countdown: within arm gap and both at cancel speed (55+)."""
     if not is_within_battle_gap(car1.pos, car2.pos, BATTLE_ARM_MAX_GAP_METERS):
         return False
-    return car1.speed >= BATTLE_ARM_MIN_SPEED_KMH and car2.speed >= BATTLE_ARM_MIN_SPEED_KMH
+    return (
+        car1.speed >= BATTLE_ARM_CANCEL_SPEED_KMH
+        and car2.speed >= BATTLE_ARM_CANCEL_SPEED_KMH
+    )
+
+
+def arming_violation_active(car1, car2) -> bool:
+    """True when gap/speed conditions fail beyond hysteresis (abort after grace)."""
+    if not is_within_battle_gap(car1.pos, car2.pos, BATTLE_ARM_ABORT_GAP_METERS):
+        return True
+    return (
+        car1.speed < BATTLE_ARM_CANCEL_SPEED_KMH
+        or car2.speed < BATTLE_ARM_CANCEL_SPEED_KMH
+    )
+
+
+def should_abort_arming(car1, car2) -> bool:
+    """Cancel arming countdown when gap opens (hysteresis) or either slows below cancel speed."""
+    return arming_violation_active(car1, car2)
 
 
 def can_launch(car1, car2) -> bool:

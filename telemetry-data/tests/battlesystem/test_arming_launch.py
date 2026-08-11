@@ -3,12 +3,15 @@ from unittest.mock import patch
 
 from engines.battlesystem.config import (
     ARM_SUSTAINED_PROXIMITY_SEC,
+    BATTLE_ARM_CANCEL_SPEED_KMH,
     BATTLE_ARM_MIN_SPEED_KMH,
     POSITION_ROLE_ASSIGN_WAIT_SEC,
 )
 from engines.battlesystem.rules import arming
 from engines.battlesystem.state_machine import process_pair_logic
 from tests.battlesystem.conftest import seed_car
+
+ARMING_TEST_SPEED = BATTLE_ARM_CANCEL_SPEED_KMH + 5.0
 
 
 def test_can_assign_roles_after_wait_even_if_splines_tied(pair_manager):
@@ -31,8 +34,8 @@ def test_idle_starts_proximity_timer_without_armed(pair_manager):
     pair_manager.state = "IDLE"
     hud_calls = []
     pair_manager.on_hud_update = lambda _mgr, **kwargs: hud_calls.append(kwargs)
-    seed_car(pair_manager, "guid_a", pos=(0, 0, 0), speed=50.0)
-    seed_car(pair_manager, "guid_b", pos=(10, 0, 0), speed=50.0)
+    seed_car(pair_manager, "guid_a", pos=(0, 0, 0), speed=ARMING_TEST_SPEED)
+    seed_car(pair_manager, "guid_b", pos=(10, 0, 0), speed=ARMING_TEST_SPEED)
 
     process_pair_logic(pair_manager)
 
@@ -43,8 +46,8 @@ def test_idle_starts_proximity_timer_without_armed(pair_manager):
 
 def test_idle_requires_sustained_proximity_before_armed(pair_manager):
     pair_manager.state = "IDLE"
-    seed_car(pair_manager, "guid_a", pos=(0, 0, 0), speed=50.0)
-    seed_car(pair_manager, "guid_b", pos=(10, 0, 0), speed=50.0)
+    seed_car(pair_manager, "guid_a", pos=(0, 0, 0), speed=ARMING_TEST_SPEED)
+    seed_car(pair_manager, "guid_b", pos=(10, 0, 0), speed=ARMING_TEST_SPEED)
     now = time.time()
 
     pair_manager.arm_proximity_since = now - (ARM_SUSTAINED_PROXIMITY_SEC - 1.0)
@@ -57,21 +60,52 @@ def test_idle_requires_sustained_proximity_before_armed(pair_manager):
 
 
 def test_idle_resets_proximity_timer_when_cars_separate(pair_manager):
+    from engines.battlesystem.config import BATTLE_ARM_ABORT_GAP_METERS, BATTLE_ARM_ABORT_GRACE_SEC
+
     pair_manager.state = "IDLE"
     hud_calls = []
     pair_manager.on_hud_update = lambda _mgr, **kwargs: hud_calls.append(kwargs)
-    seed_car(pair_manager, "guid_a", pos=(0, 0, 0), speed=50.0)
-    seed_car(pair_manager, "guid_b", pos=(10, 0, 0), speed=50.0)
+    seed_car(pair_manager, "guid_a", pos=(0, 0, 0), speed=ARMING_TEST_SPEED)
+    seed_car(pair_manager, "guid_b", pos=(10, 0, 0), speed=ARMING_TEST_SPEED)
 
     process_pair_logic(pair_manager)
     assert pair_manager.arm_proximity_since > 0.0
 
-    seed_car(pair_manager, "guid_b", pos=(25, 0, 0), speed=50.0)
+    too_far = BATTLE_ARM_ABORT_GAP_METERS + 2.0
+    seed_car(pair_manager, "guid_b", pos=(too_far, 0, 0), speed=ARMING_TEST_SPEED)
+    pair_manager._arming_violation_since = time.time() - (BATTLE_ARM_ABORT_GRACE_SEC + 0.1)
+    pair_manager._arming_countdown_announced_sec = 5
     process_pair_logic(pair_manager)
 
     assert pair_manager.state == "IDLE"
     assert pair_manager.arm_proximity_since == 0.0
     assert any(call.get("hud_state") == "cancelled" for call in hud_calls)
+
+
+def test_arming_abort_suppresses_debounced_hud_during_cancel_hold(pair_manager):
+    from engines.battlesystem.config import BATTLE_ARM_ABORT_GAP_METERS, BATTLE_ARM_ABORT_GRACE_SEC
+
+    pair_manager.state = "IDLE"
+    hud_calls = []
+    pair_manager.on_hud_update = lambda _mgr, **kwargs: hud_calls.append(kwargs)
+    seed_car(pair_manager, "guid_a", pos=(0, 0, 0), speed=ARMING_TEST_SPEED)
+    seed_car(pair_manager, "guid_b", pos=(10, 0, 0), speed=ARMING_TEST_SPEED)
+
+    process_pair_logic(pair_manager)
+    hud_calls.clear()
+
+    too_far = BATTLE_ARM_ABORT_GAP_METERS + 2.0
+    seed_car(pair_manager, "guid_b", pos=(too_far, 0, 0), speed=ARMING_TEST_SPEED)
+    pair_manager._arming_violation_since = time.time() - (BATTLE_ARM_ABORT_GRACE_SEC + 0.1)
+    pair_manager._arming_countdown_announced_sec = 5
+    process_pair_logic(pair_manager)
+
+    cancelled = [c for c in hud_calls if c.get("hud_state") == "cancelled"]
+    assert len(cancelled) >= 1
+    assert cancelled[0].get("force") is True
+    non_force = [c for c in hud_calls if not c.get("force")]
+    assert non_force == []
+    assert pair_manager._hud_cancel_hold_until > time.time()
 
 
 def test_can_assign_roles_position_fallback_after_short_wait(pair_manager):
@@ -109,8 +143,8 @@ def test_launching_reaches_active_when_speed_dips_after_go(pair_manager):
 def test_armed_transitions_to_launching(pair_manager):
     pair_manager.state = "ARMED"
     pair_manager.condition_start_time = time.time()
-    seed_car(pair_manager, "guid_a", pos=(0, 0, 0), speed=50.0)
-    seed_car(pair_manager, "guid_b", pos=(10, 0, 0), speed=50.0)
+    seed_car(pair_manager, "guid_a", pos=(0, 0, 0), speed=ARMING_TEST_SPEED)
+    seed_car(pair_manager, "guid_b", pos=(10, 0, 0), speed=ARMING_TEST_SPEED)
 
     with patch(
         "engines.battlesystem.state_machine.BATTLE_ARM_MIN_SPEED_KMH",

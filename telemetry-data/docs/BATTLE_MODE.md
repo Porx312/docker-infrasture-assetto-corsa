@@ -170,6 +170,7 @@ Ver también [REDIS_CONTRACT.md](../REDIS_CONTRACT.md) para el esquema de evento
 | Regla | Umbral (default) | Variable de entorno |
 |-------|------------------|---------------------|
 | Arm / pair lock | ≤ 15 m, ambos > 40 km/h | `BATTLE_ARM_MAX_GAP_METERS`, `BATTLE_ARM_MIN_SPEED_KMH` |
+| Arming cancel (HUD) | Either driver &lt; 55 km/h or gap opens | `BATTLE_ARM_CANCEL_SPEED_KMH` (default 55); continue requires ≥ 40 km/h |
 | Arm (IDLE → ARMED) | condiciones sostenidas 5 s | `BATTLE_ARM_SUSTAINED_PROXIMITY_SEC` |
 | Rematch tras fin/cancel | cooldown 20 s solo para la misma pareja | `BATTLE_FINISHED_COOLDOWN_SEC` |
 | HUD SSE requerido (matchmaking) | overlay conectado a `/hud/stream` | `BATTLE_REQUIRE_HUD_SSE` |

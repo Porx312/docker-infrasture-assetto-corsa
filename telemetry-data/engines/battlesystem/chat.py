@@ -45,12 +45,21 @@ def format_matchup(manager) -> str:
     return f"{manager._display_name(g1)} vs {manager._display_name(g2)}"
 
 
-def _arming_conditions_hint() -> str:
-    from engines.battlesystem.config import BATTLE_ARM_MAX_GAP_METERS, BATTLE_ARM_MIN_SPEED_KMH
+def arming_conditions_hint() -> str:
+    from engines.battlesystem.config import (
+        BATTLE_ARM_CANCEL_SPEED_KMH,
+        BATTLE_ARM_MAX_GAP_METERS,
+        BATTLE_ARM_MIN_SPEED_KMH,
+    )
 
     gap_m = int(BATTLE_ARM_MAX_GAP_METERS)
-    speed = int(BATTLE_ARM_MIN_SPEED_KMH)
-    return f"brake: cancel | continue: {gap_m}m / {speed}km/h"
+    continue_speed = int(BATTLE_ARM_CANCEL_SPEED_KMH)
+    cancel_speed = int(BATTLE_ARM_CANCEL_SPEED_KMH)
+    return f"brake: cancel below {cancel_speed}km/h | continue: {gap_m}m / {continue_speed}km/h+"
+
+
+def _arming_conditions_hint() -> str:
+    return arming_conditions_hint()
 
 
 def format_arming_countdown(manager, seconds_remaining: int) -> str:

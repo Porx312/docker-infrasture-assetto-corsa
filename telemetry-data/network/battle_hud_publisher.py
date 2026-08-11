@@ -22,8 +22,10 @@ HUD_VER_BATTLE_PREFIX = "ac:hud:ver:battle:"
 HUD_UPDATES_CHANNEL = "ac:hud:updates"
 
 _DEBOUNCE_LOCK = threading.Lock()
+_REVISION_LOCK = threading.Lock()
 _CLEAR_TIMER_LOCK = threading.Lock()
 _LAST_PUBLISH_BY_PAIR: dict[tuple[str, str], float] = {}
+_REVISION_BY_BATTLE: dict[str, int] = {}
 _PENDING_CLEAR_TIMERS: dict[tuple[str, str], threading.Timer] = {}
 
 
@@ -136,6 +138,22 @@ def _resolve_hud_state(manager, hud_state: str | None) -> str:
     return "none"
 
 
+def _resolve_prep_phase(manager, resolved_state: str) -> str:
+    if getattr(manager, "pair_locked_at", 0.0) <= 0.0 or not manager.battle:
+        return "none"
+    if resolved_state == "active":
+        return "active"
+    if resolved_state == "launching":
+        return "launching"
+    if resolved_state == "armed":
+        return "armed"
+    if resolved_state == "arming":
+        return "arming"
+    if resolved_state == "pairing":
+        return "paired"
+    return "none"
+
+
 def _arming_countdown_sec(manager) -> int | None:
     if _resolve_hud_state(manager, None) != "arming":
         return None
@@ -212,14 +230,16 @@ def _build_points_log(manager) -> list[dict[str, Any]]:
     entries = []
     for entry in manager.battle.points_log:
         reason = entry.get("reason", "")
-        entries.append(
-            {
-                "scorer": entry.get("scorer"),
-                "reason": reason,
-                "ts": entry.get("ts", 0),
-                "label": format_point_label(reason),
-            }
-        )
+        item: dict[str, Any] = {
+            "scorer": entry.get("scorer"),
+            "reason": reason,
+            "ts": entry.get("ts", 0),
+            "label": format_point_label(reason),
+        }
+        seq = entry.get("seq")
+        if seq is not None:
+            item["seq"] = seq
+        entries.append(item)
     return entries
 
 
@@ -248,11 +268,15 @@ def build_battle_snapshot(
         "ok": True,
         "battleId": manager.battle_id,
         "state": resolved_state,
+        "pairLocked": getattr(manager, "pair_locked_at", 0.0) > 0.0,
+        "prepPhase": _resolve_prep_phase(manager, resolved_state),
         "serverName": server_name,
         "track": track,
         "trackConfig": track_config,
         "player1": _player_payload(manager, server_state, battle.car1_guid, battle.car1_score),
         "player2": _player_payload(manager, server_state, battle.car2_guid, battle.car2_score),
+        "player1Score": battle.car1_score,
+        "player2Score": battle.car2_score,
         "pointsLog": _build_points_log(manager),
         "disappearGapM": DISAPPEAR_GAP_METERS,
     }
@@ -266,6 +290,9 @@ def build_battle_snapshot(
         snapshot["armingCountdownSec"] = countdown
     if resolved_state == "arming" and getattr(manager, "arm_proximity_since", 0.0) > 0.0:
         snapshot["armProximitySince"] = manager.arm_proximity_since
+        from engines.battlesystem.chat import arming_conditions_hint
+
+        snapshot["countdownHint"] = arming_conditions_hint()
 
     if cancel_reason:
         snapshot["cancelReason"] = cancel_reason
@@ -311,8 +338,31 @@ def _scope_key(server_key: str, steam_id: str) -> str:
     return f"battle:{server_key}:{steam_id}"
 
 
-def _should_debounce(pair_key: tuple[str, str], force: bool) -> bool:
+def _next_revision(battle_id: str | None) -> int:
+    if not battle_id:
+        return 0
+    with _REVISION_LOCK:
+        rev = _REVISION_BY_BATTLE.get(battle_id, 0) + 1
+        _REVISION_BY_BATTLE[battle_id] = rev
+        return rev
+
+
+def _should_debounce(
+    pair_key: tuple[str, str],
+    force: bool,
+    resolved_state: str | None = None,
+) -> bool:
     if force:
+        return False
+    # Never debounce authoritative phase, score, or terminal snapshots.
+    if resolved_state in (
+        "arming",
+        "armed",
+        "launching",
+        "active",
+        "finished",
+        "cancelled",
+    ):
         return False
     debounce_ms = settings.HUD_BATTLE_DEBOUNCE_MS
     if debounce_ms <= 0:
@@ -345,7 +395,8 @@ def publish_battle_hud(
         return
 
     pair_key = _pair_key(manager)
-    if pair_key and _should_debounce(pair_key, force):
+    resolved_state = _resolve_hud_state(manager, hud_state)
+    if pair_key and _should_debounce(pair_key, force, resolved_state):
         return
 
     snapshot = build_battle_snapshot(
@@ -364,6 +415,19 @@ def publish_battle_hud(
 
     version = str(int(time.time() * 1000))
     snapshot["version"] = version
+    snapshot["revision"] = _next_revision(manager.battle_id)
+
+    if settings.BATTLE_SYNC_TRACE:
+        countdown = snapshot.get("armingCountdownSec")
+        log.info(
+            "[BATTLE_PUBLISH] battleId=%s revision=%s version=%s state=%s countdown=%s force=%s",
+            manager.battle_id,
+            snapshot["revision"],
+            version,
+            resolved_state,
+            countdown if countdown is not None else "",
+            force,
+        )
 
     server_key = battle_server_key(server_state)
     g1 = manager.battle.car1_guid
@@ -451,6 +515,8 @@ def schedule_clear_battle_hud(
 def reset_debounce_for_tests() -> None:
     with _DEBOUNCE_LOCK:
         _LAST_PUBLISH_BY_PAIR.clear()
+    with _REVISION_LOCK:
+        _REVISION_BY_BATTLE.clear()
     with _CLEAR_TIMER_LOCK:
         for timer in _PENDING_CLEAR_TIMERS.values():
             timer.cancel()

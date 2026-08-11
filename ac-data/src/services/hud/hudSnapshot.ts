@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 
-import { getBattleCached } from './battleHudReader.js';
+import { getBattleCachedFast } from './battleHudReader.js';
 import { isHudSseEnabled } from './battleHudPush.js';
 import { battleRoomFromParams, parseBattleScopeKey } from './hudBattleRooms.js';
 import { fetchHudVersion, isHudConvexConfigured } from './hudConvex.js';
@@ -86,7 +86,7 @@ export async function handleHudSnapshot(req: Request, res: Response): Promise<vo
   const battleRoom = battleRoomFromParams(resolved.presence.serverName, steamId);
   const battleParams = parseBattleScopeKey(battleRoom);
   const battle = battleParams
-    ? await getBattleCached(battleParams)
+    ? await getBattleCachedFast(battleParams, { enrich: false })
     : { ok: false as const, reason: 'no_battle' };
 
   await markHudSseConnected(steamId);
