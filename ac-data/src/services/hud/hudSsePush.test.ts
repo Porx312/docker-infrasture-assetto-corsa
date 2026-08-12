@@ -5,8 +5,10 @@ import {
   pushHudUpdateForSteamId,
   registerHudSseConnection,
   resetHudSseConnectionsForTests,
+  sendInitialHudSseSnapshot,
   setHudSsePushTestHooks,
 } from './hudSsePush.js';
+import { setHudSessionPresenceTestHooks } from './hudSessionPresence.js';
 import type { HudSessionOk, HudVersionOk } from './hudTypes.js';
 
 const steamId = '76561199000000001';
@@ -363,6 +365,88 @@ test('pushHudUpdateForSteamId emits hud_error when version fetch fails', async (
     assert.equal(events[0]?.event, 'hud_error');
     assert.equal((events[0]?.data as { reason: string }).reason, 'player_not_connected');
   } finally {
+    setHudSsePushTestHooks(null);
+    unregister();
+    resetHudSseConnectionsForTests();
+  }
+});
+
+test('sendInitialHudSseSnapshot bypasses cache when presence server differs from session cache', async () => {
+  const events: Array<{ event: string; data: unknown }> = [];
+
+  const unregister = registerHudSseConnection({
+    steamId,
+    lastVersionFingerprint: null,
+    listener: (event, data) => {
+      events.push({ event, data });
+    },
+  });
+
+  const version: HudVersionOk = {
+    ok: true,
+    version: 'battle:track:layout:car:2',
+    lbVersion: 'battle:track:layout:car',
+    playerVersion: 7,
+  };
+
+  const battleSession: HudSessionOk = {
+    ok: true,
+    version: version.version,
+    context: {
+      server_id: 's2',
+      server_name: 'Battle',
+      track_id: 'pk_battle',
+      track_name: 'Battle',
+      layout_id: '',
+      layout_name: '',
+      car_id: 'ae86',
+      car_name: 'AE86',
+      player_steam_id: steamId,
+    },
+    profile: {
+      name: 'Pilot',
+      rank: 4,
+      tier: 3,
+      best_lap_ms: 130_000,
+      car_name: 'AE86',
+      car_id: 'ae86',
+      steam_id: steamId,
+      rivals: { above: null, below: null },
+    },
+  };
+
+  const gunsaiCached: HudSessionOk = {
+    ...battleSession,
+    version: 'gunsai:track:layout:car:1',
+    context: {
+      ...battleSession.context,
+      server_id: 's1',
+      server_name: 'Gunsai Testing',
+      track_id: 'pk_gunsai',
+      track_name: 'Gunsai',
+    },
+  };
+
+  let loadBypass = false;
+  setHudSessionPresenceTestHooks({
+    getSessionCached: async () => gunsaiCached,
+  });
+  setHudSsePushTestHooks({
+    fetchVersion: async () => version,
+    loadSession: async (_id, bypassCache) => {
+      loadBypass = bypassCache;
+      return battleSession;
+    },
+  });
+
+  try {
+    await sendInitialHudSseSnapshot({ steamId, listener: () => {}, lastVersionFingerprint: null }, 'Battle');
+
+    assert.equal(loadBypass, true);
+    assert.equal(events.length, 2);
+    assert.equal((events[1]?.data as { context?: { server_name?: string } }).context?.server_name, 'Battle');
+  } finally {
+    setHudSessionPresenceTestHooks(null);
     setHudSsePushTestHooks(null);
     unregister();
     resetHudSseConnectionsForTests();

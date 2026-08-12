@@ -39,7 +39,7 @@ telemetry-data/.pytest_cache/
 redis-data/
 
 # Runtime data
-ac-data/server_pids.json
+**/server_pids.json
 telemetry-data/redis_applied_config_versions.json
 # ProjectD HUD / launcher release ZIPs (admin panel uploads)
 ac-data/projectd-hud/releases/*

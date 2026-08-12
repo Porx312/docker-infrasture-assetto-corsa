@@ -6,4 +6,5 @@ dist/
 !.env.example
 *.log
 .DS_Store
+server_pids.json
 .content-zip-cache/

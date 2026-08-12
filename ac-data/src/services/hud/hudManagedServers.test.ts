@@ -58,6 +58,16 @@ test('updateManagedServersFromSnapshot defaults to unified when type omitted', (
   assert.equal(lookupManagedServer('Akina TA')?.type, 'unified');
 });
 
+test('lookupManagedServer returns null when prefix fallback is ambiguous', () => {
+  resetManagedServersForTests();
+  updateManagedServersFromSnapshot([
+    { serverName: 'server-x1', displayName: 'PrefixAmbiguous Foo' },
+    { serverName: 'server-x2', displayName: 'PrefixAmbiguous Bar' },
+  ]);
+
+  assert.equal(lookupManagedServer('PrefixAmbiguous'), null);
+});
+
 test('bootstrapManagedServersFromDisk registers server_cfg NAME', () => {
   resetManagedServersForTests();
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hud-managed-'));

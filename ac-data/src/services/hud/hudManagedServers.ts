@@ -109,16 +109,20 @@ export function lookupManagedServer(displayServerName: string): ManagedServer | 
   // Convex worker sync may truncate long displayName vs live server_cfg NAME (post-audit mismatch).
   let best: ManagedServer | null = null;
   let bestDelta = Number.POSITIVE_INFINITY;
+  let ambiguous = false;
   for (const [indexedKey, entry] of byDisplayName.entries()) {
     if (key.startsWith(indexedKey) || indexedKey.startsWith(key)) {
       const delta = Math.abs(key.length - indexedKey.length);
       if (delta < bestDelta) {
         best = entry;
         bestDelta = delta;
+        ambiguous = false;
+      } else if (delta === bestDelta && best?.folderSlug !== entry.folderSlug) {
+        ambiguous = true;
       }
     }
   }
-  if (best && bestDelta <= 16) {
+  if (best && bestDelta <= 16 && !ambiguous) {
     return best;
   }
 

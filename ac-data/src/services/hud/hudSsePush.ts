@@ -2,6 +2,10 @@ import { fetchHudVersion, isHudConvexConfigured } from './hudConvex.js';
 import { normalizeHudProfile } from './hudProfile.js';
 import { invalidateSessionCache } from './hudSessionCache.js';
 import {
+  shouldBypassSessionCacheForPresence,
+  sessionContextServerName,
+} from './hudSessionPresence.js';
+import {
   fetchHudSessionWithRetry,
   getSessionCached,
   sessionLeaderboardFingerprint,
@@ -303,6 +307,20 @@ export async function pushHudUpdateForSteamId(
   emitHudSessionToSteamId(steamId, session);
 }
 
-export async function sendInitialHudSseSnapshot(conn: HudSseConnection): Promise<void> {
-  await pushHudUpdateForSteamId(conn.steamId, false);
+export async function sendInitialHudSseSnapshot(
+  conn: HudSseConnection,
+  presenceServerName?: string,
+): Promise<void> {
+  let bypass = false;
+  if (presenceServerName?.trim()) {
+    bypass = await shouldBypassSessionCacheForPresence(conn.steamId, presenceServerName);
+    if (bypass) {
+      console.log(
+        `[hud-sse-init] steamId=${conn.steamId} bypassCache=true presenceServer=${presenceServerName.trim()}`,
+      );
+    }
+  }
+  await pushHudUpdateForSteamId(conn.steamId, bypass);
 }
+
+export { sessionContextServerName, shouldBypassSessionCacheForPresence };

@@ -100,7 +100,7 @@ export async function handleHudStreamSse(req: Request, res: Response): Promise<v
     listener: battleListener,
   };
   battleSubscription = await refreshBattleRoomSubscription(steamId, battleSubscription);
-  void sendInitialHudSseSnapshot(hudConn);
+  void sendInitialHudSseSnapshot(hudConn, resolved.presence.serverName);
 
   const keepalive = setInterval(() => {
     res.write(': keepalive\n\n');

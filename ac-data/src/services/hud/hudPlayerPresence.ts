@@ -2,9 +2,8 @@ import {
   presenceRedisKey,
   presenceRosterRedisKey,
 } from './hudCacheKeys.js';
-import {
-  lookupManagedServer,
-} from './hudManagedServers.js';
+import { invalidateSessionCache } from './hudSessionCache.js';
+import { lookupManagedServer } from './hudManagedServers.js';
 import { normalizeHudServerName } from './hudQueryNormalize.js';
 import { pickCarModelId, readCarModelFromEventData } from './hudCarModel.js';
 import {
@@ -266,6 +265,16 @@ export async function noteHudPlayerJoin(payload: Record<string, unknown>): Promi
 
   const normalizedServer = normalizeHudServerName(serverName);
   const carModel = readCarModelFromEventData(data);
+  const prior = await readPresenceRecord(steamId);
+  if (prior) {
+    const priorServer = normalizeHudServerName(prior.serverName);
+    if (priorServer && priorServer !== normalizedServer) {
+      await invalidateSessionCache({ steamId });
+      console.log(
+        `[hud-presence] steamId=${steamId} server changed ${priorServer} -> ${normalizedServer} session cache invalidated`,
+      );
+    }
+  }
   const record = buildPresenceRecord(serverName, data, steamId, carModel);
   await writePresence(steamId, record, HUD_PRESENCE_JOIN_TTL_SEC);
 
