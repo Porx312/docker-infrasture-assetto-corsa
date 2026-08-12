@@ -1,3 +1,7 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
+import { stripCmNameSuffix } from '../../controller/cmWrapper.js';
 import { normalizeHudServerName } from './hudQueryNormalize.js';
 
 export type ManagedServerType = 'unified' | 'time-attack' | 'battle' | string;
@@ -25,20 +29,73 @@ export function resetManagedServersForTests(): void {
   byDisplayName.clear();
 }
 
-export function updateManagedServersFromSnapshot(rows: ManagedServerRow[]): void {
-  byDisplayName.clear();
-  for (const row of rows) {
-    if (!row.serverName) {
+function inferServerType(folderSlug: string, displayName: string): ManagedServerType {
+  const slug = folderSlug.toLowerCase();
+  const name = displayName.toLowerCase();
+  if (slug.includes('battle') || /\bbattle\b/.test(name)) {
+    return 'battle';
+  }
+  if (slug.includes('time') || slug.includes('ta') || name.includes('time attack')) {
+    return 'time-attack';
+  }
+  return 'unified';
+}
+
+function registerManagedServerRow(row: ManagedServerRow): void {
+  if (!row.serverName) {
+    return;
+  }
+  const displayName = row.displayName?.trim() || row.serverName;
+  const entry: ManagedServer = {
+    folderSlug: row.serverName,
+    displayName,
+    type: row.type ?? inferServerType(row.serverName, displayName),
+  };
+  byDisplayName.set(displayKey(displayName), entry);
+  byDisplayName.set(displayKey(row.serverName), entry);
+}
+
+/** Register every local server folder (server_cfg.ini NAME) so HUD presence resolves before Convex sync. */
+export function bootstrapManagedServersFromDisk(serversPath?: string): number {
+  const root = serversPath?.trim() || process.env.SERVERS_PATH?.trim() || '';
+  if (!root || !fs.existsSync(root)) {
+    return 0;
+  }
+
+  let count = 0;
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !entry.name.startsWith('server')) {
       continue;
     }
-    const displayName = row.displayName?.trim() || row.serverName;
-    const entry: ManagedServer = {
-      folderSlug: row.serverName,
-      displayName,
-      type: row.type ?? 'unified',
-    };
-    byDisplayName.set(displayKey(displayName), entry);
-    byDisplayName.set(displayKey(row.serverName), entry);
+    const folder = entry.name;
+    const cfgPath = path.join(root, folder, 'cfg', 'server_cfg.ini');
+    if (!fs.existsSync(cfgPath)) {
+      continue;
+    }
+    try {
+      const content = fs.readFileSync(cfgPath, 'utf-8');
+      const nameMatch = /^NAME=(.+)/m.exec(content) || /^SERVER_NAME=(.+)/m.exec(content);
+      if (!nameMatch) {
+        continue;
+      }
+      const displayName = stripCmNameSuffix(nameMatch[1].trim());
+      if (!displayName) {
+        continue;
+      }
+      registerManagedServerRow({ serverName: folder, displayName });
+      count += 1;
+    } catch {
+      // ignore unreadable cfg
+    }
+  }
+  return count;
+}
+
+export function updateManagedServersFromSnapshot(rows: ManagedServerRow[]): void {
+  byDisplayName.clear();
+  bootstrapManagedServersFromDisk();
+  for (const row of rows) {
+    registerManagedServerRow(row);
   }
 }
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Simulate a full touge battle: Redis battle HUD snapshots + ac:events battle_finished.
 #
-# Default matchup: 76561199230780195 (Porx) vs 76561198135525145 (Stevie)
+# Default matchup: 76561199230780195 (Porx) vs 76561198706313764 (secondary)
 # No app code changes — mirrors battle_hud_publisher.py + dispatch_battle_webhook().
 #
 # Prerequisites:
@@ -32,7 +32,7 @@
 #
 # Options:
 #   --winner p1|p2|draw     Winner (default: p2)
-#   --server-name NAME      Lobby display name (default: Porx)
+#   --server-name NAME      Lobby display name (default: HUD_BATTLE_SERVER_NAME or Gunsai Testing)
 #   --track ID              Track id (default: pk_akina)
 #   --track-config CFG      Layout (default: akina_downhill)
 #   --car MODEL             Car model for both (default: ks_mazda_rx7_spirit_r)
@@ -54,7 +54,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 PLAYER1_STEAM="76561199230780195"
-PLAYER2_STEAM="76561198135525145"
+PLAYER2_STEAM="76561198706313764"
 
 if [[ $# -gt 0 && "$1" != --* ]]; then
   PLAYER1_STEAM="$1"
@@ -66,7 +66,7 @@ if [[ $# -gt 0 && "$1" != --* ]]; then
 fi
 
 WINNER="p2"
-SERVER_NAME="Porx"
+SERVER_NAME="${HUD_BATTLE_SERVER_NAME:-Gunsai Testing}"
 TRACK="pk_akina"
 TRACK_CONFIG="akina_downhill"
 CAR_MODEL="ks_mazda_rx7_spirit_r"

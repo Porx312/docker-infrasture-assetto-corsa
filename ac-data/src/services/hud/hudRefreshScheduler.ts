@@ -121,6 +121,10 @@ export function scheduleHudRefreshAfterLap(payload: Record<string, unknown>): vo
 }
 
 export function scheduleHudRefreshAfterBattleFinished(payload: Record<string, unknown>): void {
+  queueBattlePlayersFromPayload(payload);
+}
+
+function queueBattlePlayersFromPayload(payload: Record<string, unknown>): void {
   if (!isHudRedisConfigured() || !isHudConvexConfigured()) {
     return;
   }
@@ -167,6 +171,31 @@ export function scheduleHudRefreshAfterBattleFinished(payload: Record<string, un
   }
 
   scheduleFlush();
+}
+
+const prewarmedBattleIds = new Set<string>();
+
+export function scheduleHudRefreshAfterBattleUpdate(payload: Record<string, unknown>): void {
+  if (!isHudRedisConfigured() || !isHudConvexConfigured()) {
+    return;
+  }
+
+  const data = (payload.data ?? {}) as Record<string, unknown>;
+  const status = typeof data.status === 'string' ? data.status.trim().toLowerCase() : '';
+  if (status === 'finished' || status === 'draw') {
+    return;
+  }
+
+  const battleId = typeof data.battleId === 'string' ? data.battleId.trim() : '';
+  if (battleId === '') {
+    return;
+  }
+  if (prewarmedBattleIds.has(battleId)) {
+    return;
+  }
+  prewarmedBattleIds.add(battleId);
+
+  queueBattlePlayersFromPayload(payload);
 }
 
 async function repushSessionForPlayers(jobs: PlayerJob[]): Promise<void> {
@@ -308,6 +337,7 @@ export function resetHudRefreshSchedulerForTests(): void {
   }
   pendingPlayers.clear();
   pendingBoards.clear();
+  prewarmedBattleIds.clear();
   flushPromise = null;
 }
 

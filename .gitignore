@@ -41,8 +41,13 @@ redis-data/
 # Runtime data
 ac-data/server_pids.json
 telemetry-data/redis_applied_config_versions.json
-ac-data/projectd-hud/releases/
-ac-data/projectd-launcher/releases/
+# ProjectD HUD / launcher release ZIPs (admin panel uploads)
+ac-data/projectd-hud/releases/*
+!ac-data/projectd-hud/releases/.gitkeep
+ac-data/projectd-launcher/releases/*
+!ac-data/projectd-launcher/releases/.gitkeep
+ProjectD-HUD/releases/
+ProjectD-HUD/*.zip
 
 # Server Manager local config (may contain Steam credentials)
 config.yml

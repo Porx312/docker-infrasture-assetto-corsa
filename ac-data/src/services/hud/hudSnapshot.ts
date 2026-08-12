@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 
 import { getBattleCachedFast } from './battleHudReader.js';
-import { isHudSseEnabled } from './battleHudPush.js';
+import { battleLiveEnrichEnabled, isHudSseEnabled } from './battleHudPush.js';
 import { battleRoomFromParams, parseBattleScopeKey } from './hudBattleRooms.js';
 import { fetchHudVersion, isHudConvexConfigured } from './hudConvex.js';
 import { requireHudApiKeyFromQuery } from './hudBattleAuth.js';
@@ -38,7 +38,7 @@ export async function handleHudSnapshot(req: Request, res: Response): Promise<vo
     return;
   }
 
-  const auth = requireHudApiKeyFromQuery(req.query.api_key);
+  const auth = requireHudApiKeyFromQuery(req.query.api_key, req.headers['x-api-key']);
   if (!auth.ok) {
     res.status(auth.status).json(auth.body);
     return;
@@ -86,7 +86,7 @@ export async function handleHudSnapshot(req: Request, res: Response): Promise<vo
   const battleRoom = battleRoomFromParams(resolved.presence.serverName, steamId);
   const battleParams = parseBattleScopeKey(battleRoom);
   const battle = battleParams
-    ? await getBattleCachedFast(battleParams, { enrich: false })
+    ? await getBattleCachedFast(battleParams, { enrich: battleLiveEnrichEnabled() })
     : { ok: false as const, reason: 'no_battle' };
 
   await markHudSseConnected(steamId);

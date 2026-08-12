@@ -14,6 +14,7 @@ import { initHudPushHub } from './services/hud/battleHudPush.js';
 import { startHudConvexQueryStatsLogging } from './services/hud/hudConvexQueryStats.js';
 import { startRedisConvexBridge } from './services/redisConvexBridge.js';
 import { startRedisConfigApplier } from './services/redisConfigApplier.js';
+import { bootstrapManagedServersFromDisk } from './services/hud/hudManagedServers.js';
 import { startServerPoolMonitor } from './services/serverPool.js';
 import { getPublicHealthHandler } from './controller/healthController.js';
 import { resolveEnvFilePath } from './config/loadEnv.js';
@@ -123,6 +124,11 @@ app.use('/admin', express.static(ADMIN_PUBLIC_PATH, {
 // ------------------------ START SERVER ------------------------
 initHudPushHub();
 startHudConvexQueryStatsLogging();
+
+const localManaged = bootstrapManagedServersFromDisk(SERVERS_PATH);
+if (localManaged > 0) {
+  console.log(`[hud-managed-servers] bootstrapped ${localManaged} server(s) from ${SERVERS_PATH}`);
+}
 
 app.listen(PORT, BIND_HOST, async () => {
   void startRedisConvexBridge();

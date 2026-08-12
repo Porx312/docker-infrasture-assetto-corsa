@@ -6,6 +6,7 @@ import {
   getHudRefreshQueueSizeForTests,
   resetHudRefreshSchedulerForTests,
   scheduleHudRefreshAfterBattleFinished,
+  scheduleHudRefreshAfterBattleUpdate,
   scheduleHudRefreshAfterLap,
 } from './hudRefreshScheduler.js';
 import { setRivalFanoutHandlerForTests } from './hudRivalFanout.js';
@@ -67,6 +68,48 @@ test('scheduleHudRefreshAfterBattleFinished ignores unknown steam ids', () => {
       track: 'pk_akina',
       player1SteamId: 'unknown_0',
       player2SteamId: '',
+    },
+  });
+
+  const { players } = getHudRefreshQueueSizeForTests();
+  assert.equal(players, 0);
+});
+
+test('scheduleHudRefreshAfterBattleUpdate queues both players once per battleId', () => {
+  resetHudRefreshSchedulerForTests();
+
+  const payload = {
+    serverName: 'ProjectD',
+    data: {
+      battleId: 'battle-abc',
+      track: 'pk_akina',
+      trackConfig: 'downhill',
+      status: 'active',
+      player1SteamId: '76561199000000001',
+      player2SteamId: '76561199000000002',
+      player1Car: 'ks_toyota_gt86',
+      player2Car: 'ks_mazda_rx7',
+    },
+  };
+
+  scheduleHudRefreshAfterBattleUpdate(payload);
+  scheduleHudRefreshAfterBattleUpdate(payload);
+
+  const { players } = getHudRefreshQueueSizeForTests();
+  assert.equal(players, 2);
+});
+
+test('scheduleHudRefreshAfterBattleUpdate skips finished status', () => {
+  resetHudRefreshSchedulerForTests();
+
+  scheduleHudRefreshAfterBattleUpdate({
+    serverName: 'ProjectD',
+    data: {
+      battleId: 'battle-done',
+      track: 'pk_akina',
+      status: 'finished',
+      player1SteamId: '76561199000000001',
+      player2SteamId: '76561199000000002',
     },
   });
 

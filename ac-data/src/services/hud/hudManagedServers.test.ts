@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import {
   lookupManagedServer,
   resetManagedServersForTests,
+  bootstrapManagedServersFromDisk,
   updateManagedServersFromSnapshot,
 } from './hudManagedServers.js';
 
@@ -52,4 +56,26 @@ test('updateManagedServersFromSnapshot defaults to unified when type omitted', (
     { serverName: 'server-2', displayName: 'Akina TA' },
   ]);
   assert.equal(lookupManagedServer('Akina TA')?.type, 'unified');
+});
+
+test('bootstrapManagedServersFromDisk registers server_cfg NAME', () => {
+  resetManagedServersForTests();
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hud-managed-'));
+  const folder = path.join(tmpRoot, 'server-test');
+  const cfgDir = path.join(folder, 'cfg');
+  fs.mkdirSync(cfgDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(cfgDir, 'server_cfg.ini'),
+    '[SERVER]\nNAME=Gunsai Testing\n',
+    'utf-8',
+  );
+  try {
+    const count = bootstrapManagedServersFromDisk(tmpRoot);
+    assert.equal(count, 1);
+    const match = lookupManagedServer('Gunsai Testing ℹ18081');
+    assert.ok(match);
+    assert.equal(match.folderSlug, 'server-test');
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
 });

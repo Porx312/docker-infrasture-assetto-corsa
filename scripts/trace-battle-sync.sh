@@ -153,7 +153,7 @@ echo "ac-data:   $ACDATA_LOG"
 emit_section "Server publishes" '\[BATTLE_PUBLISH\]' "$TELEMETRY_LOG"
 emit_section "ac-data SSE push" 'battle-push' "$ACDATA_LOG"
 if [[ -n "$CSP_LOG" ]]; then
-  emit_section "Client sync (CSP export)" 'BATTLE_SYNC' "$CSP_LOG"
+  emit_section "Client sync (CSP export)" 'BATTLE_SYNC|BATTLE_FETCH|BATTLE_RAW|BATTLE_REVISION|BATTLE_TRACE|BATTLE_SCORE|BATTLE_RENDER_GATE|BATTLE_POLL' "$CSP_LOG"
 fi
 
 summarize

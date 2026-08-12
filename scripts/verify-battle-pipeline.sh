@@ -9,12 +9,6 @@ cd "$ROOT"
 STEAM_ID="${1:-}"
 ENV_MODE="${2:-${ASSETTO_ENV:-dev}}"
 
-if [[ -z "$STEAM_ID" ]]; then
-  echo "Usage: $0 steamId [dev|prod]"
-  echo "Example: HUD_BASE_URL=http://203.0.113.10:3000/hud $0 76561199000000001 prod"
-  exit 1
-fi
-
 case "$ENV_MODE" in
   prod|production) ENV_FILE=".env.production" ;;
   dev|development|"") ENV_FILE=".env.local" ;;
@@ -24,6 +18,15 @@ esac
 if [[ -f "$ENV_FILE" ]]; then
   # shellcheck disable=SC1090
   set -a && source "$ENV_FILE" && set +a
+fi
+# shellcheck source=lib/hud-steam-defaults.sh
+source "$ROOT/scripts/lib/hud-steam-defaults.sh"
+STEAM_ID="${1:-$HUD_DEFAULT_STEAM_ID}"
+
+if [[ -z "$STEAM_ID" ]]; then
+  echo "Usage: $0 [steamId] [dev|prod]"
+  echo "  default steamId: $HUD_DEFAULT_STEAM_ID"
+  exit 1
 fi
 
 INSTANCE="${AC_INSTANCE_ID:-default}"

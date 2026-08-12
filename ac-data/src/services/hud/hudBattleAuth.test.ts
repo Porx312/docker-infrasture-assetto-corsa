@@ -14,8 +14,10 @@ describe('isHudApiKeyValid', () => {
 
   it('accepts matching key when configured', async () => {
     vi.stubEnv('HUD_API_KEY', 'test-hud-key');
-    const { isHudApiKeyValid } = await import('./hudBattleAuth.js');
+    const { isHudApiKeyValid, requireHudApiKeyFromQuery } = await import('./hudBattleAuth.js');
     expect(isHudApiKeyValid('test-hud-key')).toBe(true);
     expect(isHudApiKeyValid('wrong')).toBe(false);
+    expect(requireHudApiKeyFromQuery(undefined, 'test-hud-key').ok).toBe(true);
+    expect(requireHudApiKeyFromQuery('test-hud-key', undefined).ok).toBe(true);
   });
 });

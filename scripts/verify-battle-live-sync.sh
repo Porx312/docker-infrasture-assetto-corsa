@@ -10,15 +10,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-STEAM_ID="${1:-}"
 ENV_MODE="${2:-${ASSETTO_ENV:-dev}}"
 INTERVAL="${3:-2}"
 SAMPLES="${4:-15}"
-
-if [[ -z "$STEAM_ID" ]]; then
-  echo "Usage: $0 STEAM_ID [dev|prod] [interval_sec] [samples]"
-  exit 1
-fi
 
 case "$ENV_MODE" in
   prod|production) ENV_FILE=".env.production" ;;
@@ -29,6 +23,16 @@ esac
 if [[ -f "$ENV_FILE" ]]; then
   # shellcheck disable=SC1090
   set -a && source "$ENV_FILE" && set +a
+fi
+# shellcheck source=lib/hud-steam-defaults.sh
+source "$ROOT/scripts/lib/hud-steam-defaults.sh"
+
+STEAM_ID="${1:-$HUD_DEFAULT_STEAM_ID}"
+
+if [[ -z "$STEAM_ID" ]]; then
+  echo "Usage: $0 [STEAM_ID] [dev|prod] [interval_sec] [samples]"
+  echo "  default STEAM_ID: $HUD_DEFAULT_STEAM_ID"
+  exit 1
 fi
 
 INSTANCE="${AC_INSTANCE_ID:-default}"

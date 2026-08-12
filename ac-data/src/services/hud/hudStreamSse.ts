@@ -30,6 +30,7 @@ import {
   refreshBattleRoomSubscription,
   type BattleRoomSubscription,
 } from './hudStreamSseBattleRoom.js';
+import { battleRoomFromParams } from './hudBattleRooms.js';
 
 const SSE_KEEPALIVE_MS = Number(process.env.HUD_SSE_KEEPALIVE_MS || 30_000);
 
@@ -53,7 +54,7 @@ export async function handleHudStreamSse(req: Request, res: Response): Promise<v
     return;
   }
 
-  const auth = requireHudApiKeyFromQuery(req.query.api_key);
+  const auth = requireHudApiKeyFromQuery(req.query.api_key, req.headers['x-api-key']);
   if (!auth.ok) {
     res.status(auth.status).json(auth.body);
     return;
@@ -64,6 +65,11 @@ export async function handleHudStreamSse(req: Request, res: Response): Promise<v
     res.status(404).json({ ok: false, reason: resolved.reason });
     return;
   }
+
+  const battleRoom = battleRoomFromParams(resolved.presence.serverName, steamId);
+  console.log(
+    `[hud-sse-connect] steamId=${steamId} serverName=${resolved.presence.serverName} room=${battleRoom}`,
+  );
 
   registerBattleSsePresence(resolved.presence);
   await markHudSseConnected(steamId);

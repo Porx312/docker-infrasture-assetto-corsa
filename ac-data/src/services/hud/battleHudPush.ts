@@ -19,8 +19,12 @@ const roomListeners = new Map<string, Set<BattleHudRoomListener>>();
 const clearTimers = new Map<string, ReturnType<typeof setTimeout>>();
 type BattleSnapshotFetcher = (params: BattleCacheParams) => Promise<HudBattleOk | HudBattleErr>;
 
+export function battleLiveEnrichEnabled(): boolean {
+  return (process.env.HUD_BATTLE_ENRICH_LIVE ?? 'true').trim().toLowerCase() !== 'false';
+}
+
 let battleSnapshotFetcher: BattleSnapshotFetcher = (params) =>
-  getBattleCachedFast(params, { enrich: false });
+  getBattleCachedFast(params, { enrich: battleLiveEnrichEnabled() });
 let battleInitialSnapshotFetcher: BattleSnapshotFetcher = (params) =>
   getBattleCachedFast(params, { enrich: true });
 let hubStarted = false;
@@ -192,7 +196,7 @@ export function resetBattleHudPushForTests(): void {
   }
   clearTimers.clear();
   roomListeners.clear();
-  battleSnapshotFetcher = (params) => getBattleCachedFast(params, { enrich: false });
+  battleSnapshotFetcher = (params) => getBattleCachedFast(params, { enrich: battleLiveEnrichEnabled() });
   battleInitialSnapshotFetcher = (params) => getBattleCachedFast(params, { enrich: true });
   hubStarted = false;
 }

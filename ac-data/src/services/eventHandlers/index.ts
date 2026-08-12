@@ -1,4 +1,5 @@
 import { handleBattleFinishedAfterIngest } from './battleFinished.js';
+import { handleBattleUpdateAfterIngest } from './battleUpdate.js';
 import { handleLapCompletedAfterIngest } from './lapCompleted.js';
 import { handlePlayerJoinAfterIngest, handlePlayerJoinBeforeIngest } from './playerJoin.js';
 import { handlePlayerLeaveAfterIngest } from './playerLeave.js';
@@ -32,6 +33,9 @@ export async function handleEventAfterIngest(event: string, payload: EventPayloa
       break;
     case 'battle_finished':
       await handleBattleFinishedAfterIngest(payload);
+      break;
+    case 'battle_update':
+      await handleBattleUpdateAfterIngest(payload);
       break;
     default:
       break;

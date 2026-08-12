@@ -2,7 +2,7 @@ import {
   battleRedisKey,
   buildBattleCacheKey,
 } from './hudCacheKeys.js';
-import { getPlayerCached } from './lapCompletedHudRefresh.js';
+import { getPlayerCached, refreshPlayerHudCache } from './lapCompletedHudRefresh.js';
 import { isProfileInvalidated, mergeCosmeticFields } from './hudProfile.js';
 import { hudRedisGet } from './hudRedis.js';
 import type {
@@ -70,21 +70,36 @@ export function mapProfileToBattlePlayer(
   return mergeCosmeticFields(merged, profile as unknown as Record<string, unknown>);
 }
 
+async function loadBattlePlayerProfile(steamId: string): Promise<HudProfile | null> {
+  let profileResult = await getPlayerCached({ steamId });
+
+  if (!profileResult.ok || isProfileInvalidated(profileResult.profile)) {
+    await refreshPlayerHudCache({
+      steamId,
+      source: 'battle',
+      retryEloUntilChange: true,
+    });
+    profileResult = await getPlayerCached({ steamId });
+  }
+
+  if (!profileResult.ok || isProfileInvalidated(profileResult.profile)) {
+    return null;
+  }
+
+  return profileResult.profile;
+}
+
 async function enrichBattlePlayer(
   battle: HudBattleSnapshotOk,
   player: HudBattlePlayerSnapshot,
 ): Promise<HudBattlePlayer> {
   const base = normalizeBattlePlayerSnapshot(player);
 
-  const profileResult = await getPlayerCached({
-    steamId: player.steamId,
-  });
-
-  if (!profileResult.ok || isProfileInvalidated(profileResult.profile)) {
+  const profile = await loadBattlePlayerProfile(player.steamId);
+  if (!profile) {
     return base;
   }
 
-  const profile = profileResult.profile;
   return mapProfileToBattlePlayer(base, profile);
 }
 
