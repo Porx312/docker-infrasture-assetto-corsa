@@ -235,6 +235,41 @@ export function normalizeHudProfile(
   };
 }
 
+/** Stable fingerprint for profile cosmetics (display_style, frame, input). */
+export function profileCosmeticsFingerprint(
+  profile?: Pick<HudProfile, 'display_style' | 'frame_url' | 'input_type'> | null,
+): string {
+  if (!profile) {
+    return '';
+  }
+
+  const chunks: string[] = [];
+  const style = profile.display_style;
+  if (style) {
+    const stylePart = [
+      style.fontId ?? '',
+      style.effectId ?? '',
+      style.color ?? '',
+      style.gradientColor ?? '',
+      style.weight ?? '',
+      style.italic ? '1' : '0',
+      style.letterSpacing ?? '',
+    ].join(',');
+    if (stylePart.replace(/,/g, '') !== '') {
+      chunks.push(stylePart);
+    }
+  }
+
+  if (profile.frame_url) {
+    chunks.push(`frame:${profile.frame_url}`);
+  }
+  if (profile.input_type) {
+    chunks.push(`input:${profile.input_type}`);
+  }
+
+  return chunks.join('|');
+}
+
 /** Derive local player cache shape from a Convex session result (no getHudPlayer). */
 export function playerResultFromSession(session: HudSessionResult): HudPlayerResult {
   if (!session.ok) {

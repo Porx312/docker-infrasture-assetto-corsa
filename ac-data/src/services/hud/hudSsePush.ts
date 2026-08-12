@@ -17,7 +17,7 @@ import type { HudSessionResult, HudVersionOk, HudVersionResult } from './hudType
 export type PushHudUpdateOptions = {
   /** After player_join: emit session/version from Redis cache without extra Convex HUD fetches. */
   preferCachedSession?: boolean;
-  /** Skip emit when session rank/rivals fingerprint matches last push to this connection. */
+  /** Skip emit when session rank/rivals/cosmetics fingerprint matches last push to this connection. */
   skipIfSessionUnchanged?: boolean;
 };
 

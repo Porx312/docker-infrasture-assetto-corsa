@@ -142,10 +142,10 @@ export async function applyPlayerJoinContext(
 
   const params = { steamId: trimmed };
   await persistPlayerCacheResult(playerRedisKey(buildPlayerCacheKey(params)), player);
+  await persistSessionCacheResult(sessionRedisKey(buildSessionCacheKey(params)), session);
   if (player.ok) {
     await bumpPlayerVersion(params);
   }
-  await persistSessionCacheResult(sessionRedisKey(buildSessionCacheKey(params)), session);
 
   const rawProfile = session.ok ? session.profile : player.ok ? player.profile : null;
   const profile = rawProfile ? normalizeHudProfile(rawProfile) : null;

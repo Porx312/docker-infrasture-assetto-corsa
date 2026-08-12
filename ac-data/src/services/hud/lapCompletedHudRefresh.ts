@@ -5,7 +5,12 @@ import {
   playerRedisKey,
   sessionRedisKey,
 } from './hudCacheKeys.js';
-import { isProfileInvalidated, normalizeHudProfile, playerResultFromSession } from './hudProfile.js';
+import {
+  isProfileInvalidated,
+  normalizeHudProfile,
+  playerResultFromSession,
+  profileCosmeticsFingerprint,
+} from './hudProfile.js';
 import {
   HUD_PLAYER_TTL_SEC,
   HUD_SESSION_TTL_SEC,
@@ -69,19 +74,21 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Stable fingerprint for rank + rivals window (used to skip redundant SSE pushes). */
+/** Stable fingerprint for rank, rivals window, and profile cosmetics (SSE skip guard). */
 export function sessionLeaderboardFingerprint(result: HudSessionResult): string {
   if (!result.ok || !result.profile) {
     return '';
   }
   const rivals = result.profile.rivals;
-  return [
+  const rankPart = [
     result.profile.rank,
     rivals.above?.rank ?? '',
     rivals.above?.lap_ms ?? '',
     rivals.below?.rank ?? '',
     rivals.below?.lap_ms ?? '',
   ].join(':');
+  const cosmeticsPart = profileCosmeticsFingerprint(result.profile);
+  return cosmeticsPart ? `${rankPart}|${cosmeticsPart}` : rankPart;
 }
 
 export function sessionHudUnchanged(before: string | null, after: string | null): boolean {

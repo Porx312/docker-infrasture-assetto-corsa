@@ -364,6 +364,48 @@ test('sessionLeaderboardFingerprint encodes rank and rivals lap times', () => {
   assert.equal(sessionHudUnchanged(null, '3:2:125000:4:135000'), false);
 });
 
+test('sessionLeaderboardFingerprint changes when display_style changes', () => {
+  const base: HudSessionOk = {
+    ok: true,
+    version: 'v1',
+    context: {
+      server_id: 's1',
+      server_name: 'test',
+      track_id: 'pk_akina',
+      track_name: 'Akina',
+      layout_id: 'downhill',
+      layout_name: 'Downhill',
+      car_id: 'ae86',
+      car_name: 'AE86',
+      player_steam_id: params.steamId,
+    },
+    profile: {
+      name: 'Pilot',
+      rank: 1,
+      tier: 5,
+      best_lap_ms: 120_000,
+      car_name: 'AE86',
+      car_id: 'ae86',
+      steam_id: params.steamId,
+      rivals: { above: null, below: null },
+      display_style: { fontId: 'rajdhani', effectId: 'solid', color: '#FFFFFF' },
+    },
+  };
+
+  const updated: HudSessionOk = {
+    ...base,
+    profile: {
+      ...base.profile,
+      display_style: { fontId: 'orbitron', effectId: 'gradient', color: '#FF4530', gradientColor: '#FFFFFF' },
+    },
+  };
+
+  const before = sessionLeaderboardFingerprint(base);
+  const after = sessionLeaderboardFingerprint(updated);
+  assert.notEqual(before, after);
+  assert.equal(sessionHudUnchanged(before, after), false);
+});
+
 test('patchLastLapInCaches updates last_lap_ms without invalidating session', async () => {
   if (!isHudRedisConfigured()) {
     return;

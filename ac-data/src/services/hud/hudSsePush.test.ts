@@ -208,6 +208,87 @@ test('pushHudUpdateForSteamId skips emit when skipIfSessionUnchanged and fingerp
   }
 });
 
+test('pushHudUpdateForSteamId emits when only display_style changes and skipIfSessionUnchanged is set', async () => {
+  const events: Array<{ event: string; data: unknown }> = [];
+
+  const baseProfile = {
+    name: 'Pilot',
+    rank: 1,
+    tier: 5,
+    best_lap_ms: 120_000,
+    car_name: 'AE86',
+    car_id: 'ae86',
+    steam_id: steamId,
+    rivals: { above: null, below: null },
+    display_style: { fontId: 'rajdhani', effectId: 'solid', color: '#FFFFFF' },
+  };
+
+  const version: HudVersionOk = {
+    ok: true,
+    version: 'srv:track:layout:car:1',
+    lbVersion: 'srv:track:layout:car',
+    playerVersion: 42,
+  };
+
+  const previousSession: HudSessionOk = {
+    ok: true,
+    version: version.version,
+    context: {
+      server_id: 's1',
+      server_name: 'test',
+      track_id: 'pk_akina',
+      track_name: 'Akina',
+      layout_id: 'downhill',
+      layout_name: 'Downhill',
+      car_id: 'ae86',
+      car_name: 'AE86',
+      player_steam_id: steamId,
+    },
+    profile: baseProfile,
+  };
+
+  const updatedSession: HudSessionOk = {
+    ...previousSession,
+    profile: {
+      ...baseProfile,
+      display_style: { fontId: 'orbitron', effectId: 'gradient', color: '#FF4530', gradientColor: '#FFFFFF' },
+    },
+  };
+
+  const { sessionLeaderboardFingerprint } = await import('./lapCompletedHudRefresh.js');
+
+  const unregister = registerHudSseConnection({
+    steamId,
+    lastVersionFingerprint: null,
+    lastSessionLeaderboardFingerprint: sessionLeaderboardFingerprint(previousSession),
+    listener: (event, data) => {
+      events.push({ event, data });
+    },
+  });
+
+  setHudSsePushTestHooks({
+    fetchVersion: async () => version,
+    getSessionCached: async () => updatedSession,
+    loadSession: async () => updatedSession,
+  });
+
+  try {
+    await pushHudUpdateForSteamId(steamId, false, {
+      preferCachedSession: true,
+      skipIfSessionUnchanged: true,
+    });
+    assert.equal(events.length >= 1, true);
+    const sessionEvent = events.find((entry) => entry.event === 'hud_session');
+    assert.ok(sessionEvent);
+    const profile = (sessionEvent?.data as { profile?: { display_style?: { fontId?: string } } }).profile;
+    assert.equal(profile?.display_style?.fontId, 'orbitron');
+  } finally {
+    setHudSsePushTestHooks(null);
+    unregister();
+    resetHudSseConnectionsForTests();
+  }
+});
+
 test('pushHudUpdateForSteamId skips getHudSession when Redis version matches getHudVersion', async () => {
   const events: Array<{ event: string; data: unknown }> = [];
 
