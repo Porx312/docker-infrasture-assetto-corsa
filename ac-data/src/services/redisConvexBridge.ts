@@ -289,8 +289,12 @@ async function flushIngestChunk(
       ? await forwardBatchToConvex(forward.map((p) => p.payload))
       : { ok: true, processed: 0, failed: 0, results: [] };
   const partitioned = partitionIngestResults(forward, ingestResult);
-  const { toAck, toRetry } = resolveChunkAckPlan(chunk, forward, partitioned);
   const localOnlyIds = new Set(localOnly.map((m) => m.msg.id));
+  const { toAck, toRetry: plannedRetry } = resolveChunkAckPlan(chunk, forward, partitioned);
+  const toRetry =
+    forward.length === 0
+      ? []
+      : plannedRetry.filter((m) => !localOnlyIds.has(m.msg.id));
   const ackIds = new Set(toAck.map((m) => m.msg.id));
 
   if (localOnly.length > 0) {

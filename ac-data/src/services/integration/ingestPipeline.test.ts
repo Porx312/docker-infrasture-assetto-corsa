@@ -69,3 +69,19 @@ test('ingest pipeline: coalesce drops duplicate server_status before forward', (
     ['2', '3'],
   );
 });
+
+test('ingest pipeline: local-only forward batch does not retry chunk', () => {
+  const chunk = [pending('server_status', '1'), pending('server_status', '2')];
+  const coalesced = coalesceIngestBatch(chunk);
+  const forward: PendingIngestMessage[] = [];
+  const localOnly = [...coalesced];
+  const localOnlyIds = new Set(localOnly.map((m) => m.msg.id));
+
+  const partitioned = partitionIngestResults(forward, { ok: true, processed: 0, failed: 0, results: [] });
+  const plan = resolveChunkAckPlan(chunk, forward, partitioned);
+  const toRetry = forward.length === 0 ? [] : plan.toRetry.filter((m) => !localOnlyIds.has(m.msg.id));
+
+  assert.equal(forward.length, 0);
+  assert.ok(plan.toRetry.length > 0);
+  assert.equal(toRetry.length, 0);
+});
