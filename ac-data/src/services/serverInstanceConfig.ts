@@ -27,6 +27,51 @@ export interface ServerInstanceConfig {
   registerToLobby: boolean;
 }
 
+/** Per-server lobby / CM branding fields (optional on API and Convex config rows). */
+export type ServerBrandingUpdate = Partial<
+  Pick<
+    ServerInstanceConfig,
+    | 'description'
+    | 'webLink'
+    | 'cmDescriptionBody'
+    | 'bannerImageUrl'
+    | 'loadingImageUrl'
+    | 'loadingImageUrls'
+  >
+>;
+
+export function hasServerBrandingUpdate(input: ServerBrandingUpdate): boolean {
+  return Object.keys(input).length > 0;
+}
+
+/** Extract branding fields when explicitly present on a config payload. */
+export function pickServerBrandingUpdate(input: Record<string, unknown>): ServerBrandingUpdate {
+  const result: ServerBrandingUpdate = {};
+
+  if (input.description !== undefined) {
+    result.description = String(input.description);
+  }
+  if (input.webLink !== undefined) {
+    result.webLink = String(input.webLink);
+  }
+  if (input.cmDescriptionBody !== undefined) {
+    result.cmDescriptionBody = String(input.cmDescriptionBody);
+  }
+  if (input.bannerImageUrl !== undefined) {
+    result.bannerImageUrl = String(input.bannerImageUrl);
+  }
+  if (input.loadingImageUrl !== undefined) {
+    result.loadingImageUrl = String(input.loadingImageUrl);
+  }
+  if (input.loadingImageUrls !== undefined) {
+    result.loadingImageUrls = Array.isArray(input.loadingImageUrls)
+      ? input.loadingImageUrls.map((url) => String(url).trim()).filter(Boolean)
+      : [];
+  }
+
+  return result;
+}
+
 const SERVER_NAME_PATTERN = /^server(-\d+)?$/;
 
 function serversPath(): string {

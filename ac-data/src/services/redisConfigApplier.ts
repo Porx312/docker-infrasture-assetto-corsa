@@ -15,6 +15,11 @@ import { normalizeTrackConfigForIni } from '../controller/trackConfig.js';
 import { shouldStartFromConfig } from './serverPool.js';
 import { buildConfigSignature } from './configApplierLogic.js';
 import {
+  hasServerBrandingUpdate,
+  pickServerBrandingUpdate,
+  updateServerInstanceConfig,
+} from './serverInstanceConfig.js';
+import {
   updateManagedServersFromSnapshot,
   type ManagedServerRow,
 } from './hud/hudManagedServers.js';
@@ -50,6 +55,12 @@ type ServerRow = {
   trackConfig?: string;
   entries?: Array<{ model: string; skin?: string; count?: number }>;
   updatedAt?: number;
+  description?: string;
+  webLink?: string;
+  cmDescriptionBody?: string;
+  bannerImageUrl?: string;
+  loadingImageUrl?: string;
+  loadingImageUrls?: string[];
 };
 
 type StreamMessage = {
@@ -89,7 +100,22 @@ function rowToConfigPayload(row: ServerRow): ServerConfigPayload {
   }
   if (row.maxClients !== undefined) payload.maxClients = row.maxClients;
   if (row.entries !== undefined) payload.entries = row.entries;
+  if (row.description !== undefined) payload.description = row.description;
+  if (row.webLink !== undefined) payload.webLink = row.webLink;
+  if (row.cmDescriptionBody !== undefined) payload.cmDescriptionBody = row.cmDescriptionBody;
+  if (row.bannerImageUrl !== undefined) payload.bannerImageUrl = row.bannerImageUrl;
+  if (row.loadingImageUrl !== undefined) payload.loadingImageUrl = row.loadingImageUrl;
+  if (row.loadingImageUrls !== undefined) payload.loadingImageUrls = row.loadingImageUrls;
   return payload;
+}
+
+async function applyServerBrandingIfPresent(row: ServerRow): Promise<string[]> {
+  const brandingUpdate = pickServerBrandingUpdate(row as Record<string, unknown>);
+  if (!hasServerBrandingUpdate(brandingUpdate)) {
+    return [];
+  }
+  await updateServerInstanceConfig(row.serverName, brandingUpdate);
+  return ['description/branding'];
 }
 
 function getAvailableCars(): Set<string> {
@@ -152,6 +178,17 @@ async function reconcileServer(row: ServerRow, isFirstSnapshot: boolean): Promis
   const running = !!activeServers[row.serverName]?.pid;
 
   if (!changed && !isFirstSnapshot) {
+    try {
+      const brandingMods = await applyServerBrandingIfPresent(row);
+      if (brandingMods.length) {
+        console.log(
+          `[redis-config-applier] applyBranding ${row.serverName} (sig unchanged): ${brandingMods.join(', ')}`,
+        );
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[redis-config-applier] applyBranding ${row.serverName} failed: ${message}`);
+    }
     return;
   }
 
@@ -163,6 +200,17 @@ async function reconcileServer(row: ServerRow, isFirstSnapshot: boolean): Promis
       );
     } else {
       console.log(`[redis-config-applier] ${row.serverName} inactive (no process to stop)`);
+    }
+    try {
+      const brandingMods = await applyServerBrandingIfPresent(row);
+      if (brandingMods.length) {
+        console.log(
+          `[redis-config-applier] applyBranding ${row.serverName} (inactive): ${brandingMods.join(', ')}`,
+        );
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[redis-config-applier] applyBranding ${row.serverName} failed: ${message}`);
     }
     lastSignatures.set(row.serverName, signature);
     return;
@@ -176,6 +224,17 @@ async function reconcileServer(row: ServerRow, isFirstSnapshot: boolean): Promis
       console.log(
         `[redis-config-applier] applyConfig ${row.serverName} (pool idle): ${apply.modifications.join(', ')}`,
       );
+    }
+    try {
+      const brandingMods = await applyServerBrandingIfPresent(row);
+      if (brandingMods.length) {
+        console.log(
+          `[redis-config-applier] applyBranding ${row.serverName} (pool idle): ${brandingMods.join(', ')}`,
+        );
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[redis-config-applier] applyBranding ${row.serverName} failed: ${message}`);
     }
     if (running) {
       const result = await stopServerCore(row.serverName);
@@ -194,6 +253,18 @@ async function reconcileServer(row: ServerRow, isFirstSnapshot: boolean): Promis
     console.log(
       `[redis-config-applier] applyConfig ${row.serverName} updated: ${apply.modifications.join(', ')}`,
     );
+  }
+
+  try {
+    const brandingMods = await applyServerBrandingIfPresent(row);
+    if (brandingMods.length) {
+      console.log(
+        `[redis-config-applier] applyBranding ${row.serverName}: ${brandingMods.join(', ')}`,
+      );
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[redis-config-applier] applyBranding ${row.serverName} failed: ${message}`);
   }
 
   if (running && changed) {

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Live mid-session push sync checklist: Redis keys + refresh-user + log hints.
 # Usage: ./scripts/verify-push-sync-live.sh STEAM_ID [reason]
-#   reason: invalidated | revalidated | registered | prefs  (default: invalidated)
+#   reason: invalidated | revalidated | registered | prefs | cosmetics  (default: invalidated)
 #
 # Run while the player is CONNECTED in-game. If this works but web actions do not,
 # Convex is not calling POST /hud/worker/refresh-user — see docs/CONVEX_PUSH_USER_SYNC.md
@@ -20,6 +20,7 @@ BAN_PREFIX="${USER_INVALIDATED_REDIS_PREFIX:-ac:user:invalidated:}"
 NOT_REG_PREFIX="${USER_NOT_REGISTERED_REDIS_PREFIX:-ac:user:not_registered:}"
 PREFS_SAVE_PREFIX="${USER_PREFS_SAVE_TIME_PREFIX:-ac:user:prefs:save_time:}"
 PREFS_BATTLE_PREFIX="${USER_PREFS_ACCEPT_BATTLE_PREFIX:-ac:user:prefs:accept_battle:}"
+COSMETICS_FP_PREFIX="${USER_PROFILE_COSMETICS_FP_PREFIX:-ac:user:profile:cosmetics_fp:}"
 
 REDIS_ARGS=()
 if [[ -n "${REDIS_HOST:-}" ]]; then
@@ -38,7 +39,7 @@ redis_get() {
 
 if [[ -z "$STEAM_ID" ]]; then
   echo "Usage: $0 STEAM_ID [reason]"
-  echo "  reason: invalidated | revalidated | registered | prefs"
+  echo "  reason: invalidated | revalidated | registered | prefs | cosmetics"
   exit 1
 fi
 
@@ -56,6 +57,7 @@ echo "  ban:           ${BAN_PREFIX}${STEAM_ID} = $(redis_get "${BAN_PREFIX}${ST
 echo "  not_registered:${NOT_REG_PREFIX}${STEAM_ID} = $(redis_get "${NOT_REG_PREFIX}${STEAM_ID}")"
 echo "  saveTime:      ${PREFS_SAVE_PREFIX}${STEAM_ID} = $(redis_get "${PREFS_SAVE_PREFIX}${STEAM_ID}")"
 echo "  acceptBattle:  ${PREFS_BATTLE_PREFIX}${STEAM_ID} = $(redis_get "${PREFS_BATTLE_PREFIX}${STEAM_ID}")"
+echo "  cosmetics_fp:  ${COSMETICS_FP_PREFIX}${STEAM_ID} = $(redis_get "${COSMETICS_FP_PREFIX}${STEAM_ID}")"
 echo ""
 
 echo "--- POST $BASE_URL/hud/worker/refresh-user (publishEnforcement=true) ---"
@@ -80,6 +82,7 @@ echo "  ban:           $(redis_get "${BAN_PREFIX}${STEAM_ID}")"
 echo "  not_registered:$(redis_get "${NOT_REG_PREFIX}${STEAM_ID}")"
 echo "  saveTime:      $(redis_get "${PREFS_SAVE_PREFIX}${STEAM_ID}")"
 echo "  acceptBattle:  $(redis_get "${PREFS_BATTLE_PREFIX}${STEAM_ID}")"
+echo "  cosmetics_fp:  $(redis_get "${COSMETICS_FP_PREFIX}${STEAM_ID}")"
 echo ""
 
 echo "--- Expected in-game (player must be connected) ---"
@@ -103,6 +106,12 @@ case "$REASON" in
     echo "  • ac-data.log: [user-prefs] notify pref=..."
     echo "  • telemetry-data.log: pref chat steamId=..."
     ;;
+  cosmetics)
+    echo "  • HUD overlay updates display_style / frame_url via SSE (no chat)"
+    echo "  • ac-data.log: [profile-cosmetics] changed=true when fingerprint differs"
+    echo "  • ac-data.log: [hud-user-status] cosmetics refresh"
+    echo "  • Change frame/style in web while connected — HUD should update without reconnect"
+    ;;
   *)
     echo "  • Unknown reason; check ac-data.log for publishEnforcement=true"
     ;;
@@ -110,7 +119,7 @@ esac
 echo ""
 
 echo "--- Log tail hints ---"
-echo "  tail -f $ROOT/ac-data.log | grep -E 'player-join|user-prefs|user-registration'"
+echo "  tail -f $ROOT/ac-data.log | grep -E 'player-join|user-prefs|user-registration|profile-cosmetics|hud-user-status'"
 echo "  tail -f $ROOT/telemetry-data.log | grep -E 'pref chat|registration welcome|ban kick|invalidated'"
 echo ""
 

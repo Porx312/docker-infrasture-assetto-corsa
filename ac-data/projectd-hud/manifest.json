@@ -1,3 +1,19 @@
 {
-
+  "latest": "ProjectD-HUD (2).zip",
+  "releases": [
+    {
+      "version": "2",
+      "filename": "ProjectD-HUD (2).zip",
+      "size": 7222560,
+      "uploadedAt": "2026-08-13T18:10:10.449Z",
+      "sha256": "a73697fb0a40b2537d0aa47d81754312cd99771cb287b73cd7fc6d52e1d3d534"
+    },
+    {
+      "version": "ProjectD-HUD",
+      "filename": "ProjectD-HUD.zip",
+      "size": 7222400,
+      "uploadedAt": "2026-08-12T21:02:08.578Z",
+      "sha256": "f060f0f9af4aa4abf75f5e11b2e5e87b011f7280e9823b4cbb14f8e6e3042b8b"
+    }
+  ]
 }

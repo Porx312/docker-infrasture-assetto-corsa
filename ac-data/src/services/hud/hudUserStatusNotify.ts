@@ -26,6 +26,9 @@ export async function refreshHudUserStatusFromConvex(
   }
 
   const reasonSuffix = options?.reason ? ` reason=${options.reason}` : '';
+  if (options?.reason === 'cosmetics') {
+    console.log(`[hud-user-status] cosmetics refresh for steamId=${trimmed}${reasonSuffix}`);
+  }
 
   try {
     await refreshPlayerJoinFromConvex(trimmed, {

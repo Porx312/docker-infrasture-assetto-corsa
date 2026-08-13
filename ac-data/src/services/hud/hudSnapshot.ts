@@ -15,7 +15,8 @@ import {
   buildHudVersionEvent,
   loadHudSessionForSse,
 } from './hudSsePush.js';
-import type { HudVersionOk } from './hudTypes.js';
+import { parseHudSnapshotSections } from './hudSnapshotSections.js';
+import type { HudBattleErr, HudBattleOk, HudVersionOk } from './hudTypes.js';
 import { markHudSseConnected } from './hudSsePresence.js';
 import { markUserInvalidated } from './hudUserInvalidation.js';
 
@@ -25,6 +26,33 @@ function requireQueryString(value: unknown): string | null {
   }
   const trimmed = value.trim();
   return trimmed || null;
+}
+
+async function loadBattleSnapshotForPresence(
+  serverName: string,
+  steamId: string,
+): Promise<HudBattleOk | HudBattleErr> {
+  const battleRoom = battleRoomFromParams(serverName, steamId);
+  const battleParams = parseBattleScopeKey(battleRoom);
+  if (!battleParams) {
+    return { ok: false, reason: 'no_battle' };
+  }
+  return getBattleCachedFast(battleParams, { enrich: battleLiveEnrichEnabled() });
+}
+
+/** Battle-only snapshot: Redis battle path, no Convex session/version. */
+export async function handleHudBattleSnapshot(
+  steamId: string,
+  serverName: string,
+): Promise<{ ok: true; steamId: string; sections: 'battle'; battle: HudBattleOk | HudBattleErr }> {
+  const battle = await loadBattleSnapshotForPresence(serverName, steamId);
+  await markHudSseConnected(steamId);
+  return {
+    ok: true,
+    steamId,
+    sections: 'battle',
+    battle,
+  };
 }
 
 /** One-shot JSON snapshot for CSP clients that cannot stream SSE over web.get. */
@@ -46,17 +74,28 @@ export async function handleHudSnapshot(req: Request, res: Response): Promise<vo
     return;
   }
 
-  if (!isHudConvexConfigured()) {
-    res.status(404).json({ ok: false, reason: 'user_not_found' });
-    return;
-  }
+  const sections = parseHudSnapshotSections(req.query.sections);
 
   const resolved = await resolvePlayerPresence(steamId);
   if (!resolved.ok) {
     console.log(
-      `[hud-snapshot] steamId=${steamId} presenceServer=? managed=? reason=${resolved.reason}`,
+      `[hud-snapshot] steamId=${steamId} sections=${sections} presenceServer=? managed=? reason=${resolved.reason}`,
     );
     res.status(404).json({ ok: false, reason: resolved.reason });
+    return;
+  }
+
+  if (sections === 'battle') {
+    console.log(
+      `[hud-snapshot] steamId=${steamId} sections=battle presenceServer=${resolved.presence.serverName} (Redis battle only)`,
+    );
+    const payload = await handleHudBattleSnapshot(steamId, resolved.presence.serverName);
+    res.json(payload);
+    return;
+  }
+
+  if (!isHudConvexConfigured()) {
+    res.status(404).json({ ok: false, reason: 'user_not_found' });
     return;
   }
 
@@ -86,14 +125,14 @@ export async function handleHudSnapshot(req: Request, res: Response): Promise<vo
       await markUserInvalidated(steamId);
     }
     console.log(
-      `[hud-snapshot] steamId=${steamId} presenceServer=${resolved.presence.serverName} managed=${managed?.folderSlug ?? '?'} session_ok=false reason=${session.reason}`,
+      `[hud-snapshot] steamId=${steamId} sections=full presenceServer=${resolved.presence.serverName} managed=${managed?.folderSlug ?? '?'} session_ok=false reason=${session.reason}`,
     );
     res.status(404).json({ ok: false, reason: session.reason });
     return;
   }
 
   console.log(
-    `[hud-snapshot] steamId=${steamId} presenceServer=${resolved.presence.serverName} managed=${managed?.folderSlug ?? '?'} session_ok=true context_server=${sessionContextServerName(session)} version=${session.version}`,
+    `[hud-snapshot] steamId=${steamId} sections=full presenceServer=${resolved.presence.serverName} managed=${managed?.folderSlug ?? '?'} session_ok=true context_server=${sessionContextServerName(session)} version=${session.version}`,
   );
 
   const versionForClient: HudVersionOk = {
@@ -101,17 +140,14 @@ export async function handleHudSnapshot(req: Request, res: Response): Promise<vo
     version: session.version,
   };
 
-  const battleRoom = battleRoomFromParams(resolved.presence.serverName, steamId);
-  const battleParams = parseBattleScopeKey(battleRoom);
-  const battle = battleParams
-    ? await getBattleCachedFast(battleParams, { enrich: battleLiveEnrichEnabled() })
-    : { ok: false as const, reason: 'no_battle' };
+  const battle = await loadBattleSnapshotForPresence(resolved.presence.serverName, steamId);
 
   await markHudSseConnected(steamId);
 
   res.json({
     ok: true,
     steamId,
+    sections: 'full',
     version: buildHudVersionEvent(steamId, versionForClient),
     session: buildHudSessionEvent(steamId, session),
     battle,

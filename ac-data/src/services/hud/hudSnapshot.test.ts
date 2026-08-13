@@ -7,7 +7,9 @@ import { formatSseEvent } from './hudStreamSseFormat.js';
 import { buildHudSessionEvent, buildHudVersionEvent } from './hudSsePush.js';
 import { normalizeHudProfile } from './hudProfile.js';
 import { handleHudSnapshot } from './hudSnapshot.js';
+import { parseHudSnapshotSections } from './hudSnapshotSections.js';
 import { isHudConvexConfigured } from './hudConvex.js';
+import { resetHudConvexQueryStatsForTests, getHudConvexQueryStats } from './hudConvexQueryStats.js';
 import { resetManagedServersForTests, updateManagedServersFromSnapshot } from './hudManagedServers.js';
 import {
   buildPresenceRecordForTests,
@@ -85,6 +87,13 @@ test('snapshot battle field uses same event name as SSE (battle)', () => {
   assert.match(sseLine, /^event: battle\n/);
 });
 
+test('parseHudSnapshotSections accepts battle and defaults to full', () => {
+  assert.equal(parseHudSnapshotSections('battle'), 'battle');
+  assert.equal(parseHudSnapshotSections('BATTLE'), 'battle');
+  assert.equal(parseHudSnapshotSections(undefined), 'full');
+  assert.equal(parseHudSnapshotSections('full'), 'full');
+});
+
 test('handleHudSnapshot returns 404 with convex_unreachable when Convex fetch fails', async () => {
   if (!isHudRedisConfigured() || !isHudConvexConfigured()) {
     return;
@@ -124,8 +133,10 @@ test('handleHudSnapshot returns 404 with convex_unreachable when Convex fetch fa
 
   let statusCode = 0;
   let body: unknown;
+  const apiKey = (process.env.HUD_API_KEY || '').trim();
   const req = {
-    query: { steamId },
+    query: { steamId, sections: 'full', api_key: apiKey },
+    headers: {},
   } as unknown as Request;
   const res = {
     headersSent: false,
@@ -146,6 +157,79 @@ test('handleHudSnapshot returns 404 with convex_unreachable when Convex fetch fa
     resetConvexClientForTests();
     resetBattleSsePresenceForTests();
     resetManagedServersForTests();
+  }
+});
+
+test('handleHudSnapshot sections=battle does not call Convex metadata queries', async () => {
+  if (!isHudRedisConfigured()) {
+    return;
+  }
+
+  resetHudConvexQueryStatsForTests();
+
+  const steamId = '76561199000000996';
+  resetManagedServersForTests();
+  updateManagedServersFromSnapshot([
+    {
+      serverName: 'server',
+      displayName: 'Battle',
+      type: 'battle',
+    },
+  ]);
+
+  const record = buildPresenceRecordForTests(
+    'Battle',
+    { trackName: 'pk_akina', trackConfig: 'downhill' },
+    steamId,
+    'ks_toyota_gt86',
+  );
+  registerBattleSsePresence({
+    steamId,
+    ...record,
+    serverType: 'battle',
+    folderSlug: 'server',
+  });
+
+  setConvexClientForTests({
+    query: async () => {
+      throw new Error('Convex must not be called for sections=battle');
+    },
+    mutation: async () => {
+      throw new Error('Convex must not be called for sections=battle');
+    },
+  });
+
+  let body: Record<string, unknown> | undefined;
+  const apiKey = (process.env.HUD_API_KEY || '').trim();
+  const req = {
+    query: { steamId, sections: 'battle', api_key: apiKey },
+    headers: {},
+  } as unknown as Request;
+  const res = {
+    headersSent: false,
+    status(_code: number) {
+      return this;
+    },
+    json(payload: unknown) {
+      body = payload as Record<string, unknown>;
+    },
+  } as unknown as Response;
+
+  try {
+    await handleHudSnapshot(req, res);
+    assert.equal(body?.ok, true);
+    assert.equal(body?.sections, 'battle');
+    assert.equal(body?.battle != null, true);
+    assert.equal(body?.session, undefined);
+    assert.equal(body?.version, undefined);
+    const stats = getHudConvexQueryStats();
+    assert.equal(stats.queries.fetchHudVersion ?? 0, 0);
+    assert.equal(stats.queries.fetchHudSession ?? 0, 0);
+  } finally {
+    resetConvexClientForTests();
+    resetBattleSsePresenceForTests();
+    resetManagedServersForTests();
+    resetHudConvexQueryStatsForTests();
   }
 });
 
@@ -223,8 +307,10 @@ test('handleHudSnapshot marks overlay presence on successful poll', async () => 
 
   let statusCode = 0;
   let body: Record<string, unknown> | undefined;
+  const apiKey = (process.env.HUD_API_KEY || '').trim();
   const req = {
-    query: { steamId },
+    query: { steamId, sections: 'full', api_key: apiKey },
+    headers: {},
   } as unknown as Request;
   const res = {
     headersSent: false,

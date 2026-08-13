@@ -1,0 +1,38 @@
+{
+  "target": "http://127.0.0.1:3000",
+  "startedAt": "2026-08-13T18:19:06.082Z",
+  "finishedAt": "2026-08-13T18:19:06.084Z",
+  "levels": [
+    {
+      "clients": 10,
+      "durationSec": 600,
+      "scenario": "active",
+      "status": "PASS",
+      "rps": 0,
+      "rpm": 0,
+      "p50Ms": 0,
+      "p95Ms": 0,
+      "p99Ms": 0,
+      "maxMs": 0,
+      "errorRate": 0,
+      "timeoutCount": 0,
+      "redisLatencyMs": null,
+      "cpuPercent": null,
+      "memoryMb": null,
+      "convexSessionCalls": 0,
+      "convexVersionCalls": 0,
+      "convexCallsPerClientPerMin": 0,
+      "syncDivergenceRate": 0,
+      "staleRate": 0,
+      "revisionRegressionRate": 0,
+      "stuckClients": 0,
+      "notes": [
+        "dry-run"
+      ]
+    }
+  ],
+  "safeCapacity": 10,
+  "degradationPoint": null,
+  "failurePoint": null,
+  "firstBottleneck": null
+}

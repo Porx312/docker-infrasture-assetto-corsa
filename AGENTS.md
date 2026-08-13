@@ -106,7 +106,8 @@ Unregistered Steam IDs (`user_not_found` from Convex) are kicked after a private
 Verify: `./scripts/verify-user-registration-pipeline.sh [steamId]`
 
 9. **Profile prefs (`saveTime`, `acceptBattle`)** — Convex fields on `session.profile`; ac-data mirrors to `ac:user:prefs:*` on join or worker push. `saveTime=false` skips lap Convex ingest (HUD still local). `acceptBattle=false` excludes from new battle matchmaking. Mid-session requires Convex `notifyAcDataHudRefresh` → `POST /hud/worker/refresh-user`. See [`docs/CONVEX_USER_PREFS.md`](docs/CONVEX_USER_PREFS.md) and [`docs/CONVEX_PUSH_USER_SYNC.md`](docs/CONVEX_PUSH_USER_SYNC.md). Verify: `./scripts/verify-user-prefs.sh [steamId]`, `./scripts/verify-push-sync-live.sh [steamId] [reason]`
-10. **Convex HUD query volume** — `getHudSession`/`getHudVersion` only from ac-data. Counters: `./scripts/verify-hud-convex-query-volume.sh`; stable versions: `./scripts/verify-convex-hud-version-stable.sh [steamId]`. Optional: `HUD_CONVEX_QUERY_LOG_INTERVAL_MS=60000`.
+10. **Profile cosmetics (`display_style`, `frame_url`)** — Convex fields on `session.profile`; ac-data mirrors fingerprint to `ac:user:profile:cosmetics_fp:*` on worker push. Mid-session HUD update requires Convex `notifyAcDataHudRefresh` with `reason: "cosmetics"` and bump of `session.version`. No in-game chat. See [`docs/CONVEX_PROFILE_COSMETICS.md`](docs/CONVEX_PROFILE_COSMETICS.md). Verify: `./scripts/verify-user-cosmetics.sh [steamId]`, `./scripts/verify-push-sync-live.sh [steamId] cosmetics`
+11. **Convex HUD query volume** — `getHudSession`/`getHudVersion` only from ac-data. Counters: `./scripts/verify-hud-convex-query-volume.sh`; stable versions: `./scripts/verify-convex-hud-version-stable.sh [steamId]`. Optional: `HUD_CONVEX_QUERY_LOG_INTERVAL_MS=60000`.
 
 Session-only HUD: no `getHudPlayer` / `CONVEX_HUD_PLAYER_QUERY`. See [`docs/CONVEX_PLAYER_JOIN_CONTEXT.md`](docs/CONVEX_PLAYER_JOIN_CONTEXT.md).
 

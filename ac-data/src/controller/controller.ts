@@ -81,6 +81,13 @@ export type ServerConfigPayload = {
     configTrack?: string | null;
     maxClients?: number;
     entries?: Array<{ model: string; skin?: string; count?: number }>;
+    /** Lobby DESCRIPTION= in server_cfg.ini (per-server override). */
+    description?: string;
+    webLink?: string;
+    cmDescriptionBody?: string;
+    bannerImageUrl?: string;
+    loadingImageUrl?: string;
+    loadingImageUrls?: string[];
 };
 
 /** Escribe server_cfg.ini / entry_list.ini según payload (misma lógica que la antigua API). */

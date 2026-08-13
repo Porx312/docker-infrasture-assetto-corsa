@@ -17,6 +17,7 @@ import {
   readUserNotRegistered,
 } from './hudUserNotRegistered.js';
 import { syncUserPrefsFromProfile } from './hudUserPrefs.js';
+import { syncProfileCosmeticsFromProfile } from './hudProfileCosmetics.js';
 import {
   invalidateHudCachesForSteamId,
   persistPlayerCacheResult,
@@ -151,6 +152,9 @@ export async function applyPlayerJoinContext(
   const profile = rawProfile ? normalizeHudProfile(rawProfile) : null;
   await syncUserPrefsFromProfile(trimmed, profile, {
     notifyPrefChanges: options?.publishEnforcement === true,
+  });
+  await syncProfileCosmeticsFromProfile(trimmed, profile, {
+    logChanges: options?.publishEnforcement === true,
   });
 
   console.log(

@@ -10,6 +10,11 @@ Edit [`server-branding.json`](server-branding.json) to change text for all insta
 - `cmDescriptionBody` → texto bajo la portada (Discord, web, reglas)
 - `bannerImageUrl` → portada arriba del texto en CM (`[img=url]ProjectD[/img]` + cuerpo)
 
+**Per-server overrides:** AC Admin → Servers → click an instance → edit lobby / CM fields → Save branding.
+Or `PUT /admin/servers/:name/config` with `description`, `cmDescriptionBody`, etc.
+Or `POST /api/servers/:serverName/config` (same branding fields; no admin auth).
+Convex worker snapshots can include per-server `description` / branding fields on each server row.
+
 Apply changes:
 
 ```bash

@@ -9,7 +9,12 @@ import {
   stopServerCore,
   type ServerConfigPayload,
 } from './controller.js';
-import { assertValidServerName } from '../services/serverInstanceConfig.js';
+import {
+  assertValidServerName,
+  hasServerBrandingUpdate,
+  pickServerBrandingUpdate,
+  updateServerInstanceConfig,
+} from '../services/serverInstanceConfig.js';
 
 function requireValidServerName(serverName: string | undefined, res: Response): string | null {
   if (!serverName) {
@@ -87,10 +92,31 @@ export const restartServer = async (req: Request, res: Response) => {
   return res.status(result.ok ? 200 : 400).json(result);
 };
 
-export const configureServer = (req: Request, res: Response) => {
+export const configureServer = async (req: Request, res: Response) => {
   const serverName = requireValidServerName(firstParam(req.params.serverName), res);
   if (!serverName) return;
   const payload = (req.body ?? {}) as ServerConfigPayload;
+  const brandingUpdate = pickServerBrandingUpdate(payload as Record<string, unknown>);
   const result = applyServerConfiguration(serverName, payload);
-  return res.status(result.ok ? 200 : 400).json(result);
+
+  if (!result.ok) {
+    return res.status(400).json(result);
+  }
+
+  if (!hasServerBrandingUpdate(brandingUpdate)) {
+    return res.json(result);
+  }
+
+  try {
+    const config = await updateServerInstanceConfig(serverName, brandingUpdate);
+    return res.json({
+      ...result,
+      brandingUpdated: true,
+      description: config.description,
+      cmDescriptionBody: config.cmDescriptionBody,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(400).json({ ok: false, reason: message });
+  }
 };
