@@ -4,7 +4,7 @@ import {
   refreshPlayerJoinFromConvex,
   type ApplyPlayerJoinContextOptions,
 } from './playerJoinContext.js';
-import { pushHudUpdateForSteamId } from './hudSsePush.js';
+import { countHudSseListeners, pushHudUpdateForSteamId } from './hudSsePush.js';
 
 export type RefreshHudUserStatusOptions = ApplyPlayerJoinContextOptions & {
   reason?: string;
@@ -40,6 +40,15 @@ export async function refreshHudUserStatusFromConvex(
       `[hud-user-status] Convex refresh failed for steamId=${trimmed}${reasonSuffix}: ${message}`,
     );
     throw error;
+  }
+
+  if (options?.reason === 'cosmetics') {
+    // Live getHudSession — join context cache may lag behind dedicated session query.
+    await pushHudUpdateForSteamId(trimmed, true);
+    console.log(
+      `[hud-user-status] cosmetics push done steamId=${trimmed} sseListeners=${countHudSseListeners(trimmed)}`,
+    );
+    return;
   }
 
   const cached = await getSessionCached({ steamId: trimmed });

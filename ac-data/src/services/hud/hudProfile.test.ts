@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { isProfileInvalidated, normalizeHudProfile, playerResultFromSession } from './hudProfile.js';
+import { isProfileInvalidated, mergeCosmeticFields, normalizeHudProfile, playerResultFromSession } from './hudProfile.js';
 import type { HudProfile } from './hudTypes.js';
 
 const validProfile: HudProfile = {
@@ -210,4 +210,29 @@ test('normalizeHudProfile accepts snake_case prefs', () => {
   });
   assert.equal(normalized?.saveTime, false);
   assert.equal(normalized?.acceptBattle, false);
+});
+
+test('mergeCosmeticFields clears frame_url when source explicitly omits frame', () => {
+  const target = {
+    frame_url: 'https://cdn.example.com/frames/gold.png',
+    display_style: { fontId: 'orbitron', effectId: 'solid', color: '#FFF' },
+  };
+  mergeCosmeticFields(target, { frame_url: '' });
+  assert.equal(target.frame_url, undefined);
+});
+
+test('normalizeHudProfile clears frame when Convex sends empty frame_url', () => {
+  const normalized = normalizeHudProfile({
+    ...validProfile,
+    frame_url: 'https://cdn.example.com/frames/gold.png',
+    rivals: { above: null, below: null },
+  });
+  assert.equal(normalized?.frame_url, 'https://cdn.example.com/frames/gold.png');
+
+  const cleared = normalizeHudProfile({
+    ...validProfile,
+    frame_url: '',
+    rivals: { above: null, below: null },
+  });
+  assert.equal(cleared?.frame_url, undefined);
 });

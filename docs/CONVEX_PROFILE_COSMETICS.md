@@ -21,8 +21,9 @@ When the user equips a frame or changes display style in the web UI:
 2. `buildHudSessionForSteamId` rebuilds session with new `display_style` / `frame_url`
 3. **Bump `session.version`** (required — ac-data may serve stale Redis without it)
 4. Schedule `notifyAcDataHudRefresh` with `reason: "cosmetics"`
-5. ac-data `POST /hud/worker/refresh-user` → Redis HUD cache + SSE `hud_session`
-6. ProjectD-HUD overlay applies new style/frame without reconnect
+5. ac-data `POST /hud/worker/refresh-user` → Redis HUD cache + **live `getHudSession` fetch** + SSE `hud_session`
+6. ProjectD-HUD: SSE primary; if no SSE listeners, poll `GET /hud/profile-cosmetics-fp` (Redis-only) and fetch `sections=session` snapshot on change
+7. ProjectD-HUD overlay applies new style/frame without reconnect
 
 `player_join` is fallback only (reconnect, webhook failure).
 

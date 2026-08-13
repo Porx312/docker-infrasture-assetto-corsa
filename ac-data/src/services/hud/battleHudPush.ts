@@ -121,7 +121,6 @@ export function initHudPushHub(): void {
         // Cache was just written by refreshPlayerHudCache; avoid duplicate Convex fetch.
         void pushHudUpdateForSteamId(parsed.cacheKey, false, {
           preferCachedSession: true,
-          skipIfSessionUnchanged: true,
         });
       }
     },

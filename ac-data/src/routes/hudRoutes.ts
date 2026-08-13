@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 
+import { handleHudProfileCosmeticsFp } from '../services/hud/hudCosmeticsFp.js';
 import { handleHudStreamSse } from '../services/hud/hudStreamSse.js';
 import { handleHudSnapshot } from '../services/hud/hudSnapshot.js';
 import { refreshHudUserStatusFromConvex } from '../services/hud/hudUserStatusNotify.js';
@@ -25,6 +26,15 @@ router.get('/snapshot', (req: Request, res: Response) => {
     console.error('[hud] snapshot unhandled:', err);
     if (!res.headersSent) {
       res.status(503).json({ ok: false, reason: 'convex_unreachable' });
+    }
+  });
+});
+
+router.get('/profile-cosmetics-fp', (req: Request, res: Response) => {
+  void handleHudProfileCosmeticsFp(req, res).catch((err: unknown) => {
+    console.error('[hud] profile-cosmetics-fp unhandled:', err);
+    if (!res.headersSent) {
+      res.status(503).json({ ok: false, reason: 'redis_unreachable' });
     }
   });
 });

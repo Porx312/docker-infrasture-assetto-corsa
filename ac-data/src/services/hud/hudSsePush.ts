@@ -104,6 +104,11 @@ export function resetHudSseConnectionsForTests(): void {
   connectionsBySteamId.clear();
 }
 
+/** Active HUD SSE connection count for a steamId. */
+export function countHudSseListeners(steamId: string): number {
+  return connectionsBySteamId.get(steamId.trim())?.size ?? 0;
+}
+
 /** Steam IDs with at least one active HUD SSE connection. */
 export function listConnectedHudSteamIds(): string[] {
   return [...connectionsBySteamId.keys()].filter((steamId) => {
@@ -112,9 +117,14 @@ export function listConnectedHudSteamIds(): string[] {
   });
 }
 
+function warnNoSseListeners(steamId: string, event: string): void {
+  console.warn(`[hud-sse-push] no listeners steamId=${steamId} event=${event}`);
+}
+
 function emitToSteamId(steamId: string, event: string, data: unknown): void {
   const listeners = connectionsBySteamId.get(steamId);
-  if (!listeners) {
+  if (!listeners?.size) {
+    warnNoSseListeners(steamId, event);
     return;
   }
   for (const conn of listeners) {
@@ -126,7 +136,8 @@ function emitHudVersionToSteamId(steamId: string, version: HudVersionOk): void {
   const fingerprint = versionFingerprint(version);
   const versionEvent = buildHudVersionEvent(steamId, version);
   const listeners = connectionsBySteamId.get(steamId);
-  if (!listeners) {
+  if (!listeners?.size) {
+    warnNoSseListeners(steamId, 'hud_version');
     return;
   }
   for (const conn of listeners) {
@@ -139,7 +150,8 @@ function emitHudSessionToSteamId(steamId: string, session: HudSessionResult): vo
   const sessionEvent = buildHudSessionEvent(steamId, session);
   const sessionFingerprint = session.ok ? sessionLeaderboardFingerprint(session) : '';
   const listeners = connectionsBySteamId.get(steamId);
-  if (!listeners) {
+  if (!listeners?.size) {
+    warnNoSseListeners(steamId, 'hud_session');
     return;
   }
   for (const conn of listeners) {

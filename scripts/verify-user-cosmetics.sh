@@ -57,7 +57,28 @@ else
 fi
 echo ""
 
-echo "4) Worker push refresh (immediate cosmetics sync)"
+echo "4) GET /hud/profile-cosmetics-fp (Redis-only, no Convex)"
+BASE_URL="${AC_DATA_BASE_URL:-http://127.0.0.1:${PORT:-3000}}"
+HUD_KEY="${HUD_API_KEY:-}"
+if [[ -n "${HUD_KEY}" ]]; then
+  FP_HTTP="$(curl -sS "${BASE_URL}/hud/profile-cosmetics-fp?steamId=${STEAM_ID}&api_key=${HUD_KEY}" 2>/dev/null || true)"
+  echo "   ${FP_HTTP}"
+else
+  echo "   Set HUD_API_KEY in env to test GET /hud/profile-cosmetics-fp"
+fi
+echo ""
+
+echo "5) SSE connected clients (ac-data in-process)"
+if [[ -n "${CONVEX_WORKER_SECRET:-}" ]]; then
+  STATS="$(curl -sS -H "X-Worker-Secret: ${CONVEX_WORKER_SECRET}" "${BASE_URL}/hud/worker/convex-query-stats" 2>/dev/null || true)"
+  echo "   ${STATS}"
+  echo "   sseConnected>=1 in-game with HUD active → SSE push path; 0 → cosmetics_fp poll fallback"
+else
+  echo "   Set CONVEX_WORKER_SECRET to read convex-query-stats"
+fi
+echo ""
+
+echo "6) Worker push refresh (immediate cosmetics sync)"
 if [[ -n "${CONVEX_WORKER_SECRET:-}" ]]; then
   echo "   Run: ./scripts/verify-push-sync-live.sh ${STEAM_ID} cosmetics"
 else
@@ -65,7 +86,7 @@ else
 fi
 echo ""
 
-echo "5) Checklist"
+echo "7) Checklist"
 echo "   - Fingerprint updates when display_style or frame_url changes"
 echo "   - Mid-session: Convex schedules refresh-user with reason=cosmetics"
 echo "   - Convex must bump session.version when cosmetics change"

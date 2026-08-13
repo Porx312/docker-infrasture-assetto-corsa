@@ -24,6 +24,23 @@ function readString(source: Record<string, unknown>, ...keys: string[]): string 
   return '';
 }
 
+/** When key is present in source, return trimmed string or '' for null/empty (allows clearing fields). */
+function readPresentString(source: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    if (!(key in source)) {
+      continue;
+    }
+    const value = source[key];
+    if (value === null || value === undefined) {
+      return '';
+    }
+    if (typeof value === 'string') {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
 function readBoolean(source: Record<string, unknown>, ...keys: string[]): boolean {
   for (const key of keys) {
     const value = source[key];
@@ -120,9 +137,20 @@ export function mergeCosmeticFields<
     target.display_style = displayStyle;
   }
 
-  const frameUrl = readString(source, 'frame_url', 'frameUrl', 'frame', 'avatar_frame_url', 'avatarFrameUrl');
-  if (frameUrl) {
-    target.frame_url = frameUrl;
+  const frameUrl = readPresentString(
+    source,
+    'frame_url',
+    'frameUrl',
+    'frame',
+    'avatar_frame_url',
+    'avatarFrameUrl',
+  );
+  if (frameUrl !== undefined) {
+    if (frameUrl) {
+      target.frame_url = frameUrl;
+    } else {
+      delete target.frame_url;
+    }
   }
 
   const inputType = readInputType(source);

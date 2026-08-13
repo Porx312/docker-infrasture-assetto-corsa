@@ -87,9 +87,11 @@ test('snapshot battle field uses same event name as SSE (battle)', () => {
   assert.match(sseLine, /^event: battle\n/);
 });
 
-test('parseHudSnapshotSections accepts battle and defaults to full', () => {
+test('parseHudSnapshotSections accepts battle, session, and defaults to full', () => {
   assert.equal(parseHudSnapshotSections('battle'), 'battle');
   assert.equal(parseHudSnapshotSections('BATTLE'), 'battle');
+  assert.equal(parseHudSnapshotSections('session'), 'session');
+  assert.equal(parseHudSnapshotSections('SESSION'), 'session');
   assert.equal(parseHudSnapshotSections(undefined), 'full');
   assert.equal(parseHudSnapshotSections('full'), 'full');
 });

@@ -16,7 +16,7 @@ import {
   loadHudSessionForSse,
 } from './hudSsePush.js';
 import { parseHudSnapshotSections } from './hudSnapshotSections.js';
-import type { HudBattleErr, HudBattleOk, HudVersionOk } from './hudTypes.js';
+import type { HudBattleErr, HudBattleOk, HudSessionResult, HudVersionOk } from './hudTypes.js';
 import { markHudSseConnected } from './hudSsePresence.js';
 import { markUserInvalidated } from './hudUserInvalidation.js';
 
@@ -26,6 +26,69 @@ function requireQueryString(value: unknown): string | null {
   }
   const trimmed = value.trim();
   return trimmed || null;
+}
+
+type SessionSnapshotPayload = {
+  version: Record<string, unknown>;
+  session: Record<string, unknown>;
+  sessionResult: HudSessionResult;
+  versionForClient: HudVersionOk;
+};
+
+async function loadSessionSnapshotPayload(
+  steamId: string,
+  serverName: string,
+): Promise<
+  | { ok: true; payload: SessionSnapshotPayload }
+  | { ok: false; reason: string; logLine: string }
+> {
+  const managed = lookupManagedServer(serverName);
+
+  const versionResult = await fetchHudVersion({
+    steamId,
+    now: Date.now(),
+  });
+
+  if (!versionResult.ok) {
+    return {
+      ok: false,
+      reason: versionResult.reason,
+      logLine: `[hud-snapshot] steamId=${steamId} presenceServer=${serverName} managed=${managed?.folderSlug ?? '?'} version_ok=false reason=${versionResult.reason}`,
+    };
+  }
+
+  const cachedSession = await getSessionCached({ steamId });
+  const bypassSessionCache = await shouldBypassSessionCacheForPresence(steamId, serverName);
+  const session =
+    !bypassSessionCache && cachedSession.ok && cachedSession.version === versionResult.version
+      ? cachedSession
+      : await loadHudSessionForSse(steamId, bypassSessionCache);
+
+  if (!session.ok) {
+    if (session.reason === 'user_invalidated') {
+      await markUserInvalidated(steamId);
+    }
+    return {
+      ok: false,
+      reason: session.reason,
+      logLine: `[hud-snapshot] steamId=${steamId} presenceServer=${serverName} managed=${managed?.folderSlug ?? '?'} session_ok=false reason=${session.reason}`,
+    };
+  }
+
+  const versionForClient: HudVersionOk = {
+    ...versionResult,
+    version: session.version,
+  };
+
+  return {
+    ok: true,
+    payload: {
+      version: buildHudVersionEvent(steamId, versionForClient),
+      session: buildHudSessionEvent(steamId, session),
+      sessionResult: session,
+      versionForClient,
+    },
+  };
 }
 
 async function loadBattleSnapshotForPresence(
@@ -99,46 +162,36 @@ export async function handleHudSnapshot(req: Request, res: Response): Promise<vo
     return;
   }
 
+  const sessionLoad = await loadSessionSnapshotPayload(steamId, resolved.presence.serverName);
+  if (!sessionLoad.ok) {
+    console.log(sessionLoad.logLine);
+    res.status(404).json({ ok: false, reason: sessionLoad.reason });
+    return;
+  }
+
+  const { payload } = sessionLoad;
   const managed = lookupManagedServer(resolved.presence.serverName);
 
-  const versionResult = await fetchHudVersion({
-    steamId,
-    now: Date.now(),
-  });
-
-  if (!versionResult.ok) {
-    res.status(404).json({ ok: false, reason: versionResult.reason });
-    return;
-  }
-
-  const cachedSession = await getSessionCached({ steamId });
-  const bypassSessionCache = await shouldBypassSessionCacheForPresence(
-    steamId,
-    resolved.presence.serverName,
-  );
-  let session =
-    !bypassSessionCache && cachedSession.ok && cachedSession.version === versionResult.version
-      ? cachedSession
-      : await loadHudSessionForSse(steamId, bypassSessionCache);
-  if (!session.ok) {
-    if (session.reason === 'user_invalidated') {
-      await markUserInvalidated(steamId);
-    }
+  if (sections === 'session') {
+    const sessionVersion = payload.sessionResult.ok ? payload.sessionResult.version : '-';
     console.log(
-      `[hud-snapshot] steamId=${steamId} sections=full presenceServer=${resolved.presence.serverName} managed=${managed?.folderSlug ?? '?'} session_ok=false reason=${session.reason}`,
+      `[hud-snapshot] steamId=${steamId} sections=session presenceServer=${resolved.presence.serverName} managed=${managed?.folderSlug ?? '?'} session_ok=true context_server=${sessionContextServerName(payload.sessionResult)} version=${sessionVersion}`,
     );
-    res.status(404).json({ ok: false, reason: session.reason });
+    await markHudSseConnected(steamId);
+    res.json({
+      ok: true,
+      steamId,
+      sections: 'session',
+      version: payload.version,
+      session: payload.session,
+    });
     return;
   }
 
+  const sessionVersion = payload.sessionResult.ok ? payload.sessionResult.version : '-';
   console.log(
-    `[hud-snapshot] steamId=${steamId} sections=full presenceServer=${resolved.presence.serverName} managed=${managed?.folderSlug ?? '?'} session_ok=true context_server=${sessionContextServerName(session)} version=${session.version}`,
+    `[hud-snapshot] steamId=${steamId} sections=full presenceServer=${resolved.presence.serverName} managed=${managed?.folderSlug ?? '?'} session_ok=true context_server=${sessionContextServerName(payload.sessionResult)} version=${sessionVersion}`,
   );
-
-  const versionForClient: HudVersionOk = {
-    ...versionResult,
-    version: session.version,
-  };
 
   const battle = await loadBattleSnapshotForPresence(resolved.presence.serverName, steamId);
 
@@ -148,8 +201,8 @@ export async function handleHudSnapshot(req: Request, res: Response): Promise<vo
     ok: true,
     steamId,
     sections: 'full',
-    version: buildHudVersionEvent(steamId, versionForClient),
-    session: buildHudSessionEvent(steamId, session),
+    version: payload.version,
+    session: payload.session,
     battle,
   });
 }
