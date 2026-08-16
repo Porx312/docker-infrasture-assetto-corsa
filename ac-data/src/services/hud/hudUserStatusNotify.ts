@@ -4,11 +4,30 @@ import {
   refreshPlayerJoinFromConvex,
   type ApplyPlayerJoinContextOptions,
 } from './playerJoinContext.js';
-import { countHudSseListeners, pushHudUpdateForSteamId } from './hudSsePush.js';
+import {
+  countHudSseListeners,
+  pushHudUpdateForSteamId,
+  type HudPushReason,
+} from './hudSsePush.js';
 
 export type RefreshHudUserStatusOptions = ApplyPlayerJoinContextOptions & {
   reason?: string;
 };
+
+const LIVE_SESSION_PUSH_REASONS = new Set(['cosmetics', 'lap_pb', 'rival_pb', 'session']);
+
+function pushReasonForWorkerReason(reason: string): HudPushReason | undefined {
+  if (reason === 'lap_pb' || reason === 'rival_pb') {
+    return reason;
+  }
+  if (reason === 'cosmetics') {
+    return 'worker_cosmetics';
+  }
+  if (reason === 'session') {
+    return 'join_initial';
+  }
+  return undefined;
+}
 
 /** Fetch Convex join context (ban + session cache), then push SSE to connected HUD clients. */
 export async function refreshHudUserStatusFromConvex(
@@ -25,8 +44,12 @@ export async function refreshHudUserStatusFromConvex(
     return;
   }
 
-  const reasonSuffix = options?.reason ? ` reason=${options.reason}` : '';
-  if (options?.reason === 'cosmetics') {
+  const reason = options?.reason?.trim() ?? '';
+  const reasonSuffix = reason !== '' ? ` reason=${reason}` : '';
+
+  if (LIVE_SESSION_PUSH_REASONS.has(reason)) {
+    console.log(`[hud-user-status] live session refresh for steamId=${trimmed}${reasonSuffix}`);
+  } else if (reason === 'cosmetics') {
     console.log(`[hud-user-status] cosmetics refresh for steamId=${trimmed}${reasonSuffix}`);
   }
 
@@ -42,11 +65,11 @@ export async function refreshHudUserStatusFromConvex(
     throw error;
   }
 
-  if (options?.reason === 'cosmetics') {
-    // Live getHudSession — join context cache may lag behind dedicated session query.
-    await pushHudUpdateForSteamId(trimmed, true);
+  if (LIVE_SESSION_PUSH_REASONS.has(reason)) {
+    const pushReason = pushReasonForWorkerReason(reason);
+    await pushHudUpdateForSteamId(trimmed, true, pushReason ? { pushReason } : undefined);
     console.log(
-      `[hud-user-status] cosmetics push done steamId=${trimmed} sseListeners=${countHudSseListeners(trimmed)}`,
+      `[hud-user-status] push done steamId=${trimmed}${reasonSuffix} sseListeners=${countHudSseListeners(trimmed)}`,
     );
     return;
   }

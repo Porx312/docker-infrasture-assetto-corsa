@@ -260,3 +260,106 @@ test('refreshHudUserStatusFromConvex cosmetics reason bypasses session cache for
     resetHudSseConnectionsForTests();
   }
 });
+
+test('refreshHudUserStatusFromConvex lap_pb reason bypasses session cache for live fetch', async () => {
+  if (!isHudRedisConfigured()) {
+    return;
+  }
+
+  const events: Array<{ event: string; data: unknown }> = [];
+  const unregister = registerHudSseConnection({
+    steamId,
+    lastVersionFingerprint: null,
+    listener: (event, data) => {
+      events.push({ event, data });
+    },
+  });
+
+  let loadSessionBypass: boolean | null = null;
+
+  setFetchPlayerJoinContextForTests(async () => ({
+    ok: true,
+    user: { steamId, isInvalidated: false, name: 'Pilot' },
+    session: {
+      ok: true,
+      version: 'v-lap-stale',
+      context: {
+        server_id: 's1',
+        server_name: 'test',
+        track_id: 'pk_akina',
+        track_name: 'Akina',
+        layout_id: 'downhill',
+        layout_name: 'Downhill',
+        car_id: 'ae86',
+        car_name: 'AE86',
+        player_steam_id: steamId,
+      },
+      profile: {
+        name: 'Pilot',
+        rank: 2,
+        tier: 5,
+        best_lap_ms: 280_000,
+        car_name: 'AE86',
+        car_id: 'ae86',
+        steam_id: steamId,
+        rivals: { above: null, below: null },
+      },
+    },
+  }));
+
+  const liveSession = {
+    ok: true as const,
+    version: 'v-lap-live',
+    context: {
+      server_id: 's1',
+      server_name: 'test',
+      track_id: 'pk_akina',
+      track_name: 'Akina',
+      layout_id: 'downhill',
+      layout_name: 'Downhill',
+      car_id: 'ae86',
+      car_name: 'AE86',
+      player_steam_id: steamId,
+    },
+    profile: {
+      name: 'Pilot',
+      rank: 1,
+      tier: 6,
+      best_lap_ms: 270_000,
+      car_name: 'AE86',
+      car_id: 'ae86',
+      steam_id: steamId,
+      rivals: { above: null, below: null },
+    },
+  };
+
+  setHudSsePushTestHooks({
+    fetchVersion: async () => ({
+      ok: true,
+      version: 'v-lap-live',
+      lbVersion: 'v-lap-live',
+      playerVersion: 2,
+    }),
+    loadSession: async (_id, bypassCache) => {
+      loadSessionBypass = bypassCache;
+      return liveSession;
+    },
+  });
+
+  try {
+    await refreshHudUserStatusFromConvex(steamId, { reason: 'lap_pb', publishEnforcement: false });
+
+    assert.equal(loadSessionBypass, true);
+    const sessionEvent = events.find((entry) => entry.event === 'hud_session');
+    assert.ok(sessionEvent);
+    const payload = sessionEvent.data as { ok: boolean; profile?: { rank?: number; best_lap_ms?: number } };
+    assert.equal(payload.ok, true);
+    assert.equal(payload.profile?.rank, 1);
+    assert.equal(payload.profile?.best_lap_ms, 270_000);
+  } finally {
+    setFetchPlayerJoinContextForTests(null);
+    setHudSsePushTestHooks(null);
+    unregister();
+    resetHudSseConnectionsForTests();
+  }
+});

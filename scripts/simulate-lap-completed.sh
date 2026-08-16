@@ -17,15 +17,17 @@
 # ac-data only XACKs and pushes hud_version/hud_session after Convex ingest succeeds.
 # If ingest fails, check ac-data.log for "convex batch ingest failed".
 #
-# What the HUD shows (event-driven):
-#   - hud_version + hud_session SSE on PB lap (~2.3s debounce+delay for author)
-#   - rival observers: local Redis patch + SSE (0 Convex) when rank unchanged
-#   - rival observers: 1× getHudSession only when rival PB may change rank/window
-#   - non-PB lap: last_lap_ms patched in Redis only; no rival fan-out
-#   - overlay poll: competition/idle uses sections=session (rank, rivals, ELO);
-#     live battle uses sections=battle. Without SSE listeners, poll is the delivery path.
+# What the HUD shows (Convex push → SSE):
+#   - Convex lap ingest schedules POST /hud/worker/refresh-user (reason lap_pb | rival_pb)
+#   - ac-data pushes hud_version + hud_session to connected SSE clients
+#   - non-PB lap: last_lap_ms patched in Redis only; Convex does not notify
+#   - overlay poll uses sections=battle when bundle exists (battle backup only)
+#   - session/rank/rivals require SSE (or manual ./scripts/verify-push-sync-live.sh STEAM_ID lap_pb)
 #
-# Rival fan-out test (HUD_LAP_RIVAL_FANOUT_ENABLED=true in ac-data):
+# Manual push while Convex lap webhook not deployed:
+#   ./scripts/verify-push-sync-live.sh STEAM_ID lap_pb
+#
+# Rival observer test (Convex should push rival_pb after rival PB ingest):
 #   Terminal 1 — observer SSE: curl -N 'http://127.0.0.1:3000/hud/stream?steamId=76561199230780195'
 #   Terminal 2 — simulate rival PB: ./scripts/simulate-lap-completed.sh <rival_steamId> --lap-ms 270000
 #   Observer should receive hud_session ~2-3s later with updated rival lap_ms
@@ -37,8 +39,9 @@
 #   (use --lap-ms equal to minty's cached best_lap_ms) — observer should NOT receive hud_session
 #
 # Verification:
-#   tail -f ac-data.log | rg 'hud-refresh|ingest|hud-snapshot.*sections=session'
+#   tail -f ac-data.log | rg 'ingest|refresh-user|hud-user-status|hud-snapshot.*sections=battle'
 #   ./scripts/verify-hud-lap-pipeline.sh STEAM_ID
+#   docs/CONVEX_LAP_HUD_PUSH.md
 #   ./scripts/verify-hud-overlay-contract.sh STEAM_ID
 #   ./scripts/verify-convex-hud-session.sh STEAM_ID
 #

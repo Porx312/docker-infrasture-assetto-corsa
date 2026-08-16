@@ -15,7 +15,7 @@ Content-Type: application/json
 }
 ```
 
-Optional `reason` for logs only: `"invalidated"`, `"registered"`, `"prefs"`, `"revalidated"`, `"cosmetics"`.
+Optional `reason` for logs and push behavior: `"invalidated"`, `"registered"`, `"prefs"`, `"revalidated"`, `"cosmetics"`, `"lap_pb"`, `"rival_pb"`, `"session"`.
 
 Header alternative: `X-Worker-Secret: <CONVEX_WORKER_SECRET>`
 
@@ -23,7 +23,7 @@ Header alternative: `X-Worker-Secret: <CONVEX_WORKER_SECRET>`
 
 1. Calls `getPlayerJoinContext`
 2. Updates Redis: ban, not-registered, HUD caches, `ac:user:prefs:*`, `ac:user:profile:cosmetics_fp:*`
-3. Pushes SSE to connected HUD clients
+3. Pushes SSE to connected HUD clients (`lap_pb` / `rival_pb` / `session` / `cosmetics` use live `getHudSession`)
 4. **`publishEnforcement: true`** — pub/sub kick for ban / `user_not_found` on all servers (mid-session)
 
 `player_join` uses the same refresh path with **`publishEnforcement: false`** (deferred kick on connect avoids pub/sub race).
@@ -77,6 +77,10 @@ export const notifyAcDataHudRefresh = internalAction({
 | User links Steam / account created | `{ steamId, reason: "registered" }` |
 | `users:updatePrivacyPrefs` (`saveTime` / `acceptBattle`) | `{ steamId, reason: "prefs" }` |
 | Equip frame / update `display_style` | `{ steamId, reason: "cosmetics" }` |
+| Lap ingest (PB or rank/rivals change) | `{ steamId, reason: "lap_pb" }` for author |
+| Lap ingest (rival window affected) | `{ steamId, reason: "rival_pb" }` for each observer |
+
+See [`CONVEX_LAP_HUD_PUSH.md`](CONVEX_LAP_HUD_PUSH.md) for lap/rival notify targets and ProjectD implementation.
 
 Example in privacy prefs mutation:
 

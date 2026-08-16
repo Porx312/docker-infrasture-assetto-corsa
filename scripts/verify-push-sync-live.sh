@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Live mid-session push sync checklist: Redis keys + refresh-user + log hints.
 # Usage: ./scripts/verify-push-sync-live.sh STEAM_ID [reason]
-#   reason: invalidated | revalidated | registered | prefs | cosmetics  (default: invalidated)
+#   reason: invalidated | revalidated | registered | prefs | cosmetics | lap_pb | rival_pb | session  (default: invalidated)
 #
 # Run while the player is CONNECTED in-game. If this works but web actions do not,
 # Convex is not calling POST /hud/worker/refresh-user — see docs/CONVEX_PUSH_USER_SYNC.md
@@ -39,7 +39,7 @@ redis_get() {
 
 if [[ -z "$STEAM_ID" ]]; then
   echo "Usage: $0 STEAM_ID [reason]"
-  echo "  reason: invalidated | revalidated | registered | prefs | cosmetics"
+  echo "  reason: invalidated | revalidated | registered | prefs | cosmetics | lap_pb | rival_pb | session"
   exit 1
 fi
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Verify event-driven rival PB fan-out: local Redis patch + SSE without Convex for observers.
+# Verify Convex-driven rival PB push: Convex schedules refresh-user → ac-data SSE.
 #
 # Usage:
 #   ./scripts/verify-hud-rival-fanout.sh [observerSteamId] [rivalSteamId] [lapMs]
@@ -18,7 +18,7 @@ LAP_MS="${3:-274000}"
 
 AC_DATA_LOG="${ROOT}/ac-data.log"
 
-echo "=== HUD rival fan-out check ==="
+echo "=== HUD rival / lap push check (Convex → refresh-user) ==="
 echo "observer=${OBSERVER_ID} rival=${RIVAL_ID} lapMs=${LAP_MS}"
 echo
 
@@ -26,47 +26,30 @@ if ! pgrep -af "tsx src/index" >/dev/null 2>&1 && ! pgrep -af "node dist/index" 
   echo "WARN: ac-data does not appear to be running"
 fi
 
-echo "-- Recent hud-rival-fanout / hud-refresh lines --"
-rg "hud-rival-fanout|hud-refresh" "${AC_DATA_LOG}" 2>/dev/null | tail -15 || echo "(none)"
-
-echo "-- Poll-only overlay (no SSE listeners) --"
-echo "  Expect ac-data log: [hud-snapshot] ... sections=session (competition / post-battle)"
-if rg -q 'return "session"' ProjectD-HUD/common/api/session_snapshot.lua 2>/dev/null; then
-  echo "OK: snapshot_sections returns session outside live battle"
+echo "-- Overlay poll: session in competition, battle when live --"
+if rg -q 'needs_battle_snapshot_sections' ProjectD-HUD/common/api/session_snapshot.lua \
+  && rg -q 'return "session"' ProjectD-HUD/common/api/session_snapshot.lua; then
+  echo "OK: hybrid poll (session competition + battle backup)"
 else
-  echo "FAIL: snapshot_sections must return session for competition poll"
+  echo "FAIL: expected hybrid snapshot_sections"
   exit 1
 fi
 
 echo
-echo "-- Sanity: session snapshot API (requires HUD_API_KEY in .env.local) --"
-if [[ -f .env.local ]]; then
-  # shellcheck disable=SC1091
-  set -a && source .env.local && set +a
-fi
-API_KEY="${HUD_API_KEY:-}"
-PORT="${PORT:-3000}"
-if [[ -n "$API_KEY" ]]; then
-  SNAP_URL="http://127.0.0.1:${PORT}/hud/snapshot?steamId=${OBSERVER_ID}&sections=session&carFilter=global&api_key=${API_KEY}"
-  echo "  curl -s '${SNAP_URL}' | head -c 400"
-  if curl -sf "${SNAP_URL}" 2>/dev/null | head -c 400; then
-    echo
-    echo "OK: sections=session endpoint reachable"
-  else
-    echo "(WARN: snapshot request failed — check ac-data / presence)"
-  fi
-else
-  echo "  SKIP: set HUD_API_KEY in .env.local to curl sections=session"
-fi
+echo "-- Recent refresh-user / hud-user-status lines --"
+rg "refresh-user|hud-user-status|hud-refresh" "${AC_DATA_LOG}" 2>/dev/null | tail -15 || echo "(none)"
 
 echo
-echo "-- Simulate rival PB --"
+echo "-- Manual push (while Convex lap webhook not deployed) --"
+echo "  ./scripts/verify-push-sync-live.sh ${OBSERVER_ID} rival_pb"
+echo
+echo "-- Simulate rival PB (Convex should push rival_pb to observers) --"
 echo "  ./scripts/simulate-lap-completed.sh ${RIVAL_ID} --lap-ms ${LAP_MS}"
 echo
-echo "Expected ac-data log after ~2-3s:"
-echo "  [hud-refresh-detail] rival author refresh"
-echo "  [hud-snapshot] steamId=${OBSERVER_ID} sections=session (poll overlay)"
-echo "  [hud-rival-fanout] ... local=1 convex=0  (if observer SSE connected + rival in window)"
+echo "Expected ac-data log:"
+echo "  [hud-worker] refresh-user ... reason=rival_pb (from Convex)"
+echo "  [hud-user-status] ... reason=rival_pb (Redis cache updated even if sseListeners=0)"
+echo "  [hud-snapshot] steamId=... sections=session (competition poll)"
+echo "  [hud-snapshot] steamId=... sections=battle (during live battle only)"
 echo
-echo "Convex volume:"
-echo "  ./scripts/verify-hud-convex-query-volume.sh"
+echo "See docs/CONVEX_LAP_HUD_PUSH.md and docs/CONVEX_PUSH_USER_SYNC.md"

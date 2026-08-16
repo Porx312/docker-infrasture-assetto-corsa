@@ -74,4 +74,5 @@ Copy from `.env.example` into `.env.local` / `.env.production`:
 - `CONVEX_HUD_SESSION_QUERY=hud:getHudSession`
 - `CONVEX_HUD_VERSION_QUERY=hud:getHudVersion`
 - `USER_BAN_ENABLED=true`
-- `HUD_LAP_RIVAL_FANOUT_ENABLED=true` (competition updates when rivals improve PB)
+- `HUD_LAP_RIVAL_FANOUT_ENABLED=true` (only when legacy `HUD_LAP_AC_DATA_REFRESH_ENABLED=true`)
+- Lap/rival session push: Convex → `refresh-user` — see [`CONVEX_LAP_HUD_PUSH.md`](CONVEX_LAP_HUD_PUSH.md)

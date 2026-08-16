@@ -158,8 +158,8 @@ curl -s "https://dev-api.projectd.space/hud/snapshot?steamId=76561199230780195" 
 | Evento telemetry | Push SSE |
 |------------------|----------|
 | `player_join` | Invalida caché + `hud_version` + `hud_session` |
-| `lap_completed` (PB) | Invalida caché + push inmediato al autor; refresh debounced con rivals retry; **fan-out SSE** a rivales con overlay conectado si rank/rivals cambian |
-| `lap_completed` (no PB) | Solo `last_lap_ms` en caché Redis; **sin** push inmediato, **sin** refresh debounced, **sin** fan-out a rivales |
+| `lap_completed` (PB) | Convex schedules `refresh-user` (`lap_pb` / `rival_pb`); ac-data does **not** refresh session by default (`HUD_LAP_AC_DATA_REFRESH_ENABLED=false`) |
+| `lap_completed` (no PB) | Solo `last_lap_ms` en caché Redis local |
 | `battle_finished` | `battle` + `hud_version` + `hud_session` para ambos jugadores |
 
 **PB vs no-PB:** ac-data compara `lapTime` con el `best_lap_ms` en caché (`isLapPersonalBest`). Si minty repite su PB (ej. 4:41 otra vez), prox y el resto de rivales **no** reciben `hud_session`. El fingerprint de sesión (`rank` + `rivals.above/below.lap_ms`) evita pushes SSE redundantes.
@@ -204,7 +204,8 @@ Presencia se renueva en `server_status`, `player_join`, keepalive SSE (~30 s). E
 | `HUD_SESSION_FETCH_RETRY_MS` | Delay entre reintentos session fetch (default 400; alias `HUD_PLAYER_FETCH_RETRY_MS`) |
 | `HUD_BATTLE_ELO_RETRY_ATTEMPTS` | Reintentos post-batalla hasta que `elo` cambie vs caché previa (default 3) |
 | `HUD_BATTLE_ELO_RETRY_MS` | Delay entre reintentos elo post-batalla (default 400) |
-| `HUD_LAP_RIVAL_FANOUT_ENABLED` | Tras `lap_completed` **PB**, refrescar SSE de rivales en el mismo server/track si rank/rivals cambian (default true) |
+| `HUD_LAP_AC_DATA_REFRESH_ENABLED` | Legacy ac-data lap refresh + rival fan-out (default **false** — use Convex push; see [`CONVEX_LAP_HUD_PUSH.md`](CONVEX_LAP_HUD_PUSH.md)) |
+| `HUD_LAP_RIVAL_FANOUT_ENABLED` | Only when `HUD_LAP_AC_DATA_REFRESH_ENABLED=true`: fan-out SSE to rivals after PB |
 | `REDIS_PENDING_RECLAIM_*` | Recuperación de mensajes XPENDING atascados en ingest |
 
 ## Checklist overlay (rivals + tiempo)

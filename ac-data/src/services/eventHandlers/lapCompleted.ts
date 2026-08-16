@@ -1,11 +1,9 @@
-import { scheduleHudRefreshAfterLap } from '../hud/hudRefreshScheduler.js';
 import { readSaveTimeEnabled } from '../hud/hudUserPrefs.js';
 import {
   invalidateHudCachesForSteamId,
   isLapPersonalBest,
   patchLastLapInCaches,
 } from '../hud/lapCompletedHudRefresh.js';
-import { pushHudUpdateForSteamId } from '../hud/hudSsePush.js';
 import type { EventPayload } from './types.js';
 
 function lapSteamIdFromPayload(payload: EventPayload): string {
@@ -34,33 +32,26 @@ export async function shouldSkipLapCompletedIngest(payload: EventPayload): Promi
   return !enabled;
 }
 
+/** Patch local last_lap_ms; session push is Convex → POST /hud/worker/refresh-user. */
 export async function handleLapCompletedAfterIngest(payload: EventPayload): Promise<void> {
   const lapData = (payload.data ?? {}) as Record<string, unknown>;
   const lapSteamId = lapSteamIdFromPayload(payload);
   const lapTimeMs =
     typeof lapData.lapTime === 'number' ? lapData.lapTime : Number(lapData.lapTime);
 
-  if (lapSteamId) {
-    const isPersonalBest = Number.isFinite(lapTimeMs)
-      ? await isLapPersonalBest({ steamId: lapSteamId }, lapTimeMs)
-      : true;
-    if (Number.isFinite(lapTimeMs) && lapTimeMs > 0) {
-      const patched = await patchLastLapInCaches({ steamId: lapSteamId }, lapTimeMs);
-      if (patched) {
-        void pushHudUpdateForSteamId(lapSteamId, false, {
-          preferCachedSession: true,
-          pushReason: 'lap_pb',
-        });
-      }
-    }
-    if (isPersonalBest) {
-      await invalidateHudCachesForSteamId(lapSteamId);
-    }
-    scheduleHudRefreshAfterLap({
-      ...payload,
-      data: { ...lapData, isPersonalBest },
-    });
-  } else {
-    scheduleHudRefreshAfterLap(payload);
+  if (!lapSteamId) {
+    return;
+  }
+
+  const isPersonalBest = Number.isFinite(lapTimeMs)
+    ? await isLapPersonalBest({ steamId: lapSteamId }, lapTimeMs)
+    : true;
+
+  if (Number.isFinite(lapTimeMs) && lapTimeMs > 0) {
+    await patchLastLapInCaches({ steamId: lapSteamId }, lapTimeMs);
+  }
+
+  if (isPersonalBest) {
+    await invalidateHudCachesForSteamId(lapSteamId);
   }
 }

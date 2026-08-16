@@ -12,6 +12,12 @@ const HUD_LAP_REFRESH_DEBOUNCE_MS = Number(process.env.HUD_LAP_REFRESH_DEBOUNCE_
 const HUD_LAP_REFRESH_DELAY_MS = Number(process.env.HUD_LAP_REFRESH_DELAY_MS || 800);
 const HUD_BATTLE_REFRESH_DELAY_MS = Number(process.env.HUD_BATTLE_REFRESH_DELAY_MS || 400);
 
+/** When false (default), lap_completed does not refresh session in ac-data — Convex push owns HUD session updates. */
+export function isHudLapAcDataRefreshEnabled(): boolean {
+  const raw = (process.env.HUD_LAP_AC_DATA_REFRESH_ENABLED ?? 'false').trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
 type PlayerRefreshKey = string;
 
 type PlayerJob = {
@@ -77,6 +83,9 @@ function scheduleFlush(): void {
 }
 
 export function scheduleHudRefreshAfterLap(payload: Record<string, unknown>): void {
+  if (!isHudLapAcDataRefreshEnabled()) {
+    return;
+  }
   if (!isHudRedisConfigured() || !isHudConvexConfigured()) {
     return;
   }

@@ -13,8 +13,10 @@ import { setRivalFanoutHandlerForTests } from './hudRivalFanout.js';
 
 test('scheduleHudRefreshAfterLap queues board and player without top10', () => {
   resetHudRefreshSchedulerForTests();
+  process.env.HUD_LAP_AC_DATA_REFRESH_ENABLED = 'true';
 
-  scheduleHudRefreshAfterLap({
+  try {
+    scheduleHudRefreshAfterLap({
     serverName: 'testing',
     data: {
       trackName: 'pk_akina',
@@ -27,16 +29,45 @@ test('scheduleHudRefreshAfterLap queues board and player without top10', () => {
   const { players, boards } = getHudRefreshQueueSizeForTests();
   assert.equal(players, 1);
   assert.equal(boards, 1);
+  } finally {
+    delete process.env.HUD_LAP_AC_DATA_REFRESH_ENABLED;
+  }
 });
 
 test('scheduleHudRefreshAfterLap ignores incomplete lap payload', () => {
   resetHudRefreshSchedulerForTests();
+  process.env.HUD_LAP_AC_DATA_REFRESH_ENABLED = 'true';
 
-  scheduleHudRefreshAfterLap({ serverName: 'testing', data: {} });
+  try {
+    scheduleHudRefreshAfterLap({ serverName: 'testing', data: {} });
 
   const { players, boards } = getHudRefreshQueueSizeForTests();
   assert.equal(players, 0);
   assert.equal(boards, 0);
+  } finally {
+    delete process.env.HUD_LAP_AC_DATA_REFRESH_ENABLED;
+  }
+});
+
+test('scheduleHudRefreshAfterLap is no-op when HUD_LAP_AC_DATA_REFRESH_ENABLED=false', () => {
+  resetHudRefreshSchedulerForTests();
+  process.env.HUD_LAP_AC_DATA_REFRESH_ENABLED = 'false';
+
+  try {
+    scheduleHudRefreshAfterLap({
+      serverName: 'testing',
+      data: {
+        trackName: 'pk_akina',
+        steamId: '76561199000000001',
+      },
+    });
+
+    const { players, boards } = getHudRefreshQueueSizeForTests();
+    assert.equal(players, 0);
+    assert.equal(boards, 0);
+  } finally {
+    delete process.env.HUD_LAP_AC_DATA_REFRESH_ENABLED;
+  }
 });
 
 test('scheduleHudRefreshAfterBattleFinished queues both players', () => {
@@ -130,6 +161,7 @@ test('flushHudRefreshQueueForTests invokes rival fan-out for lap boards', async 
 
   process.env.HUD_LAP_REFRESH_DELAY_MS = '0';
   process.env.HUD_BATTLE_REFRESH_DELAY_MS = '0';
+  process.env.HUD_LAP_AC_DATA_REFRESH_ENABLED = 'true';
 
   try {
     scheduleHudRefreshAfterLap({
@@ -152,6 +184,7 @@ test('flushHudRefreshQueueForTests invokes rival fan-out for lap boards', async 
   } finally {
     delete process.env.HUD_LAP_REFRESH_DELAY_MS;
     delete process.env.HUD_BATTLE_REFRESH_DELAY_MS;
+    delete process.env.HUD_LAP_AC_DATA_REFRESH_ENABLED;
     setRivalFanoutHandlerForTests(null);
     resetHudRefreshSchedulerForTests();
   }
@@ -169,6 +202,7 @@ test('flushHudRefreshQueueForTests skips rival fan-out for non-PB laps', async (
   });
 
   process.env.HUD_LAP_REFRESH_DELAY_MS = '0';
+  process.env.HUD_LAP_AC_DATA_REFRESH_ENABLED = 'true';
 
   try {
     scheduleHudRefreshAfterLap({
@@ -188,6 +222,7 @@ test('flushHudRefreshQueueForTests skips rival fan-out for non-PB laps', async (
     assert.equal(fanoutCalls.length, 0);
   } finally {
     delete process.env.HUD_LAP_REFRESH_DELAY_MS;
+    delete process.env.HUD_LAP_AC_DATA_REFRESH_ENABLED;
     setRivalFanoutHandlerForTests(null);
     resetHudRefreshSchedulerForTests();
   }
