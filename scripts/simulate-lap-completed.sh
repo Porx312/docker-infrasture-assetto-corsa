@@ -22,6 +22,8 @@
 #   - rival observers: local Redis patch + SSE (0 Convex) when rank unchanged
 #   - rival observers: 1× getHudSession only when rival PB may change rank/window
 #   - non-PB lap: last_lap_ms patched in Redis only; no rival fan-out
+#   - overlay poll: competition/idle uses sections=session (rank, rivals, ELO);
+#     live battle uses sections=battle. Without SSE listeners, poll is the delivery path.
 #
 # Rival fan-out test (HUD_LAP_RIVAL_FANOUT_ENABLED=true in ac-data):
 #   Terminal 1 — observer SSE: curl -N 'http://127.0.0.1:3000/hud/stream?steamId=76561199230780195'
@@ -35,7 +37,7 @@
 #   (use --lap-ms equal to minty's cached best_lap_ms) — observer should NOT receive hud_session
 #
 # Verification:
-#   tail -f ac-data.log | rg 'hud-refresh|ingest'
+#   tail -f ac-data.log | rg 'hud-refresh|ingest|hud-snapshot.*sections=session'
 #   ./scripts/verify-hud-lap-pipeline.sh STEAM_ID
 #   ./scripts/verify-hud-overlay-contract.sh STEAM_ID
 #   ./scripts/verify-convex-hud-session.sh STEAM_ID

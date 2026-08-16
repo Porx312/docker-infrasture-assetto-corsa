@@ -29,16 +29,44 @@ fi
 echo "-- Recent hud-rival-fanout / hud-refresh lines --"
 rg "hud-rival-fanout|hud-refresh" "${AC_DATA_LOG}" 2>/dev/null | tail -15 || echo "(none)"
 
+echo "-- Poll-only overlay (no SSE listeners) --"
+echo "  Expect ac-data log: [hud-snapshot] ... sections=session (competition / post-battle)"
+if rg -q 'return "session"' ProjectD-HUD/common/api/session_snapshot.lua 2>/dev/null; then
+  echo "OK: snapshot_sections returns session outside live battle"
+else
+  echo "FAIL: snapshot_sections must return session for competition poll"
+  exit 1
+fi
+
 echo
-echo "-- Simulate rival PB (requires overlay SSE connected for observer) --"
-echo "  Terminal 1: curl -N 'http://127.0.0.1:3000/hud/stream?steamId=${OBSERVER_ID}'"
-echo "  Terminal 2: ./scripts/simulate-lap-completed.sh ${RIVAL_ID} --lap-ms ${LAP_MS} --watch-sse"
+echo "-- Sanity: session snapshot API (requires HUD_API_KEY in .env.local) --"
+if [[ -f .env.local ]]; then
+  # shellcheck disable=SC1091
+  set -a && source .env.local && set +a
+fi
+API_KEY="${HUD_API_KEY:-}"
+PORT="${PORT:-3000}"
+if [[ -n "$API_KEY" ]]; then
+  SNAP_URL="http://127.0.0.1:${PORT}/hud/snapshot?steamId=${OBSERVER_ID}&sections=session&carFilter=global&api_key=${API_KEY}"
+  echo "  curl -s '${SNAP_URL}' | head -c 400"
+  if curl -sf "${SNAP_URL}" 2>/dev/null | head -c 400; then
+    echo
+    echo "OK: sections=session endpoint reachable"
+  else
+    echo "(WARN: snapshot request failed — check ac-data / presence)"
+  fi
+else
+  echo "  SKIP: set HUD_API_KEY in .env.local to curl sections=session"
+fi
+
+echo
+echo "-- Simulate rival PB --"
+echo "  ./scripts/simulate-lap-completed.sh ${RIVAL_ID} --lap-ms ${LAP_MS}"
 echo
 echo "Expected ac-data log after ~2-3s:"
-echo "  [hud-rival-fanout] ... local=1 convex=0  (observer rank unchanged, rival slot patched)"
-echo "  OR convex=1 if rival PB may reorder rank"
+echo "  [hud-refresh-detail] rival author refresh"
+echo "  [hud-snapshot] steamId=${OBSERVER_ID} sections=session (poll overlay)"
+echo "  [hud-rival-fanout] ... local=1 convex=0  (if observer SSE connected + rival in window)"
 echo
-echo "Expected observer SSE: hud_session with rivals.above/below lap_ms updated"
-echo
-echo "Convex volume (should NOT spike for observer on local-only fanout):"
+echo "Convex volume:"
 echo "  ./scripts/verify-hud-convex-query-volume.sh"

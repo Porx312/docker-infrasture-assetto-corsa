@@ -47,7 +47,10 @@ export async function handleLapCompletedAfterIngest(payload: EventPayload): Prom
     if (Number.isFinite(lapTimeMs) && lapTimeMs > 0) {
       const patched = await patchLastLapInCaches({ steamId: lapSteamId }, lapTimeMs);
       if (patched) {
-        void pushHudUpdateForSteamId(lapSteamId, false, { preferCachedSession: true });
+        void pushHudUpdateForSteamId(lapSteamId, false, {
+          preferCachedSession: true,
+          pushReason: 'lap_pb',
+        });
       }
     }
     if (isPersonalBest) {
