@@ -74,7 +74,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Stable fingerprint for rank, rivals window, and profile cosmetics (SSE skip guard). */
+/** Stable fingerprint for rank, rivals, elo/tier, and profile cosmetics (SSE skip guard). */
 export function sessionLeaderboardFingerprint(result: HudSessionResult): string {
   if (!result.ok || !result.profile) {
     return '';
@@ -86,6 +86,8 @@ export function sessionLeaderboardFingerprint(result: HudSessionResult): string 
     rivals.above?.lap_ms ?? '',
     rivals.below?.rank ?? '',
     rivals.below?.lap_ms ?? '',
+    result.profile.elo ?? '',
+    result.profile.tier ?? '',
   ].join(':');
   const cosmeticsPart = profileCosmeticsFingerprint(result.profile);
   return cosmeticsPart ? `${rankPart}|${cosmeticsPart}` : rankPart;
@@ -471,7 +473,7 @@ export async function fetchHudSessionWithRetry(
     if (last.ok) {
       if (options.retryEloUntilChange && options.previousElo != null) {
         const nextElo = sessionElo(last);
-        if (nextElo > options.previousElo) {
+        if (nextElo > 0 && nextElo !== options.previousElo) {
           break;
         }
       } else {

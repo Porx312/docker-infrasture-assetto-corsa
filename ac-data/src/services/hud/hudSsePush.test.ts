@@ -148,7 +148,7 @@ test('pushHudUpdateForSteamId skips emit when skipIfSessionUnchanged and fingerp
   const unregister = registerHudSseConnection({
     steamId,
     lastVersionFingerprint: null,
-    lastSessionLeaderboardFingerprint: '1::::',
+    lastSessionLeaderboardFingerprint: '1::::::5',
     listener: (event, data) => {
       events.push({ event, data });
     },
@@ -282,6 +282,219 @@ test('pushHudUpdateForSteamId emits when only display_style changes and skipIfSe
     assert.ok(sessionEvent);
     const profile = (sessionEvent?.data as { profile?: { display_style?: { fontId?: string } } }).profile;
     assert.equal(profile?.display_style?.fontId, 'orbitron');
+  } finally {
+    setHudSsePushTestHooks(null);
+    unregister();
+    resetHudSseConnectionsForTests();
+  }
+});
+
+test('pushHudUpdateForSteamId emits when only elo changes and skipIfSessionUnchanged is set', async () => {
+  const events: Array<{ event: string; data: unknown }> = [];
+
+  const baseProfile = {
+    name: 'Pilot',
+    rank: 1,
+    tier: 5,
+    elo: 1500,
+    best_lap_ms: 120_000,
+    car_name: 'AE86',
+    car_id: 'ae86',
+    steam_id: steamId,
+    rivals: { above: null, below: null },
+  };
+
+  const version: HudVersionOk = {
+    ok: true,
+    version: 'srv:track:layout:car:1',
+    lbVersion: 'srv:track:layout:car',
+    playerVersion: 42,
+  };
+
+  const previousSession: HudSessionOk = {
+    ok: true,
+    version: version.version,
+    context: {
+      server_id: 's1',
+      server_name: 'test',
+      track_id: 'pk_akina',
+      track_name: 'Akina',
+      layout_id: 'downhill',
+      layout_name: 'Downhill',
+      car_id: 'ae86',
+      car_name: 'AE86',
+      player_steam_id: steamId,
+    },
+    profile: baseProfile,
+  };
+
+  const updatedSession: HudSessionOk = {
+    ...previousSession,
+    profile: { ...baseProfile, elo: 1480 },
+  };
+
+  const { sessionLeaderboardFingerprint } = await import('./lapCompletedHudRefresh.js');
+
+  const unregister = registerHudSseConnection({
+    steamId,
+    lastVersionFingerprint: null,
+    lastSessionLeaderboardFingerprint: sessionLeaderboardFingerprint(previousSession),
+    listener: (event, data) => {
+      events.push({ event, data });
+    },
+  });
+
+  setHudSsePushTestHooks({
+    fetchVersion: async () => version,
+    getSessionCached: async () => updatedSession,
+    loadSession: async () => updatedSession,
+  });
+
+  try {
+    await pushHudUpdateForSteamId(steamId, false, {
+      preferCachedSession: true,
+      skipIfSessionUnchanged: true,
+    });
+    assert.equal(events.length >= 1, true);
+    const sessionEvent = events.find((entry) => entry.event === 'hud_session');
+    assert.ok(sessionEvent);
+    const profile = (sessionEvent?.data as { profile?: { elo?: number } }).profile;
+    assert.equal(profile?.elo, 1480);
+  } finally {
+    setHudSsePushTestHooks(null);
+    unregister();
+    resetHudSseConnectionsForTests();
+  }
+});
+
+test('pushHudUpdateForSteamId emits when pushReason rival_pb bypasses skipIfSessionUnchanged', async () => {
+  const events: Array<{ event: string; data: unknown }> = [];
+
+  const unregister = registerHudSseConnection({
+    steamId,
+    lastVersionFingerprint: null,
+    lastSessionLeaderboardFingerprint: '1::::::5',
+    listener: (event, data) => {
+      events.push({ event, data });
+    },
+  });
+
+  const version: HudVersionOk = {
+    ok: true,
+    version: 'srv:track:layout:car:1',
+    lbVersion: 'srv:track:layout:car',
+    playerVersion: 42,
+  };
+
+  const session: HudSessionOk = {
+    ok: true,
+    version: version.version,
+    context: {
+      server_id: 's1',
+      server_name: 'test',
+      track_id: 'pk_akina',
+      track_name: 'Akina',
+      layout_id: 'downhill',
+      layout_name: 'Downhill',
+      car_id: 'ae86',
+      car_name: 'AE86',
+      player_steam_id: steamId,
+    },
+    profile: {
+      name: 'Pilot',
+      rank: 1,
+      tier: 5,
+      best_lap_ms: 120_000,
+      car_name: 'AE86',
+      car_id: 'ae86',
+      steam_id: steamId,
+      rivals: { above: null, below: null },
+    },
+  };
+
+  setHudSsePushTestHooks({
+    fetchVersion: async () => version,
+    getSessionCached: async () => session,
+    loadSession: async () => session,
+  });
+
+  try {
+    await pushHudUpdateForSteamId(steamId, false, {
+      preferCachedSession: true,
+      skipIfSessionUnchanged: true,
+      pushReason: 'rival_pb',
+    });
+    assert.equal(events.length >= 1, true);
+    assert.ok(events.some((entry) => entry.event === 'hud_session'));
+  } finally {
+    setHudSsePushTestHooks(null);
+    unregister();
+    resetHudSseConnectionsForTests();
+  }
+});
+
+test('pushHudUpdateForSteamId emits when pushReason battle_elo bypasses skipIfSessionUnchanged', async () => {
+  const events: Array<{ event: string; data: unknown }> = [];
+
+  const unregister = registerHudSseConnection({
+    steamId,
+    lastVersionFingerprint: null,
+    lastSessionLeaderboardFingerprint: '1::::1500:5',
+    listener: (event, data) => {
+      events.push({ event, data });
+    },
+  });
+
+  const version: HudVersionOk = {
+    ok: true,
+    version: 'srv:track:layout:car:1',
+    lbVersion: 'srv:track:layout:car',
+    playerVersion: 42,
+  };
+
+  const session: HudSessionOk = {
+    ok: true,
+    version: version.version,
+    context: {
+      server_id: 's1',
+      server_name: 'test',
+      track_id: 'pk_akina',
+      track_name: 'Akina',
+      layout_id: 'downhill',
+      layout_name: 'Downhill',
+      car_id: 'ae86',
+      car_name: 'AE86',
+      player_steam_id: steamId,
+    },
+    profile: {
+      name: 'Pilot',
+      rank: 1,
+      tier: 5,
+      elo: 1520,
+      best_lap_ms: 120_000,
+      car_name: 'AE86',
+      car_id: 'ae86',
+      steam_id: steamId,
+      rivals: { above: null, below: null },
+    },
+  };
+
+  setHudSsePushTestHooks({
+    fetchVersion: async () => version,
+    getSessionCached: async () => session,
+    loadSession: async () => session,
+  });
+
+  try {
+    await pushHudUpdateForSteamId(steamId, false, {
+      skipIfSessionUnchanged: true,
+      pushReason: 'battle_elo',
+    });
+    assert.equal(events.length >= 1, true);
+    const sessionEvent = events.find((entry) => entry.event === 'hud_session');
+    assert.ok(sessionEvent);
+    const profile = (sessionEvent?.data as { profile?: { elo?: number } }).profile;
+    assert.equal(profile?.elo, 1520);
   } finally {
     setHudSsePushTestHooks(null);
     unregister();

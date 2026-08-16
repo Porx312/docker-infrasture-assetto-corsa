@@ -53,9 +53,12 @@ export async function refreshHudUserStatusFromConvex(
 
   const cached = await getSessionCached({ steamId: trimmed });
   if (cached.ok && cached.profile) {
-    await pushHudUpdateForSteamId(trimmed, false, { preferCachedSession: true });
+    await pushHudUpdateForSteamId(trimmed, false, {
+      preferCachedSession: true,
+      pushReason: 'join_initial',
+    });
     return;
   }
 
-  await pushHudUpdateForSteamId(trimmed, true);
+  await pushHudUpdateForSteamId(trimmed, true, { pushReason: 'join_initial' });
 }

@@ -1,13 +1,11 @@
 import {
   bumpBoardVersionsForLap,
   patchLastLapInCaches,
-  readCachedSessionFingerprint,
   refreshPlayerHudCache,
   refreshPlayerHudCacheForLap,
-  sessionHudUnchanged,
 } from './lapCompletedHudRefresh.js';
 import { isHudConvexConfigured } from './hudConvex.js';
-import { refreshHudForRivalLapObservers } from './hudRivalFanout.js';
+import { refreshHudForRivalLapObservers, type LapAuthorPb } from './hudRivalFanout.js';
 import { isHudRedisConfigured } from './hudRedis.js';
 
 const HUD_LAP_REFRESH_DEBOUNCE_MS = Number(process.env.HUD_LAP_REFRESH_DEBOUNCE_MS || 1500);
@@ -207,9 +205,15 @@ async function repushSessionForPlayers(jobs: PlayerJob[]): Promise<void> {
 
   const toPush = jobs.filter((job) => job.source !== 'lap' || job.pushAfterRefresh !== false);
   await Promise.all(
-    toPush.map((job) =>
-      pushHudUpdateForSteamId(job.steamId, false, { skipIfSessionUnchanged: true }),
-    ),
+    toPush.map((job) => {
+      if (job.source === 'battle') {
+        return pushHudUpdateForSteamId(job.steamId, false, {
+          skipIfSessionUnchanged: false,
+          pushReason: 'battle_elo',
+        });
+      }
+      return pushHudUpdateForSteamId(job.steamId, false, { pushReason: 'lap_pb' });
+    }),
   );
 }
 
@@ -225,9 +229,16 @@ async function repushSessionForBoards(
   boardJobs: BoardJob[],
   playerJobs: PlayerJob[],
 ): Promise<number> {
-  const lapAuthors = playerJobs
-    .filter((job) => job.source === 'lap' && job.isPersonalBest !== false)
-    .map((job) => job.steamId);
+  const lapAuthors: LapAuthorPb[] = playerJobs
+    .filter(
+      (job) =>
+        job.source === 'lap' &&
+        job.isPersonalBest !== false &&
+        job.lapTimeMs !== undefined &&
+        Number.isFinite(job.lapTimeMs) &&
+        job.lapTimeMs > 0,
+    )
+    .map((job) => ({ steamId: job.steamId, lapTimeMs: job.lapTimeMs! }));
   if (lapAuthors.length === 0) {
     return 0;
   }
@@ -288,17 +299,12 @@ async function flushHudRefreshQueue(): Promise<void> {
             continue;
           }
 
-          const beforeFingerprint = await readCachedSessionFingerprint(job.steamId);
           await refreshPlayerHudCacheForLap({
             steamId: job.steamId,
             lastLapMs: job.lapTimeMs,
             source: 'lap',
           });
-          const afterFingerprint = await readCachedSessionFingerprint(job.steamId);
-          refreshedPlayers.push({
-            ...job,
-            pushAfterRefresh: !sessionHudUnchanged(beforeFingerprint, afterFingerprint),
-          });
+          refreshedPlayers.push({ ...job, pushAfterRefresh: true });
           continue;
         }
 

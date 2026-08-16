@@ -2,7 +2,7 @@ import {
   battleRedisKey,
   buildBattleCacheKey,
 } from './hudCacheKeys.js';
-import { getPlayerCached, refreshPlayerHudCache } from './lapCompletedHudRefresh.js';
+import { getPlayerCached } from './lapCompletedHudRefresh.js';
 import { isProfileInvalidated, mergeCosmeticFields } from './hudProfile.js';
 import { hudRedisGet } from './hudRedis.js';
 import type {
@@ -71,21 +71,10 @@ export function mapProfileToBattlePlayer(
 }
 
 async function loadBattlePlayerProfile(steamId: string): Promise<HudProfile | null> {
-  let profileResult = await getPlayerCached({ steamId });
-
-  if (!profileResult.ok || isProfileInvalidated(profileResult.profile)) {
-    await refreshPlayerHudCache({
-      steamId,
-      source: 'battle',
-      retryEloUntilChange: true,
-    });
-    profileResult = await getPlayerCached({ steamId });
-  }
-
+  const profileResult = await getPlayerCached({ steamId });
   if (!profileResult.ok || isProfileInvalidated(profileResult.profile)) {
     return null;
   }
-
   return profileResult.profile;
 }
 

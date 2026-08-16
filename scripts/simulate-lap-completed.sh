@@ -17,21 +17,17 @@
 # ac-data only XACKs and pushes hud_version/hud_session after Convex ingest succeeds.
 # If ingest fails, check ac-data.log for "convex batch ingest failed".
 #
-# What the HUD shows:
-#   - hud_version + hud_session SSE events (if ingest OK and lap is PB or rivals change)
-#   - non-PB lap (lapTime >= cached best_lap_ms): no SSE to author or rivals; last_lap_ms patched in Redis only
-#   - PB lap: immediate push to author; debounced Convex refresh (~2.3s default debounce+delay)
-#   - rank / rivals: from Convex after ingest + HUD_SESSION_RIVALS_RETRY_* retries
-#
-# Limitations:
-#   - Does not replace a real lap if Convex rejects the event (offline / wrong track)
-#   - Does not update leaderboard if ingest fails (message stays XPENDING)
-#   - For refresh-only without lapTime: ./scripts/verify-hud-worker-refresh.sh STEAM_ID
+# What the HUD shows (event-driven):
+#   - hud_version + hud_session SSE on PB lap (~2.3s debounce+delay for author)
+#   - rival observers: local Redis patch + SSE (0 Convex) when rank unchanged
+#   - rival observers: 1× getHudSession only when rival PB may change rank/window
+#   - non-PB lap: last_lap_ms patched in Redis only; no rival fan-out
 #
 # Rival fan-out test (HUD_LAP_RIVAL_FANOUT_ENABLED=true in ac-data):
-#   Terminal 1 — observer SSE: curl -N 'http://127.0.0.1:3000/hud/stream?steamId=76561199588591028'
+#   Terminal 1 — observer SSE: curl -N 'http://127.0.0.1:3000/hud/stream?steamId=76561199230780195'
 #   Terminal 2 — simulate rival PB: ./scripts/simulate-lap-completed.sh <rival_steamId> --lap-ms 270000
-#   Observer should receive hud_session ~2-3s later with updated rivals (if lap beats rival cached PB).
+#   Observer should receive hud_session ~2-3s later with updated rival lap_ms
+#   Verify: ./scripts/verify-hud-rival-fanout.sh <observerSteamId> <rivalSteamId> <lapMs>
 #
 # Non-PB test (repeat same time as cached PB — no SSE to observer):
 #   Terminal 1 — observer SSE for prox
@@ -75,7 +71,7 @@ else
 fi
 
 LAP_MS=""
-SERVER_NAME="Porx"
+SERVER_NAME="Gunsai Testing"
 TRACK="pk_akina"
 TRACK_CONFIG="akina_downhill"
 CAR_MODEL="ks_mazda_rx7_spirit_r"

@@ -14,12 +14,30 @@ import { markUserInvalidated } from './hudUserInvalidation.js';
 import { TRANSIENT_SSE_SESSION_REASONS } from './hudTransientReasons.js';
 import type { HudSessionResult, HudVersionOk, HudVersionResult } from './hudTypes.js';
 
+export type HudPushReason =
+  | 'lap_pb'
+  | 'rival_pb'
+  | 'battle_elo'
+  | 'join_initial'
+  | 'worker_cosmetics';
+
 export type PushHudUpdateOptions = {
   /** After player_join: emit session/version from Redis cache without extra Convex HUD fetches. */
   preferCachedSession?: boolean;
   /** Skip emit when session rank/rivals/cosmetics fingerprint matches last push to this connection. */
   skipIfSessionUnchanged?: boolean;
+  /** Event-driven pushes bypass fingerprint skip (lap PB, rival PB, battle ELO). */
+  pushReason?: HudPushReason;
 };
+
+const EVENT_DRIVEN_PUSH_REASONS = new Set<HudPushReason>(['lap_pb', 'rival_pb', 'battle_elo']);
+
+function shouldApplySessionUnchangedSkip(options?: PushHudUpdateOptions): boolean {
+  if (options?.pushReason && EVENT_DRIVEN_PUSH_REASONS.has(options.pushReason)) {
+    return false;
+  }
+  return options?.skipIfSessionUnchanged === true;
+}
 
 export type HudSseListener = (event: string, data: unknown) => void;
 
@@ -255,7 +273,7 @@ export async function pushHudUpdateForSteamId(
       emitToSteamId(steamId, 'hud_error', buildHudErrorEvent(steamId, session.reason));
       return;
     }
-    if (options?.skipIfSessionUnchanged && shouldSkipSessionPush(steamId, session)) {
+    if (shouldApplySessionUnchangedSkip(options) && shouldSkipSessionPush(steamId, session)) {
       return;
     }
     const versionFromSession: HudVersionOk = {
@@ -269,7 +287,7 @@ export async function pushHudUpdateForSteamId(
     return;
   }
 
-  if (options?.skipIfSessionUnchanged && cachedSession.ok && shouldSkipSessionPush(steamId, cachedSession)) {
+  if (shouldApplySessionUnchangedSkip(options) && cachedSession.ok && shouldSkipSessionPush(steamId, cachedSession)) {
     return;
   }
 
@@ -289,7 +307,7 @@ export async function pushHudUpdateForSteamId(
   }
 
   if (!bypassCache && cachedSession.ok && cachedSession.version === versionResult.version) {
-    if (options?.skipIfSessionUnchanged && shouldSkipSessionPush(steamId, cachedSession)) {
+    if (shouldApplySessionUnchangedSkip(options) && shouldSkipSessionPush(steamId, cachedSession)) {
       return;
     }
     const versionForClient: HudVersionOk = {
@@ -310,7 +328,7 @@ export async function pushHudUpdateForSteamId(
     return;
   }
 
-  if (options?.skipIfSessionUnchanged && shouldSkipSessionPush(steamId, session)) {
+  if (shouldApplySessionUnchangedSkip(options) && shouldSkipSessionPush(steamId, session)) {
     return;
   }
 
@@ -336,7 +354,14 @@ export async function sendInitialHudSseSnapshot(
       );
     }
   }
-  await pushHudUpdateForSteamId(conn.steamId, bypass);
+  if (bypass) {
+    await pushHudUpdateForSteamId(conn.steamId, true, { pushReason: 'join_initial' });
+    return;
+  }
+  await pushHudUpdateForSteamId(conn.steamId, false, {
+    preferCachedSession: true,
+    pushReason: 'join_initial',
+  });
 }
 
 export { sessionContextServerName, shouldBypassSessionCacheForPresence };

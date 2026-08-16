@@ -123,7 +123,7 @@ test('flushHudRefreshQueueForTests invokes rival fan-out for lap boards', async 
   setRivalFanoutHandlerForTests(async (board, authors) => {
     fanoutCalls.push({
       serverName: board.serverName,
-      authors: [...authors],
+      authors: authors.map((author) => author.steamId),
     });
     return 1;
   });
