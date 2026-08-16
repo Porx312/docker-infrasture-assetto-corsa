@@ -2,7 +2,12 @@ import type { Request, Response } from 'express';
 
 import { requireHudApiKeyFromQuery } from './hudBattleAuth.js';
 import { isHudSseEnabled } from './battleHudPush.js';
-import { readProfileCosmeticsFingerprint } from './hudProfileCosmetics.js';
+import { normalizeHudProfile } from './hudProfile.js';
+import {
+  readProfileCosmeticsFingerprint,
+  syncProfileCosmeticsFromProfile,
+} from './hudProfileCosmetics.js';
+import { getSessionCached } from './lapCompletedHudRefresh.js';
 import { isHudRedisConfigured } from './hudRedis.js';
 
 function requireQueryString(value: unknown): string | null {
@@ -32,7 +37,16 @@ export async function handleHudProfileCosmeticsFp(req: Request, res: Response): 
     return;
   }
 
-  const fingerprint = await readProfileCosmeticsFingerprint(steamId);
+  let fingerprint = (await readProfileCosmeticsFingerprint(steamId)) ?? '';
+  const cached = await getSessionCached({ steamId });
+  if (cached.ok && cached.profile) {
+    const profile = normalizeHudProfile(cached.profile);
+    if (profile) {
+      const synced = await syncProfileCosmeticsFromProfile(steamId, profile);
+      fingerprint = synced.next;
+    }
+  }
+
   res.json({
     ok: true,
     steamId,

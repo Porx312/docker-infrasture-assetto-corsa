@@ -236,6 +236,10 @@ export async function pushHudUpdateForSteamId(
     return;
   }
 
+  if (countHudSseListeners(steamId) === 0) {
+    return;
+  }
+
   const cachedSession = testHooks?.getSessionCached
     ? await testHooks.getSessionCached(steamId)
     : await getSessionCached({ steamId });

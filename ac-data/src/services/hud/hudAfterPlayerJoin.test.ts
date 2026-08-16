@@ -13,6 +13,7 @@ import {
 import {
   applyPlayerJoinContext,
   refreshPlayerJoinFromConvex,
+  resetPlayerJoinDedupeForTests,
   setFetchPlayerJoinContextForTests,
 } from './playerJoinContext.js';
 import { HUD_TRANSIENT_ERROR_TTL_SEC, hudRedisDel, hudRedisGet, isHudRedisConfigured } from './hudRedis.js';
@@ -206,6 +207,69 @@ test('refreshPlayerJoinFromConvex uses unified query mock', async () => {
   await clearUserInvalidated(steamId);
   await hudRedisDel(playerRedisKey(buildPlayerCacheKey({ steamId })));
   await hudRedisDel(sessionRedisKey(buildSessionCacheKey({ steamId })));
+});
+
+test('refreshPlayerJoinFromConvex dedupes repeated player_join within 5s', async () => {
+  if (!isHudRedisConfigured()) {
+    return;
+  }
+
+  resetPlayerJoinDedupeForTests();
+  await clearUserInvalidated(steamId);
+
+  let fetchCalls = 0;
+  setFetchPlayerJoinContextForTests(async () => {
+    fetchCalls += 1;
+    return {
+      ok: true,
+      user: { steamId, isInvalidated: false, name: 'Pilot' },
+      session: { ok: false, reason: 'player_not_connected' },
+    };
+  });
+
+  try {
+    await refreshPlayerJoinFromConvex(steamId);
+    await refreshPlayerJoinFromConvex(steamId);
+    await refreshPlayerJoinFromConvex(steamId);
+    assert.equal(fetchCalls, 1);
+  } finally {
+    setFetchPlayerJoinContextForTests(null);
+    resetPlayerJoinDedupeForTests();
+    await clearUserInvalidated(steamId);
+    await hudRedisDel(playerRedisKey(buildPlayerCacheKey({ steamId })));
+    await hudRedisDel(sessionRedisKey(buildSessionCacheKey({ steamId })));
+  }
+});
+
+test('refreshPlayerJoinFromConvex bypasses dedupe for worker publishEnforcement', async () => {
+  if (!isHudRedisConfigured()) {
+    return;
+  }
+
+  resetPlayerJoinDedupeForTests();
+  await clearUserInvalidated(steamId);
+
+  let fetchCalls = 0;
+  setFetchPlayerJoinContextForTests(async () => {
+    fetchCalls += 1;
+    return {
+      ok: true,
+      user: { steamId, isInvalidated: false, name: 'Pilot' },
+      session: { ok: false, reason: 'player_not_connected' },
+    };
+  });
+
+  try {
+    await refreshPlayerJoinFromConvex(steamId);
+    await refreshPlayerJoinFromConvex(steamId, { publishEnforcement: true });
+    assert.equal(fetchCalls, 2);
+  } finally {
+    setFetchPlayerJoinContextForTests(null);
+    resetPlayerJoinDedupeForTests();
+    await clearUserInvalidated(steamId);
+    await hudRedisDel(playerRedisKey(buildPlayerCacheKey({ steamId })));
+    await hudRedisDel(sessionRedisKey(buildSessionCacheKey({ steamId })));
+  }
 });
 
 test('refreshSessionCached marks ban key when Convex returns user_invalidated reason', async () => {

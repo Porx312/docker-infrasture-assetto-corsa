@@ -533,3 +533,28 @@ test('sendInitialHudSseSnapshot bypasses cache when presence server differs from
     resetHudSseConnectionsForTests();
   }
 });
+
+test('pushHudUpdateForSteamId skips Convex fetch when no SSE listeners', async () => {
+  let versionCalls = 0;
+  let loadCalls = 0;
+
+  setHudSsePushTestHooks({
+    fetchVersion: async () => {
+      versionCalls += 1;
+      return { ok: false, reason: 'player_not_connected' };
+    },
+    loadSession: async () => {
+      loadCalls += 1;
+      return { ok: false, reason: 'player_not_connected' };
+    },
+  });
+
+  try {
+    await pushHudUpdateForSteamId(steamId, true);
+    assert.equal(versionCalls, 0);
+    assert.equal(loadCalls, 0);
+  } finally {
+    setHudSsePushTestHooks(null);
+    resetHudSseConnectionsForTests();
+  }
+});

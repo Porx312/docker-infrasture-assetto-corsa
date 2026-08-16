@@ -35,9 +35,19 @@ type FetchPlayerJoinContextFn = typeof fetchPlayerJoinContext;
 
 let fetchPlayerJoinContextImpl: FetchPlayerJoinContextFn = fetchPlayerJoinContext;
 
+const JOIN_REFRESH_DEDUPE_MS = 5000;
+const joinRefreshInFlight = new Map<string, Promise<void>>();
+const joinRefreshCompletedAt = new Map<string, number>();
+
 /** Test helper: override unified player join fetch. */
 export function setFetchPlayerJoinContextForTests(fn: FetchPlayerJoinContextFn | null): void {
   fetchPlayerJoinContextImpl = fn ?? fetchPlayerJoinContext;
+}
+
+/** Test helper: reset join dedupe state. */
+export function resetPlayerJoinDedupeForTests(): void {
+  joinRefreshInFlight.clear();
+  joinRefreshCompletedAt.clear();
 }
 
 function readJoinUser(raw: Record<string, unknown>, steamId: string): PlayerJoinUser | undefined {
@@ -174,15 +184,43 @@ export async function refreshPlayerJoinFromConvex(
     return;
   }
 
-  try {
-    const context = await fetchPlayerJoinContextImpl(trimmed);
-    await invalidateHudCachesForSteamId(trimmed);
-    await applyPlayerJoinContext(trimmed, context, options);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn(
-      `[player-join] ${process.env.CONVEX_PLAYER_JOIN_QUERY ?? 'workerPlayers:getPlayerJoinContext'} failed for steamId=${trimmed}: ${message}`,
-    );
-    throw error;
+  const skipDedupe = options?.publishEnforcement === true;
+
+  if (!skipDedupe) {
+    const inflight = joinRefreshInFlight.get(trimmed);
+    if (inflight) {
+      await inflight;
+      return;
+    }
+    const lastCompleted = joinRefreshCompletedAt.get(trimmed);
+    if (lastCompleted !== undefined && Date.now() - lastCompleted < JOIN_REFRESH_DEDUPE_MS) {
+      return;
+    }
   }
+
+  const run = async (): Promise<void> => {
+    try {
+      const context = await fetchPlayerJoinContextImpl(trimmed);
+      await invalidateHudCachesForSteamId(trimmed);
+      await applyPlayerJoinContext(trimmed, context, options);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(
+        `[player-join] ${process.env.CONVEX_PLAYER_JOIN_QUERY ?? 'workerPlayers:getPlayerJoinContext'} failed for steamId=${trimmed}: ${message}`,
+      );
+      throw error;
+    }
+  };
+
+  if (skipDedupe) {
+    await run();
+    return;
+  }
+
+  const task = run().finally(() => {
+    joinRefreshInFlight.delete(trimmed);
+    joinRefreshCompletedAt.set(trimmed, Date.now());
+  });
+  joinRefreshInFlight.set(trimmed, task);
+  await task;
 }

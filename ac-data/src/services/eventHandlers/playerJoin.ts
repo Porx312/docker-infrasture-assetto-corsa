@@ -16,6 +16,6 @@ export async function handlePlayerJoinBeforeIngest(payload: EventPayload): Promi
   }
 }
 
-export async function handlePlayerJoinAfterIngest(payload: EventPayload): Promise<void> {
-  await handlePlayerJoinBeforeIngest(payload);
+export async function handlePlayerJoinAfterIngest(_payload: EventPayload): Promise<void> {
+  // Join refresh runs on stream read (onPlayerJoinMessagesRead) and before ingest ack.
 }
