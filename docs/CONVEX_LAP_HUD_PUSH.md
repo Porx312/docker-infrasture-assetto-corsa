@@ -2,7 +2,18 @@
 
 Session updates (rank, rivals, best lap, ELO) after a lap are **owned by Convex**, not ac-data `lap_completed` refresh. Convex schedules `notifyAcDataHudRefresh` → ac-data `POST /hud/worker/refresh-user` → SSE `hud_session`.
 
-Overlay poll (`GET /hud/snapshot`) uses **hybrid sections**: `session` in competition (picks up Convex `refresh-user` cache), `battle` during live battle / SSE backup. SSE push is optional when TCP stream connects (`sseListeners>0`).
+Overlay poll (`GET /hud/snapshot`) uses **interleaved sections** in poll-only mode (SSE inactive or `hud_transport=poll`):
+
+| Situation | `sections` |
+|-----------|------------|
+| Startup / context mismatch | `full` |
+| Live battle (prep/active) or SSE battle backup | `battle` |
+| Post-battle terminal (finished/cancelled) | `session` (ELO) |
+| Idle competition, poll-only | **alternate** `battle` ↔ `session` each tick |
+
+This keeps Redis matchmaking (`battle`) and Convex session updates (`session`) without breaking either. SSE push is optional when TCP stream connects (`sseListeners>0`).
+
+**PB contract:** ac-data `patchLastLapInCaches` updates **only** `last_lap_ms` in Redis. `best_lap_ms` comes from Convex via `refresh-user` (`lap_pb` / `rival_pb`). Never write PB from local lap events — small test values (e.g. `500` ms) get mis-displayed as 8:20.000 when Lua `normalize_lap_ms` treats values `<1000` as seconds.
 
 See also [`CONVEX_PUSH_USER_SYNC.md`](CONVEX_PUSH_USER_SYNC.md), [`HUD_TIME_ATTACK_INTEGRATION.md`](HUD_TIME_ATTACK_INTEGRATION.md).
 
@@ -22,8 +33,8 @@ sequenceDiagram
     Convex->>AC: POST refresh-user reason=lap_pb|rival_pb
     AC->>Convex: getPlayerJoinContext
     AC-->>HUD: SSE hud_session
-    HUD->>AC: poll sections=battle
-    AC-->>HUD: battle snapshot
+    HUD->>AC: poll sections=battle|session alternate
+    AC-->>HUD: battle or session snapshot
 ```
 
 ## ac-data (this repo)
@@ -33,7 +44,7 @@ sequenceDiagram
 | `HUD_LAP_AC_DATA_REFRESH_ENABLED` | `false` | When false, `lap_completed` does not run debounced refresh / rival fan-out in ac-data |
 
 `handleLapCompletedAfterIngest` still:
-- patches `last_lap_ms` in Redis (immediate local display)
+- patches **only** `last_lap_ms` in Redis (immediate local display; does **not** update `best_lap_ms`)
 - invalidates session cache on PB (so `refresh-user` fetches fresh data)
 
 Worker reasons handled in [`hudUserStatusNotify.ts`](../ac-data/src/services/hud/hudUserStatusNotify.ts):
@@ -128,11 +139,19 @@ tail -f ac-data.log | rg 'refresh-user|hud-user-status.*lap_pb|hud-user-status.*
 ./scripts/verify-hud-rival-fanout.sh OBSERVER_STEAM_ID RIVAL_STEAM_ID LAP_MS
 ```
 
-**Battle HUD** (poll revert):
+**Battle + session poll** (interleaved idle poll):
 
 ```bash
 ProjectD-HUD/scripts/verify-session-context-switch.sh
-tail -f ac-data.log | rg 'hud-snapshot.*sections=battle'
+tail -f ac-data.log | rg 'hud-snapshot.*sections=(battle|session)'
+```
+
+**Repair corrupted best_lap_ms** (after bad test laps):
+
+```bash
+./scripts/verify-push-sync-live.sh STEAM_ID lap_pb
+curl -s 'http://127.0.0.1:3000/hud/snapshot?steamId=STEAM_ID&sections=session&carFilter=global' | jq '.session.profile.best_lap_ms'
+# Expect >= 1000 (milliseconds). Use realistic --lap-ms (>= 60000) in simulate-lap-completed.sh
 ```
 
 ## Rollback
@@ -149,4 +168,4 @@ Restores ac-data debounced lap refresh + rival fan-out (legacy path). Still requ
 
 1. ac-data (this repo) — disabled lap refresh + reason mapping
 2. ProjectD Convex — lap mutation schedulers
-3. ProjectD-HUD — reverted battle-only poll
+3. ProjectD-HUD — interleaved battle/session poll + PB patch fix

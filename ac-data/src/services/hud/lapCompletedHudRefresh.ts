@@ -119,9 +119,6 @@ function applyLastLapToPlayerResult(
   }
 
   const profile = result.profile ? { ...result.profile, last_lap_ms: lastLapMs } : null;
-  if (profile && (profile.best_lap_ms <= 0 || lastLapMs < profile.best_lap_ms)) {
-    profile.best_lap_ms = lastLapMs;
-  }
   return { ok: true, profile };
 }
 
@@ -400,12 +397,9 @@ export async function patchLastLapInCaches(
     return false;
   }
 
-  let sessionProfile = sessionCached.profile
+  const sessionProfile = sessionCached.profile
     ? { ...sessionCached.profile, last_lap_ms: lapTimeMs }
     : null;
-  if (sessionProfile && (sessionProfile.best_lap_ms <= 0 || lapTimeMs < sessionProfile.best_lap_ms)) {
-    sessionProfile = { ...sessionProfile, best_lap_ms: lapTimeMs };
-  }
 
   const updatedSession: HudSessionResult = {
     ...sessionCached,

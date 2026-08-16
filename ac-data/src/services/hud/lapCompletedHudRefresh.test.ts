@@ -496,3 +496,49 @@ test('patchLastLapInCaches updates last_lap_ms without invalidating session', as
   await hudRedisDel(playerKey);
   await hudRedisDel(sessionKey);
 });
+
+test('patchLastLapInCaches does not overwrite best_lap_ms on faster lap patch', async () => {
+  if (!isHudRedisConfigured()) {
+    return;
+  }
+
+  const steamId = '76561199000000009';
+  const playerKey = playerRedisKey(buildPlayerCacheKey({ steamId }));
+  const sessionKey = sessionRedisKey(buildSessionCacheKey({ steamId }));
+  const session: HudSessionOk = {
+    ok: true,
+    version: 'v1',
+    context: {
+      server_id: 's1',
+      server_name: 'test',
+      track_id: 'pk_akina',
+      track_name: 'Akina',
+      layout_id: 'downhill',
+      layout_name: 'Downhill',
+      car_id: 'ae86',
+      car_name: 'AE86',
+      player_steam_id: steamId,
+    },
+    profile: {
+      name: 'Pilot',
+      rank: 5,
+      tier: 2,
+      best_lap_ms: 281_000,
+      car_name: 'GT86',
+      car_id: 'ks_toyota_gt86',
+      steam_id: steamId,
+      rivals: { above: null, below: null },
+    },
+  };
+  await hudRedisSet(sessionKey, JSON.stringify(session), HUD_SESSION_TTL_SEC);
+
+  const patched = await patchLastLapInCaches({ steamId }, 500);
+  assert.equal(patched, true);
+
+  const cached = JSON.parse((await hudRedisGet(sessionKey)) ?? '{}') as HudSessionOk;
+  assert.equal(cached.profile?.last_lap_ms, 500);
+  assert.equal(cached.profile?.best_lap_ms, 281_000);
+
+  await hudRedisDel(playerKey);
+  await hudRedisDel(sessionKey);
+});
