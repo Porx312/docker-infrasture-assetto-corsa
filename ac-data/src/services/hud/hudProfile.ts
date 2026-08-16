@@ -263,6 +263,50 @@ export function normalizeHudProfile(
   };
 }
 
+const VALID_LETTER_SPACING = new Set([
+  'default',
+  'tight',
+  'normal',
+  'wide',
+  'wider',
+  'widest',
+]);
+
+/** Mirror ProjectD-HUD normalize_letter_spacing for fingerprint (not raw Convex values). */
+function normalizeLetterSpacingForFingerprint(raw?: string): string {
+  const spacing = (raw ?? '').trim().toLowerCase();
+  if (!spacing || !VALID_LETTER_SPACING.has(spacing)) {
+    return 'default';
+  }
+  return spacing;
+}
+
+/** Mirror ProjectD-HUD normalize_weight aliases used when rendering styled names. */
+function normalizeWeightForFingerprint(raw?: string): string {
+  const weight = (raw ?? '').trim().toLowerCase();
+  if (!weight) {
+    return '';
+  }
+  if (weight === 'normal') {
+    return 'regular';
+  }
+  if (weight === 'medium') {
+    return 'semibold';
+  }
+  if (weight === 'regular' || weight === 'semibold' || weight === 'bold' || weight === 'black') {
+    return weight;
+  }
+  return '';
+}
+
+/** Lua clears gradientColor unless effectId is gradient. */
+function gradientColorForFingerprint(effectId?: string, gradientColor?: string): string {
+  if ((effectId ?? '').trim().toLowerCase() !== 'gradient') {
+    return '';
+  }
+  return gradientColor ?? '';
+}
+
 /** Stable fingerprint for profile cosmetics (display_style, frame, input). */
 export function profileCosmeticsFingerprint(
   profile?: Pick<HudProfile, 'display_style' | 'frame_url' | 'input_type'> | null,
@@ -274,14 +318,16 @@ export function profileCosmeticsFingerprint(
   const chunks: string[] = [];
   const style = profile.display_style;
   if (style) {
+    const effectId = style.effectId ?? '';
+    const weight = normalizeWeightForFingerprint(style.weight) || (style.weight ?? '');
     const stylePart = [
       style.fontId ?? '',
-      style.effectId ?? '',
+      effectId,
       style.color ?? '',
-      style.gradientColor ?? '',
-      style.weight ?? '',
+      gradientColorForFingerprint(effectId, style.gradientColor),
+      weight,
       style.italic ? '1' : '0',
-      style.letterSpacing ?? '',
+      normalizeLetterSpacingForFingerprint(style.letterSpacing),
     ].join(',');
     if (stylePart.replace(/,/g, '') !== '') {
       chunks.push(stylePart);

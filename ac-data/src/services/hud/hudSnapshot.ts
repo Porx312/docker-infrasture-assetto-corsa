@@ -15,6 +15,8 @@ import {
   buildHudVersionEvent,
   loadHudSessionForSse,
 } from './hudSsePush.js';
+import { normalizeHudProfile } from './hudProfile.js';
+import { syncProfileCosmeticsFromProfile } from './hudProfileCosmetics.js';
 import { parseHudSnapshotSections } from './hudSnapshotSections.js';
 import type { HudBattleErr, HudBattleOk, HudSessionResult, HudVersionOk } from './hudTypes.js';
 import { markHudSseConnected } from './hudSsePresence.js';
@@ -79,6 +81,11 @@ async function loadSessionSnapshotPayload(
     ...versionResult,
     version: session.version,
   };
+
+  const profile = session.profile ? normalizeHudProfile(session.profile) : null;
+  if (profile) {
+    await syncProfileCosmeticsFromProfile(steamId, profile);
+  }
 
   return {
     ok: true,

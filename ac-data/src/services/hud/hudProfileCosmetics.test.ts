@@ -48,6 +48,57 @@ test('profileCosmeticsFingerprint includes display_style and frame_url', () => {
   assert.match(fp, /frame:https:\/\/cdn\.example\.com\/frame-a\.png/);
 });
 
+test('profileCosmeticsFingerprint uses comma-separated style (matches ProjectD-HUD cosmetics_fingerprint)', () => {
+  const fp = profileCosmeticsFingerprint({
+    display_style: {
+      fontId: 'permanent_marker',
+      effectId: 'taillight',
+      color: '#A855F7',
+      gradientColor: '',
+      weight: 'regular',
+      italic: false,
+      letterSpacing: '1',
+    },
+    frame_url: 'https://cdn.example.com/frame.png',
+    input_type: 'wheel',
+  });
+  assert.equal(
+    fp,
+    'permanent_marker,taillight,#A855F7,,regular,0,default|frame:https://cdn.example.com/frame.png|input:wheel',
+  );
+});
+
+test('profileCosmeticsFingerprint drops gradientColor when effect is not gradient', () => {
+  const fp = profileCosmeticsFingerprint({
+    display_style: {
+      fontId: 'permanent_marker',
+      effectId: 'taillight',
+      color: '#A855F7',
+      gradientColor: '#FF00FF',
+      weight: 'regular',
+      italic: false,
+      letterSpacing: 'wide',
+    },
+    frame_url: 'https://cdn.example.com/frame.png',
+  });
+  assert.equal(
+    fp,
+    'permanent_marker,taillight,#A855F7,,regular,0,wide|frame:https://cdn.example.com/frame.png',
+  );
+});
+
+test('profileCosmeticsFingerprint normalizes invalid letterSpacing to default', () => {
+  const fp = profileCosmeticsFingerprint({
+    display_style: {
+      fontId: 'orbitron',
+      effectId: 'solid',
+      color: '#FFFFFF',
+      letterSpacing: 'bogus',
+    },
+  });
+  assert.match(fp, /,default$/);
+});
+
 test('USER_PROFILE_COSMETICS_TTL_SEC defaults to one day', () => {
   assert.equal(USER_PROFILE_COSMETICS_TTL_SEC, 86_400);
 });
