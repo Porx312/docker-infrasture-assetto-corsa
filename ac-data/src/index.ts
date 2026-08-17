@@ -1,5 +1,6 @@
 import './config/loadEnv.js';
 import { assertSecurityConfiguration } from './config/securityStartup.js';
+import { createServer } from 'node:http';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import path from 'path';
@@ -18,6 +19,7 @@ import { bootstrapManagedServersFromDisk } from './services/hud/hudManagedServer
 import { startServerPoolMonitor } from './services/serverPool.js';
 import { getPublicHealthHandler } from './controller/healthController.js';
 import { resolveEnvFilePath } from './config/loadEnv.js';
+import { attachHudWs } from './services/hud/hudWs.js';
 
 const SERVERS_PATH = process.env.SERVERS_PATH;
 if (!SERVERS_PATH) {
@@ -130,7 +132,10 @@ if (localManaged > 0) {
   console.log(`[hud-managed-servers] bootstrapped ${localManaged} server(s) from ${SERVERS_PATH}`);
 }
 
-app.listen(PORT, BIND_HOST, async () => {
+const server = createServer(app);
+attachHudWs(server);
+
+server.listen(PORT, BIND_HOST, async () => {
   void startRedisConvexBridge();
   void startRedisConfigApplier();
   startServerPoolMonitor();

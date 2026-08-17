@@ -1,32 +1,45 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { formatSseEvent } from './hudStreamSseFormat.js';
+import { formatWsMessage, writeWsEvent } from './hudWsFormat.js';
+import { isHudWsEnabled } from './battleHudPush.js';
 import { normalizeHudProfile } from './hudProfile.js';
 import {
   buildHudSessionEvent,
   buildHudVersionEvent,
-  resetHudSseConnectionsForTests,
+  resetHudPushConnectionsForTests,
   versionFingerprint,
-} from './hudSsePush.js';
+} from './hudPushHub.js';
 
-test('formatSseEvent serializes hud_session payload', () => {
-  const formatted = formatSseEvent('hud_session', {
+test('formatWsMessage serializes event envelope', () => {
+  const formatted = formatWsMessage('hud_session', {
     steamId: '76561199000000001',
     ok: true,
     version: 'v1',
-    context: null,
-    profile: null,
   });
-  assert.match(formatted, /^event: hud_session\n/);
+  const parsed = JSON.parse(formatted) as { event: string; data: { ok: boolean } };
+  assert.equal(parsed.event, 'hud_session');
+  assert.equal(parsed.data.ok, true);
 });
 
-test('formatSseEvent serializes battle payload', () => {
-  const formatted = formatSseEvent('battle', { ok: true, version: '1', state: 'active' });
-  assert.equal(
-    formatted,
-    'event: battle\ndata: {"ok":true,"version":"1","state":"active"}\n\n',
-  );
+test('writeWsEvent sends JSON frame', () => {
+  const frames: string[] = [];
+  writeWsEvent((payload) => frames.push(payload), 'battle', { ok: true, state: 'active' });
+  assert.equal(frames.length, 1);
+  const parsed = JSON.parse(frames[0] ?? '') as { event: string; data: { state: string } };
+  assert.equal(parsed.event, 'battle');
+  assert.equal(parsed.data.state, 'active');
+});
+
+test('isHudWsEnabled defaults true unless HUD_WS_ENABLED=false', () => {
+  const prev = process.env.HUD_WS_ENABLED;
+  delete process.env.HUD_WS_ENABLED;
+  try {
+    assert.equal(isHudWsEnabled(), true);
+  } finally {
+    if (prev === undefined) delete process.env.HUD_WS_ENABLED;
+    else process.env.HUD_WS_ENABLED = prev;
+  }
 });
 
 test('buildHudVersionEvent includes version fields', () => {
@@ -85,5 +98,5 @@ test('versionFingerprint tracks lb and player version', () => {
     }),
     'v|lb|1',
   );
-  resetHudSseConnectionsForTests();
+  resetHudPushConnectionsForTests();
 });

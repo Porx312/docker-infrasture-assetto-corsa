@@ -1,4 +1,4 @@
-import { listConnectedHudSteamIds } from './hudSsePush.js';
+import { listConnectedHudSteamIds } from './hudPushHub.js';
 
 const queryCounts = new Map<string, number>();
 
@@ -12,7 +12,7 @@ export function recordHudConvexQuery(label: string): void {
 export type HudConvexQueryStatsSnapshot = {
   queries: Record<string, number>;
   total: number;
-  sseConnected: number;
+  streamConnected: number;
   since: string;
 };
 
@@ -25,7 +25,7 @@ export function getHudConvexQueryStats(): HudConvexQueryStatsSnapshot {
   return {
     queries,
     total,
-    sseConnected: listConnectedHudSteamIds().length,
+    streamConnected: listConnectedHudSteamIds().length,
     since: statsStartedAt,
   };
 }
@@ -48,7 +48,7 @@ export function startHudConvexQueryStatsLogging(): void {
       return;
     }
     console.log(
-      `[hud-convex-stats] total=${snapshot.total} sse=${snapshot.sseConnected} ${JSON.stringify(snapshot.queries)}`,
+      `[hud-convex-stats] total=${snapshot.total} stream=${snapshot.streamConnected} ${JSON.stringify(snapshot.queries)}`,
     );
   }, intervalMs);
 

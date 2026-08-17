@@ -3,8 +3,8 @@ import test from 'node:test';
 import type { Request, Response } from 'express';
 
 import { buildSessionCacheKey, sessionRedisKey, ssePresenceRedisKey } from './hudCacheKeys.js';
-import { formatSseEvent } from './hudStreamSseFormat.js';
-import { buildHudSessionEvent, buildHudVersionEvent } from './hudSsePush.js';
+import { buildHudSessionEvent, buildHudVersionEvent } from './hudPushHub.js';
+import { formatWsMessage } from './hudWsFormat.js';
 import { normalizeHudProfile } from './hudProfile.js';
 import { handleHudSnapshot } from './hudSnapshot.js';
 import { parseHudSnapshotSections } from './hudSnapshotSections.js';
@@ -23,7 +23,7 @@ import {
   setConvexClientForTests,
 } from '../convexClient.js';
 
-test('snapshot JSON session field matches SSE hud_session event shape', () => {
+test('snapshot JSON session field matches WSS hud_session event shape', () => {
   const steamId = '76561199000000001';
   const session = buildHudSessionEvent(steamId, {
     ok: true,
@@ -52,10 +52,11 @@ test('snapshot JSON session field matches SSE hud_session event shape', () => {
     }),
   });
 
-  const sseLine = formatSseEvent('hud_session', session);
-  assert.match(sseLine, /^event: hud_session\n/);
-  assert.match(sseLine, /"best_lap_ms":275432/);
-  assert.match(sseLine, /"last_lap_ms":276100/);
+  const wsFrame = formatWsMessage('hud_session', session);
+  const parsed = JSON.parse(wsFrame) as { event: string; data: typeof session };
+  assert.equal(parsed.event, 'hud_session');
+  assert.match(JSON.stringify(parsed.data), /"best_lap_ms":275432/);
+  assert.match(JSON.stringify(parsed.data), /"last_lap_ms":276100/);
 
   const snapshotPayload = {
     ok: true,
@@ -80,11 +81,12 @@ test('snapshot JSON session field matches SSE hud_session event shape', () => {
   ]);
 });
 
-test('snapshot battle field uses same event name as SSE (battle)', () => {
+test('snapshot battle field uses same event name as WSS (battle)', () => {
   const battle = { ok: true, version: '1', state: 'active' };
-  const sseLine = formatSseEvent('battle', battle);
-  assert.equal(sseLine, formatSseEvent('battle', battle));
-  assert.match(sseLine, /^event: battle\n/);
+  const wsFrame = formatWsMessage('battle', battle);
+  const parsed = JSON.parse(wsFrame) as { event: string; data: typeof battle };
+  assert.equal(parsed.event, 'battle');
+  assert.deepEqual(parsed.data, battle);
 });
 
 test('parseHudSnapshotSections accepts battle, session, and defaults to full', () => {

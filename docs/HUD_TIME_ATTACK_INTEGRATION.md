@@ -1,20 +1,20 @@
 # Guía de integración: Time Attack HUD (perfil + rivals)
 
-Documento para el equipo del overlay (ProjectD-HUD Lua). Transporte principal: **SSE** vía ac-data (`GET /hud/stream`). En CSP 0.2.x (sin streaming `web.get` ni TLS embebido), el overlay usa **`GET /hud/snapshot`** como fallback one-shot cada ~5 s. ac-data consulta Convex con `workerSecret` y empuja JSON al cliente in-game. **No hay rutas HTTP `/hud/version`, `/hud/session` ni `/hud/player`.**
+Documento para el equipo del overlay (ProjectD-HUD Lua). Transporte principal: **WebSocket WSS** vía ac-data (`GET /hud/ws`, CSP `web.socket`). Si WSS cae, el overlay usa **`GET /hud/snapshot`** como fallback one-shot. ac-data consulta Convex con `workerSecret` y empuja JSON al cliente in-game. **No hay rutas HTTP `/hud/version`, `/hud/session` ni `/hud/player`.**
 
 ## Cambios respecto al overlay antiguo
 
 | Antes | Ahora |
 |-------|-------|
 | `GET /hud/top10` | **Eliminado** |
-| Poll HTTP `/hud/version` + `/hud/session` | **Eliminado** — ac-data empuja por SSE; fallback **`GET /hud/snapshot`** en CSP sin SSE streaming |
+| Poll HTTP `/hud/version` + `/hud/session` | **Eliminado** — ac-data empuja por WSS; fallback **`GET /hud/snapshot`** cuando WSS está caído |
 | `session:update` / `battle:update` | `hud_session` / `hud_version` / `hud_error` / `battle` |
 | Query `serverName` + `track` | **Solo `steamId`** — Convex resuelve sesión activa desde `live_players` |
 | `profile.rival` (singular) | `profile.rivals.above` / `profile.rivals.below` |
 
 **Tier vs rank:** `rank` es posición en el leaderboard del servidor; `tier` es nivel del combo pista+layout+coche vs el WR global (`verifiedRecords`). No son intercambiables.
 
-**Contrato Convex (worker):** ac-data llama `getHudVersion`, `getHudSession` (y opcionalmente caché corta interna). El overlay **solo** abre SSE con `steamId`.
+**Contrato Convex (worker):** ac-data llama `getHudVersion`, `getHudSession` (y opcionalmente caché corta interna). El overlay **solo** abre WSS con `steamId`.
 
 ## Flujo de datos
 
@@ -25,7 +25,7 @@ sequenceDiagram
   participant Redis as Redis
   participant Convex as Convex_hud
 
-  Lua->>AcData: SSE subscribe steamId
+  Lua->>AcData: WSS /hud/ws steamId
   AcData->>Convex: getHudVersion + getHudSession
   AcData-->>Lua: hud_version + hud_session
   Redis-->>AcData: player_join
@@ -40,51 +40,27 @@ sequenceDiagram
 ```
 
 1. telemetry-data publica `lap_completed`, batallas y presencia en Redis.
-2. Al abrir SSE, ac-data empuja un snapshot inicial (`hud_version` + `hud_session`).
+2. Al conectar WSS, ac-data empuja snapshot inicial (`battle` → `hud_version` + `hud_session`).
 3. Tras `player_join`, `lap_completed` o `battle_finished`, ac-data invalida/refresca caché y empuja `hud_version` + `hud_session` (sin poll periódico).
 
-## `GET /hud/stream`
+## `GET /hud/ws` (WebSocket)
 
-Query: `steamId`, `api_key?` (si `HUD_API_KEY` está definida)
+Query: `steamId`, `carFilter?`, `carModel?`, `api_key?` (header `X-API-Key` también válido)
 
-Base URL: `http://HOST:3000/hud/stream`
+Base URL: `wss://HOST/hud/ws`
 
-### Eventos SSE
+### Frames JSON
+
+Cada mensaje: `{ "event": "<name>", "data": { ... } }`
 
 | Evento | Cuándo | Payload |
 |--------|--------|---------|
-| `hud_version` | Al conectar SSE, `player_join`, `lap_completed`, `battle_finished` | `{ steamId, version, lbVersion, playerVersion }` |
+| `hud_version` | Al conectar WSS, `player_join`, `lap_completed`, `battle_finished` | `{ steamId, version, lbVersion, playerVersion }` |
 | `hud_session` | Mismo trigger que `hud_version` | Respuesta `getHudSession` + `steamId` en raíz |
 | `hud_error` | Error persistente (`player_not_connected`, `user_not_found`, `user_invalidated`, …) | `{ steamId, reason }` |
 | `battle` | `battle_update` / `battle_finished` en Redis | Snapshot batalla (ver [HUD_BATTLE_INTEGRATION.md](./HUD_BATTLE_INTEGRATION.md)) |
 
-### Cliente Lua / overlay
-
-```javascript
-const url = `http://HOST:3000/hud/stream?steamId=${steamId}&api_key=${apiKey}`;
-const es = new EventSource(url);
-
-es.addEventListener('hud_version', (e) => {
-  const data = JSON.parse(e.data);
-  // comparar version / lbVersion / playerVersion localmente si hace falta
-});
-
-es.addEventListener('hud_session', (e) => {
-  const data = JSON.parse(e.data);
-  // data.profile — tier, best_lap_ms, rivals.above/below, elo
-  applySession(data);
-});
-
-es.addEventListener('hud_error', (e) => {
-  handleHudError(JSON.parse(e.data));
-});
-
-es.addEventListener('battle', (e) => {
-  applyBattle(JSON.parse(e.data));
-});
-```
-
-Reemplazar estado local completo en cada `hud_session`.
+Legacy `GET /hud/stream` (SSE) fue eliminado; usar WSS o snapshot fallback.
 
 ## `GET /hud/snapshot` (fallback CSP)
 

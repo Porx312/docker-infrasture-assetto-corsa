@@ -36,7 +36,7 @@ run_step "ProjectD-HUD gap direction (structural)" "${ROOT}/ProjectD-HUD/scripts
 run_step "ProjectD-HUD battle rematch (structural)" "${ROOT}/ProjectD-HUD/scripts/verify-battle-rematch.sh"
 
 if [[ -d "${ROOT}/ac-data/node_modules" ]] || [[ -f "${ROOT}/ac-data/package.json" ]]; then
-  run_step "ac-data HUD unit tests" bash -c "cd '${ROOT}/ac-data' && npx tsx --test src/services/hud/hudSnapshot.test.ts src/services/hud/hudStreamSse.test.ts"
+  run_step "ac-data HUD unit tests" bash -c "cd '${ROOT}/ac-data' && npx tsx --test src/services/hud/hudSnapshot.test.ts src/services/hud/hudWs.test.ts src/services/hud/hudPushHub.test.ts"
 else
   echo ""
   echo "SKIP: ac-data npm test (run npm ci in ac-data first)"

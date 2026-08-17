@@ -41,7 +41,7 @@ jobs:
 
       - name: ac-data HUD tests
         working-directory: ac-data
-        run: npx tsx --test src/services/hud/hudSnapshot.test.ts src/services/hud/hudStreamSse.test.ts
+        run: npx tsx --test src/services/hud/hudSnapshot.test.ts src/services/hud/hudWs.test.ts src/services/hud/hudPushHub.test.ts
 
       - name: Setup Python
         uses: actions/setup-python@v5

@@ -32,25 +32,25 @@ echo ""
 # Overlay debug equivalent (battle_debug widgets)
 PRESENCE="$(rc get "ac:hud:presence:${STEAM_ID}" 2>/dev/null || true)"
 SSE_EXISTS="$(rc exists "ac:hud:sse:${STEAM_ID}" 2>/dev/null || echo 0)"
-SSE_HTTP="$(curl -sS -m 5 -o /dev/null -w '%{http_code}' "${API_BASE}/hud/stream?steamId=${STEAM_ID}" 2>/dev/null || echo 000)"
-SSE_BODY="$(curl -sS -m 5 "${API_BASE}/hud/stream?steamId=${STEAM_ID}" 2>/dev/null | head -c 200 || true)"
+SNAPSHOT_HTTP="$(curl -sS -m 5 -o /dev/null -w '%{http_code}' "${API_BASE}/hud/snapshot?steamId=${STEAM_ID}&sections=session" 2>/dev/null || echo 000)"
+SNAPSHOT_BODY="$(curl -sS -m 5 "${API_BASE}/hud/snapshot?steamId=${STEAM_ID}&sections=session" 2>/dev/null | head -c 200 || true)"
 
 echo "=== Overlay debug equivalent ==="
 if [[ -z "$PRESENCE" || "$PRESENCE" == "(nil)" ]]; then
   echo "modo:     error (or waiting for server bridge — not online yet)"
-  echo "evento:   (none — SSE blocked at HTTP layer)"
+  echo "evento:   (none — WSS not connected yet)"
   echo "error:    player_not_connected"
   OVERLAY_HINT="Connect to a ProjectD server online, then retry."
-elif [[ "$SSE_HTTP" == "200" ]]; then
-  echo "modo:     open"
-  echo "evento:   (check SSE stream for hud_session / hud_error)"
-  echo "error:    (none at connect — wait for hud_session)"
-  OVERLAY_HINT="If still 'Waiting for server registration', SSE is open but hud_session pending."
+elif [[ "$SNAPSHOT_HTTP" == "200" ]]; then
+  echo "modo:     poll/wss"
+  echo "evento:   (check WSS or snapshot for hud_session / hud_error)"
+  echo "error:    (none at HTTP layer — wait for hud_session)"
+  OVERLAY_HINT="If still 'Waiting for server registration', transport works but hud_session pending."
 else
   echo "modo:     connecting"
   echo "evento:   (none yet)"
-  echo "error:    HTTP ${SSE_HTTP} — ${SSE_BODY}"
-  OVERLAY_HINT="Fix HTTP/SSE before expecting hud_session."
+  echo "error:    HTTP ${SNAPSHOT_HTTP} — ${SNAPSHOT_BODY}"
+  OVERLAY_HINT="Fix HTTP/WSS before expecting hud_session."
 fi
 echo "hint:     $OVERLAY_HINT"
 echo ""
@@ -62,7 +62,7 @@ if [[ -n "$PRESENCE" && "$PRESENCE" != "(nil)" ]]; then
 else
   echo "(missing — telemetry has not registered this player)"
 fi
-echo "ac:hud:sse:${STEAM_ID} EXISTS=$SSE_EXISTS (overlay must keep GET /hud/stream open)"
+echo "ac:hud:sse:${STEAM_ID} EXISTS=$SSE_EXISTS (overlay WSS keepalive or snapshot poll renews this key)"
 echo ""
 
 echo "=== Convex getHudSession ==="

@@ -1,7 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 
 import { handleHudProfileCosmeticsFp } from '../services/hud/hudCosmeticsFp.js';
-import { handleHudStreamSse } from '../services/hud/hudStreamSse.js';
 import { handleHudSnapshot } from '../services/hud/hudSnapshot.js';
 import { refreshHudUserStatusFromConvex } from '../services/hud/hudUserStatusNotify.js';
 import { getHudConvexQueryStats } from '../services/hud/hudConvexQueryStats.js';
@@ -11,15 +10,6 @@ import {
 } from '../services/hud/hudWorkerAuth.js';
 
 const router = Router();
-
-router.get('/stream', (req: Request, res: Response) => {
-  void handleHudStreamSse(req, res).catch((err: unknown) => {
-    console.error('[hud] stream unhandled:', err);
-    if (!res.headersSent) {
-      res.status(503).json({ ok: false, reason: 'convex_unreachable' });
-    }
-  });
-});
 
 router.get('/snapshot', (req: Request, res: Response) => {
   void handleHudSnapshot(req, res).catch((err: unknown) => {
@@ -39,7 +29,7 @@ router.get('/profile-cosmetics-fp', (req: Request, res: Response) => {
   });
 });
 
-/** Convex worker hook: re-fetch user ban + HUD session and push SSE (invalidate / re-validate). */
+/** Convex worker hook: re-fetch user ban + HUD session and push WSS (invalidate / re-validate). */
 router.post('/worker/refresh-user', (req: Request, res: Response) => {
   if (!isWorkerRequestAuthorized(req)) {
     res.status(401).json({ ok: false, error: 'unauthorized' });

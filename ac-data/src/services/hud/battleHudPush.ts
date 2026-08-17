@@ -3,7 +3,7 @@ import type { BattleCacheParams } from './hudTypes.js';
 import { parseBattleScopeKey } from './hudBattleRooms.js';
 import { parsePlayerScopeKey } from './hudScopeKeys.js';
 import { isHudRedisConfigured } from './hudRedis.js';
-import { pushHudUpdateForSteamId } from './hudSsePush.js';
+import { pushHudUpdateForSteamId } from './hudPushHub.js';
 import { startHudUpdatesSubscriber } from './hudUpdatesSubscriber.js';
 import type { HudBattleErr, HudBattleOk } from './hudTypes.js';
 
@@ -96,11 +96,15 @@ function scheduleBattleClear(room: string): void {
 }
 
 export function isHudSseEnabled(): boolean {
-  return (process.env.HUD_SSE_ENABLED ?? 'true').trim().toLowerCase() !== 'false';
+  return (process.env.HUD_SSE_ENABLED ?? 'false').trim().toLowerCase() === 'true';
+}
+
+export function isHudWsEnabled(): boolean {
+  return (process.env.HUD_WS_ENABLED ?? 'true').trim().toLowerCase() !== 'false';
 }
 
 export function shouldStartHudPushHub(): boolean {
-  return isHudRedisConfigured() && isHudSseEnabled();
+  return isHudRedisConfigured() && (isHudWsEnabled() || isHudSseEnabled());
 }
 
 export function initHudPushHub(): void {

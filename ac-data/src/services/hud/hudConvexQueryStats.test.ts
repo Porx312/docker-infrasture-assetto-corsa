@@ -20,5 +20,5 @@ test('recordHudConvexQuery increments per label', () => {
   assert.equal(stats.total, 3);
   assert.equal(stats.queries.fetchHudSession, 2);
   assert.equal(stats.queries.fetchHudVersion, 1);
-  assert.equal(stats.sseConnected, 0);
+  assert.equal(stats.streamConnected, 0);
 });

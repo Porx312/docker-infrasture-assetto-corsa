@@ -119,7 +119,7 @@ export async function fetchConvexStats(
       fetchHudSession: body.queries?.fetchHudSession ?? 0,
       fetchHudVersion: body.queries?.fetchHudVersion ?? 0,
       total: body.total ?? 0,
-      sseConnected: body.sseConnected ?? 0,
+      sseConnected: body.streamConnected ?? body.sseConnected ?? 0,
     };
   } catch {
     return null;
