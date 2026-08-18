@@ -6,11 +6,11 @@
 #
 # Prerequisites:
 #   1. ac-data running on host (pgrep -af "tsx src/index")
-#   2. HUD overlay on GET /hud/stream?steamId=... (or --watch-sse STEAM_ID)
+#   2. HUD overlay on GET /hud/ws?steamId=... (or --watch-ws STEAM_ID)
 #   3. Redis presence for the viewer (in-game join or ac:hud:presence:* seeded)
 #
 # What you should see:
-#   - Multiple SSE `battle` events (pairing → arming → armed → launching → active → finished)
+#   - Multiple WSS `battle` frames (pairing → arming → armed → launching → active → finished)
 #   - Toasts: overtake, recover, win (from lastEvent.label)
 #   - After battle_finished ingest: hud_version + hud_session (~400ms, HUD_BATTLE_REFRESH_DELAY_MS)
 #   - ~5s after finished: battle clear (ok:false reason no_battle)
@@ -27,7 +27,7 @@
 #   ./scripts/simulate-battle-complete.sh
 #   ./scripts/simulate-battle-complete.sh 76561199230780195 76561198135525145 --winner p2
 #   ./scripts/simulate-battle-complete.sh --dry-run --fast
-#   ./scripts/simulate-battle-complete.sh --watch-sse 76561199230780195 --fast
+#   ./scripts/simulate-battle-complete.sh --watch-ws 76561199230780195 --fast
 #   ./scripts/simulate-battle-complete.sh --skip-stream
 #
 # Options:
@@ -46,7 +46,7 @@
 #   --env dev|prod          Env file (default: dev → .env.local)
 #   --dry-run               Print phase JSON; no Redis writes
 #   --skip-stream           HUD phases only; no XADD to ac:events
-#   --watch-sse STEAM_ID    curl -N /hud/stream during simulation
+#   --watch-ws STEAM_ID    listen on /hud/ws during simulation (--watch-sse alias)
 #
 set -euo pipefail
 
@@ -86,7 +86,7 @@ ENV_MODE="dev"
 DRY_RUN=0
 SKIP_STREAM=0
 FAST=0
-WATCH_SSE_STEAM=""
+WATCH_WS_STEAM=""
 
 usage() {
   sed -n '2,45p' "$0" | sed 's/^# \?//'
@@ -116,7 +116,7 @@ while [[ $# -gt 0 ]]; do
     --env) ENV_MODE="${2:?}"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     --skip-stream) SKIP_STREAM=1; shift ;;
-    --watch-sse) WATCH_SSE_STEAM="${2:?--watch-sse requires steamId}"; shift 2 ;;
+    --watch-ws|--watch-sse) WATCH_WS_STEAM="${2:?--watch-ws requires steamId}"; shift 2 ;;
     -h|--help) usage 0 ;;
     *)
       echo "Unknown option: $1"
@@ -201,21 +201,11 @@ echo "instance=$INSTANCE_ID env=$ENV_FILE dryRun=$DRY_RUN skipStream=$SKIP_STREA
 echo ""
 
 WATCH_PID=""
-if [[ -n "$WATCH_SSE_STEAM" && "$DRY_RUN" -eq 0 ]]; then
-  ENC_STEAM="$(python3 -c "import urllib.parse; print(urllib.parse.quote('''$WATCH_SSE_STEAM'''))")"
-  SSE_URL="http://${HUD_HOST}/hud/stream?steamId=${ENC_STEAM}"
-  if [[ -n "${HUD_API_KEY:-}" ]]; then
-    SSE_URL="${SSE_URL}&api_key=$(python3 -c "import urllib.parse; print(urllib.parse.quote('''${HUD_API_KEY}'''))")"
-  fi
-  echo "=== SSE watch (background): $SSE_URL ==="
+if [[ -n "$WATCH_WS_STEAM" && "$DRY_RUN" -eq 0 ]]; then
+  echo "=== WSS watch (background): steamId=$WATCH_WS_STEAM ==="
   (
-    curl -sN "$SSE_URL" 2>/dev/null | while IFS= read -r line; do
-      if [[ "$line" == event:* ]]; then
-        echo "[sse] $line"
-      elif [[ "$line" == data:* ]]; then
-        payload="${line#data: }"
-        echo "[sse] ${payload:0:900}"
-      fi
+    "$ROOT/scripts/verify-hud-ws-contract.sh" "$WATCH_WS_STEAM" "${HUD_API_KEY:-}" 2>&1 | while IFS= read -r line; do
+      echo "[wss] $line"
     done
   ) &
   WATCH_PID=$!

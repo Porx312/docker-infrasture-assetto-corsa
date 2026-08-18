@@ -1,6 +1,6 @@
 # HUD client API (`/client/hud/*`)
 
-Public read API for **ProjectD HUD overlay** distribution. Players install the CSP Lua app into Assetto Corsa; runtime data comes from `/hud/*` (SSE), not from `/client/*`.
+Public read API for **ProjectD HUD overlay** distribution. Players install the CSP Lua app into Assetto Corsa; runtime data comes from `/hud/ws` (WebSocket) with `/hud/snapshot` poll fallback, not from `/client/*`.
 
 ## Install path (player PC)
 
@@ -51,9 +51,11 @@ After install, the overlay connects to:
 
 | Path | Purpose |
 |------|---------|
-| `GET /hud/stream` | SSE — profile, competition, battle |
-| `GET /hud/snapshot` | Poll fallback |
+| `GET /hud/ws` | WebSocket (WSS) — profile, competition, battle push |
+| `GET /hud/snapshot` | Poll fallback when WSS disconnected |
 | `GET /hud/version` | Version check |
+
+`GET /hud/stream` (legacy SSE) has been removed. Set `HUD_WS_ENABLED=true` (default) on ac-data.
 
 Optional: set `HUD_API_KEY` on the server and `ac.storage("ProjectD-HUD:api_key", "…")` in-game.
 

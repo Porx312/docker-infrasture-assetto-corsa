@@ -10,7 +10,9 @@ export type HudClientOptions = {
   serverName: string;
   carModel: string;
   pollIntervalOverrideSec: number | null;
-  enableSse: boolean;
+  enableWs: boolean;
+  /** @deprecated use enableWs */
+  enableSse?: boolean;
   requestTimeoutMs: number;
   staleBattleSec: number;
   /** When true, skip initial sections=full (steady-state battle polling after Redis session seed). */
@@ -54,7 +56,7 @@ export class HudSimClient {
   private loopPromise: Promise<void> | null = null;
   private lastPollAt = 0;
   private lastBattleAt = 0;
-  private sseAbort: AbortController | null = null;
+  private ws: WebSocket | null = null;
   private lastRevision: number | null = null;
 
   constructor(private readonly opts: HudClientOptions) {
@@ -83,15 +85,16 @@ export class HudSimClient {
       return;
     }
     this.running = true;
-    if (this.opts.enableSse) {
-      void this.connectSse();
+    const useWs = this.opts.enableWs || this.opts.enableSse === true;
+    if (useWs) {
+      void this.connectWs();
     }
     this.loopPromise = this.runLoop(onSample);
   }
 
   async stop(): Promise<void> {
     this.running = false;
-    this.sseAbort?.abort();
+    this.ws?.close();
     await this.loopPromise;
   }
 
@@ -259,29 +262,28 @@ export class HudSimClient {
     }
   }
 
-  private async connectSse(): Promise<void> {
+  private connectWs(): void {
+    const wsBase = this.opts.baseUrl.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://');
     const params = new URLSearchParams({
       steamId: this.opts.steamId,
       api_key: this.opts.apiKey,
     });
-    const url = `${this.opts.baseUrl.replace(/\/$/, '')}/hud/stream?${params.toString()}`;
-    this.sseAbort = new AbortController();
-
+    const url = `${wsBase.replace(/\/$/, '')}/hud/ws?${params.toString()}`;
     try {
-      const res = await fetch(url, { signal: this.sseAbort.signal });
-      if (!res.ok || !res.body) {
-        return;
-      }
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      while (this.running) {
-        const { done } = await reader.read();
-        if (done) {
-          break;
+      this.ws = new WebSocket(url);
+      this.ws.onmessage = () => {
+        // Drain WSS frames; battle updates also arrive via snapshot poll backup path.
+      };
+      this.ws.onclose = () => {
+        if (this.running) {
+          this.metrics.reconnects += 1;
         }
-        // Drain SSE; battle updates also arrive via snapshot poll backup path.
-        decoder.decode();
-      }
+      };
+      this.ws.onerror = () => {
+        if (this.running) {
+          this.metrics.connectionFailures += 1;
+        }
+      };
     } catch {
       if (this.running) {
         this.metrics.reconnects += 1;

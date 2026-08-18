@@ -13,6 +13,7 @@ export type HudConvexQueryStatsSnapshot = {
   queries: Record<string, number>;
   total: number;
   streamConnected: number;
+  wsConnected: number;
   since: string;
 };
 
@@ -26,6 +27,7 @@ export function getHudConvexQueryStats(): HudConvexQueryStatsSnapshot {
     queries,
     total,
     streamConnected: listConnectedHudSteamIds().length,
+    wsConnected: listConnectedHudSteamIds().length,
     since: statsStartedAt,
   };
 }

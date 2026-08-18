@@ -13,8 +13,8 @@ import { getSessionCached } from './lapCompletedHudRefresh.js';
 import {
   buildHudSessionEvent,
   buildHudVersionEvent,
-  loadHudSessionForSse,
-} from './hudSsePush.js';
+  loadHudSessionForPush,
+} from './hudPushHub.js';
 import { normalizeHudProfile } from './hudProfile.js';
 import { syncProfileCosmeticsFromProfile } from './hudProfileCosmetics.js';
 import { parseHudSnapshotSections } from './hudSnapshotSections.js';
@@ -64,7 +64,7 @@ async function loadSessionSnapshotPayload(
   const session =
     !bypassSessionCache && cachedSession.ok && cachedSession.version === versionResult.version
       ? cachedSession
-      : await loadHudSessionForSse(steamId, bypassSessionCache);
+      : await loadHudSessionForPush(steamId, bypassSessionCache);
 
   if (!session.ok) {
     if (session.reason === 'user_invalidated') {

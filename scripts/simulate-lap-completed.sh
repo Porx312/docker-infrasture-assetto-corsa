@@ -1,34 +1,34 @@
 #!/usr/bin/env bash
-# Simulate telemetry-data lap_completed → Redis ac:events → ac-data HUD SSE push.
+# Simulate telemetry-data lap_completed → Redis ac:events → ac-data HUD WSS push.
 ### Steam ID: 76561199150078952 ### storm
 ### Steam ID: Stevie.fc 76561198135525145 ### 
 ### Steam ID: minty Steam ID: 76561199588591028 ### 
 ### Steam ID:  76561199230780195 ### porxz
-
+# ./scripts/simulate-lap-completed.sh 76561199230780195 --lap-ms 190000
 # Use this to test HUD rank/rivals/PB updates without driving a real lap.
 # No app code changes — publishes the same envelope as event_dispatcher.py.
 #
 # Prerequisites:
 #   1. ac-data running on host (pgrep -af "tsx src/index")
-#   2. HUD overlay connected to GET /hud/stream?steamId=... (or use --watch-sse)
+#   2. HUD overlay connected to GET /hud/ws?steamId=... (or use --watch-ws)
 #   3. Recommended: connected in-game on the target Akina downhill server so Convex
 #      live_players matches; otherwise ingest or getHudSession may fail.
 #
 # ac-data only XACKs and pushes hud_version/hud_session after Convex ingest succeeds.
 # If ingest fails, check ac-data.log for "convex batch ingest failed".
 #
-# What the HUD shows (Convex push → SSE):
+# What the HUD shows (Convex push → WSS):
 #   - Convex lap ingest schedules POST /hud/worker/refresh-user (reason lap_pb | rival_pb)
-#   - ac-data pushes hud_version + hud_session to connected SSE clients
+#   - ac-data pushes hud_version + hud_session to connected WSS clients
 #   - non-PB lap: last_lap_ms patched in Redis only; Convex does not notify
 #   - overlay poll uses sections=battle when bundle exists (battle backup only)
-#   - session/rank/rivals require SSE (or manual ./scripts/verify-push-sync-live.sh STEAM_ID lap_pb)
+#   - session/rank/rivals require WSS (or manual ./scripts/verify-push-sync-live.sh STEAM_ID lap_pb)
 #
 # Manual push while Convex lap webhook not deployed:
 #   ./scripts/verify-push-sync-live.sh STEAM_ID lap_pb
 #
 # Rival observer test (Convex should push rival_pb after rival PB ingest):
-#   Terminal 1 — observer SSE: curl -N 'http://127.0.0.1:3000/hud/stream?steamId=76561199230780195'
+#   Terminal 1 — observer WSS: ./scripts/verify-hud-ws-contract.sh 76561199230780195
 #   Terminal 2 — simulate rival PB: ./scripts/simulate-lap-completed.sh <rival_steamId> --lap-ms 270000
 #   Observer should receive hud_session ~2-3s later with updated rival lap_ms
 #   Verify: ./scripts/verify-hud-rival-fanout.sh <observerSteamId> <rivalSteamId> <lapMs>
@@ -61,7 +61,7 @@
 #   --car MODEL          Car model id (default: ks_mazda_rx7_spirit_r)
 #   --env dev|prod       Env file (default: dev → .env.local)
 #   --dry-run            Print envelope JSON; do not XADD
-#   --watch-sse          After publish, listen to /hud/stream for 15s
+#   --watch-ws          After publish, listen to /hud/ws for 15s
 #
 set -euo pipefail
 
@@ -82,7 +82,7 @@ TRACK_CONFIG="akina_downhill"
 CAR_MODEL="ks_mazda_rx7_spirit_r"
 ENV_MODE="dev"
 DRY_RUN=0
-WATCH_SSE=0
+WATCH_WS=0
 
 usage() {
   sed -n '2,40p' "$0" | sed 's/^# \?//'
@@ -98,7 +98,7 @@ while [[ $# -gt 0 ]]; do
     --car) CAR_MODEL="${2:?}"; shift 2 ;;
     --env) ENV_MODE="${2:?}"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
-    --watch-sse) WATCH_SSE=1; shift ;;
+    --watch-ws|--watch-sse) WATCH_WS=1; shift ;;
     -h|--help) usage 0 ;;
     *)
       echo "Unknown option: $1"
@@ -259,21 +259,12 @@ fi
 
 echo "Published to Redis: ${REDIS_ID}"
 echo ""
-echo "Expect HUD SSE in ~2–3s (debounce + delay). Watch:"
+echo "Expect HUD WSS push in ~2–3s (debounce + delay). Watch:"
 echo "  tail -f ac-data.log | rg 'hud-refresh|ingest'"
 echo ""
 
-if [[ "$WATCH_SSE" -eq 1 ]]; then
-  ENC_STEAM="$(python3 -c "import urllib.parse; print(urllib.parse.quote('''$STEAM_ID'''))")"
-  SSE_URL="http://${HUD_HOST}/hud/stream?steamId=${ENC_STEAM}"
-  echo "=== SSE watch (15s): $SSE_URL ==="
-  timeout 15 curl -sN "$SSE_URL" 2>/dev/null | while IFS= read -r line; do
-    if [[ "$line" == event:* ]]; then
-      echo "$line"
-    elif [[ "$line" == data:* ]]; then
-      payload="${line#data: }"
-      echo "$payload" | head -c 1200
-      echo
-    fi
-  done || echo "(no SSE within 15s — is ac-data running and overlay reachable?)"
+if [[ "$WATCH_WS" -eq 1 ]]; then
+  echo "=== WSS watch (15s) ==="
+  timeout 15 "$ROOT/scripts/verify-hud-ws-contract.sh" "$STEAM_ID" "${HUD_API_KEY:-}" 2>/dev/null || \
+    echo "(no WSS frames within 15s — is ac-data running and overlay reachable?)"
 fi

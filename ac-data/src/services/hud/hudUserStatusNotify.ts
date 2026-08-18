@@ -5,10 +5,10 @@ import {
   type ApplyPlayerJoinContextOptions,
 } from './playerJoinContext.js';
 import {
-  countHudSseListeners,
+  countHudPushListeners,
   pushHudUpdateForSteamId,
   type HudPushReason,
-} from './hudSsePush.js';
+} from './hudPushHub.js';
 
 export type RefreshHudUserStatusOptions = ApplyPlayerJoinContextOptions & {
   reason?: string;
@@ -69,7 +69,7 @@ export async function refreshHudUserStatusFromConvex(
     const pushReason = pushReasonForWorkerReason(reason);
     await pushHudUpdateForSteamId(trimmed, true, pushReason ? { pushReason } : undefined);
     console.log(
-      `[hud-user-status] push done steamId=${trimmed}${reasonSuffix} sseListeners=${countHudSseListeners(trimmed)}`,
+      `[hud-user-status] push done steamId=${trimmed}${reasonSuffix} wsListeners=${countHudPushListeners(trimmed)}`,
     );
     return;
   }

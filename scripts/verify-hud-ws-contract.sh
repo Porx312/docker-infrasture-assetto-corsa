@@ -52,7 +52,7 @@ echo "(timeout ${TIMEOUT_SEC}s — connect in-game first)"
 echo
 
 export WS_URL TIMEOUT_SEC
-node - <<'NODE'
+(cd "$ROOT/ac-data" && node - <<'NODE'
 const WebSocket = require('ws');
 
 const url = process.env.WS_URL;
@@ -122,3 +122,4 @@ ws.on('close', (code, reason) => {
   }
 });
 NODE
+)

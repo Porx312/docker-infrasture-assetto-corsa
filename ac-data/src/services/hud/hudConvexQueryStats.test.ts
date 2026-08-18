@@ -6,11 +6,11 @@ import {
   recordHudConvexQuery,
   resetHudConvexQueryStatsForTests,
 } from './hudConvexQueryStats.js';
-import { resetHudSseConnectionsForTests } from './hudSsePush.js';
+import { resetHudPushConnectionsForTests } from './hudPushHub.js';
 
 test('recordHudConvexQuery increments per label', () => {
   resetHudConvexQueryStatsForTests();
-  resetHudSseConnectionsForTests();
+  resetHudPushConnectionsForTests();
 
   recordHudConvexQuery('fetchHudSession');
   recordHudConvexQuery('fetchHudSession');

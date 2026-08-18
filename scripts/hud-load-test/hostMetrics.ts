@@ -113,13 +113,15 @@ export async function fetchConvexStats(
     const body = (await res.json()) as {
       queries?: Record<string, number>;
       total?: number;
+      wsConnected?: number;
+      streamConnected?: number;
       sseConnected?: number;
     };
     return {
       fetchHudSession: body.queries?.fetchHudSession ?? 0,
       fetchHudVersion: body.queries?.fetchHudVersion ?? 0,
       total: body.total ?? 0,
-      sseConnected: body.streamConnected ?? body.sseConnected ?? 0,
+      wsConnected: body.wsConnected ?? body.streamConnected ?? body.sseConnected ?? 0,
     };
   } catch {
     return null;

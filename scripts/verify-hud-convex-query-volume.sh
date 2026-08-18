@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Read ac-data in-process Convex HUD query counters + correlate with live SSE connections.
+# Read ac-data in-process Convex HUD query counters + correlate with live WSS connections.
 # Usage: ./scripts/verify-hud-convex-query-volume.sh
 #
 # Optional: enable periodic logs in ac-data
@@ -34,7 +34,7 @@ echo ""
 echo ""
 echo "Correlate spikes in Convex dashboard with:"
 echo "  - fetchHudSession / fetchHudVersion counts above"
-echo "  - streamConnected (HUD WSS clients on this ac-data instance)"
+echo "  - streamConnected / wsConnected (HUD WSS clients on this ac-data instance)"
 echo "  - lap_completed bursts → [hud-refresh] in ac-data.log"
 echo "  - overlay poll mode → GET /hud/snapshot every 1-5s per client"
 echo ""

@@ -3,10 +3,10 @@ import test from 'node:test';
 
 import {
   pushHudUpdateForSteamId,
-  registerHudSseConnection,
-  resetHudSseConnectionsForTests,
-  setHudSsePushTestHooks,
-} from './hudSsePush.js';
+  registerHudPushConnection,
+  resetHudPushConnectionsForTests,
+  setHudPushHubTestHooks,
+} from './hudPushHub.js';
 import { setFetchPlayerJoinContextForTests } from './playerJoinContext.js';
 import { setFetchHudSessionForTests } from './lapCompletedHudRefresh.js';
 import { refreshHudUserStatusFromConvex } from './hudUserStatusNotify.js';
@@ -21,10 +21,10 @@ test('refreshHudUserStatusFromConvex pushes hud_error after Convex invalidates u
   }
 
   const events: Array<{ event: string; data: unknown }> = [];
-  const unregister = registerHudSseConnection({
+  const unregister = registerHudPushConnection({
     steamId,
     lastVersionFingerprint: null,
-    listener: (event, data) => {
+    send: (event, data) => {
       events.push({ event, data });
     },
   });
@@ -37,7 +37,7 @@ test('refreshHudUserStatusFromConvex pushes hud_error after Convex invalidates u
     user: { steamId, isInvalidated: true, name: 'Pilot' },
   }));
 
-  setHudSsePushTestHooks({
+  setHudPushHubTestHooks({
     fetchVersion: async () => ({ ok: false, reason: 'user_invalidated' }),
     loadSession: async () => ({ ok: false, reason: 'user_invalidated' }),
   });
@@ -51,9 +51,9 @@ test('refreshHudUserStatusFromConvex pushes hud_error after Convex invalidates u
     assert.equal((events.at(-1)?.data as { reason: string }).reason, 'user_invalidated');
   } finally {
     setFetchPlayerJoinContextForTests(null);
-    setHudSsePushTestHooks(null);
+    setHudPushHubTestHooks(null);
     unregister();
-    resetHudSseConnectionsForTests();
+    resetHudPushConnectionsForTests();
     await clearUserInvalidated(steamId);
   }
 });
@@ -64,10 +64,10 @@ test('refreshHudUserStatusFromConvex pushes hud_session after Convex re-validate
   }
 
   const events: Array<{ event: string; data: unknown }> = [];
-  const unregister = registerHudSseConnection({
+  const unregister = registerHudPushConnection({
     steamId,
     lastVersionFingerprint: null,
-    listener: (event, data) => {
+    send: (event, data) => {
       events.push({ event, data });
     },
   });
@@ -128,7 +128,7 @@ test('refreshHudUserStatusFromConvex pushes hud_session after Convex re-validate
     },
   };
 
-  setHudSsePushTestHooks({
+  setHudPushHubTestHooks({
     fetchVersion: async () => ({
       ok: true,
       version: 'v-revalidated',
@@ -148,9 +148,9 @@ test('refreshHudUserStatusFromConvex pushes hud_session after Convex re-validate
   } finally {
     setFetchPlayerJoinContextForTests(null);
     setFetchHudSessionForTests(null);
-    setHudSsePushTestHooks(null);
+    setHudPushHubTestHooks(null);
     unregister();
-    resetHudSseConnectionsForTests();
+    resetHudPushConnectionsForTests();
     await clearUserInvalidated(steamId);
   }
 });
@@ -161,10 +161,10 @@ test('refreshHudUserStatusFromConvex cosmetics reason bypasses session cache for
   }
 
   const events: Array<{ event: string; data: unknown }> = [];
-  const unregister = registerHudSseConnection({
+  const unregister = registerHudPushConnection({
     steamId,
     lastVersionFingerprint: null,
-    listener: (event, data) => {
+    send: (event, data) => {
       events.push({ event, data });
     },
   });
@@ -231,7 +231,7 @@ test('refreshHudUserStatusFromConvex cosmetics reason bypasses session cache for
     },
   };
 
-  setHudSsePushTestHooks({
+  setHudPushHubTestHooks({
     fetchVersion: async () => ({
       ok: true,
       version: 'v-cosmetics-live',
@@ -255,9 +255,9 @@ test('refreshHudUserStatusFromConvex cosmetics reason bypasses session cache for
     assert.equal(payload.profile?.frame_url, 'https://cdn.example.com/frames/live.png');
   } finally {
     setFetchPlayerJoinContextForTests(null);
-    setHudSsePushTestHooks(null);
+    setHudPushHubTestHooks(null);
     unregister();
-    resetHudSseConnectionsForTests();
+    resetHudPushConnectionsForTests();
   }
 });
 
@@ -267,10 +267,10 @@ test('refreshHudUserStatusFromConvex lap_pb reason bypasses session cache for li
   }
 
   const events: Array<{ event: string; data: unknown }> = [];
-  const unregister = registerHudSseConnection({
+  const unregister = registerHudPushConnection({
     steamId,
     lastVersionFingerprint: null,
-    listener: (event, data) => {
+    send: (event, data) => {
       events.push({ event, data });
     },
   });
@@ -333,7 +333,7 @@ test('refreshHudUserStatusFromConvex lap_pb reason bypasses session cache for li
     },
   };
 
-  setHudSsePushTestHooks({
+  setHudPushHubTestHooks({
     fetchVersion: async () => ({
       ok: true,
       version: 'v-lap-live',
@@ -358,8 +358,8 @@ test('refreshHudUserStatusFromConvex lap_pb reason bypasses session cache for li
     assert.equal(payload.profile?.best_lap_ms, 270_000);
   } finally {
     setFetchPlayerJoinContextForTests(null);
-    setHudSsePushTestHooks(null);
+    setHudPushHubTestHooks(null);
     unregister();
-    resetHudSseConnectionsForTests();
+    resetHudPushConnectionsForTests();
   }
 });

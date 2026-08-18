@@ -1,20 +1,22 @@
-# Guía de integración: Battle HUD (SSE)
+# Guía de integración: Battle HUD (WebSocket)
 
-Documento para el equipo del overlay. Describe cómo consumir el stream de batallas expuesto por **ac-data**. No incluye código de referencia del cliente: solo contrato, flujo y reglas de uso.
+> **Transporte actual:** el overlay usa **`web.socket`** contra `GET /hud/ws` (WSS). `GET /hud/snapshot?sections=battle` sigue como respaldo cuando WSS cae o para battle backup poll. El SSE legacy (`GET /hud/stream`) fue eliminado.
+
+Documento para el equipo del overlay. Describe cómo consumir batallas expuestas por **ac-data**. No incluye código de referencia del cliente: solo contrato, flujo y reglas de uso.
 
 **Flujo completo y catálogo de toasts:** ver sección [Flujo completo de batalla](#flujo-completo-de-batalla).
 
 ## Contexto
 
-Con `BATTLE_HUD_ENABLED=true` en telemetry-data, el estado de batalla **no se envía por chat in-game**. El overlay usa **`EventSource`** contra `GET /hud/stream` (SSE unificado con time attack).
+Con `BATTLE_HUD_ENABLED=true` en telemetry-data, el estado de batalla **no se envía por chat in-game**. El overlay abre **WebSocket WSS** contra `GET /hud/ws` (unificado con time attack: `hud_version`, `hud_session`, `battle`).
 
 Flujo de datos:
 
 1. telemetry-data escribe snapshots en Redis (`ac:hud:battle:*`) y publica en `ac:hud:updates`.
 2. ac-data enriquece cada jugador con perfil (nombre, tier, avatar) al servir datos de batalla.
-3. El overlay abre **una conexión SSE** y recibe eventos `battle` (snapshot completo o `{ ok: false, reason: "no_battle" }` al limpiar).
+3. El overlay mantiene **una conexión WSS** y recibe frames JSON `{ event, data }` — p. ej. `battle` (snapshot completo o `{ ok: false, reason: "no_battle" }` al limpiar).
 
-No hay endpoints de poll (`/hud/battle`, `/hud/battle/version`) ni Socket.io — solo el stream SSE.
+No hay endpoints de poll dedicados (`/hud/battle`, `/hud/battle/version`) — push por WSS + fallback `/hud/snapshot`.
 
 ## Flujo completo de batalla
 

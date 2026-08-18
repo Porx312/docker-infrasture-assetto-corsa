@@ -12,7 +12,7 @@ import {
   invalidateSessionCache,
   refreshPlayerHudCacheForLap,
 } from './lapCompletedHudRefresh.js';
-import { listConnectedHudSteamIds } from './hudSsePush.js';
+import { listConnectedHudSteamIds } from './hudPushHub.js';
 import { isHudRedisConfigured } from './hudRedis.js';
 import type { PlayerPresenceRecord } from './hudTypes.js';
 
@@ -124,7 +124,7 @@ export async function refreshHudForRivalLapObservers(
     return 0;
   }
 
-  const { pushHudUpdateForSteamId } = await import('./hudSsePush.js');
+  const { pushHudUpdateForSteamId } = await import('./hudPushHub.js');
   const authorNames = await buildAuthorNameMap(authors);
   let refreshed = 0;
   let localOnly = 0;

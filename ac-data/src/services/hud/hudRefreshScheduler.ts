@@ -210,7 +210,7 @@ async function repushSessionForPlayers(jobs: PlayerJob[]): Promise<void> {
     return;
   }
 
-  const { pushHudUpdateForSteamId } = await import('./hudSsePush.js');
+  const { pushHudUpdateForSteamId } = await import('./hudPushHub.js');
 
   const toPush = jobs.filter((job) => job.source !== 'lap' || job.pushAfterRefresh !== false);
   await Promise.all(

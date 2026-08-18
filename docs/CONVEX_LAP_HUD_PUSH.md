@@ -1,17 +1,17 @@
 # Convex: lap PB / rival HUD push (ProjectD)
 
-Session updates (rank, rivals, best lap, ELO) after a lap are **owned by Convex**, not ac-data `lap_completed` refresh. Convex schedules `notifyAcDataHudRefresh` → ac-data `POST /hud/worker/refresh-user` → SSE `hud_session`.
+Session updates (rank, rivals, best lap, ELO) after a lap are **owned by Convex**, not ac-data `lap_completed` refresh. Convex schedules `notifyAcDataHudRefresh` → ac-data `POST /hud/worker/refresh-user` → WSS `hud_session`.
 
-Overlay poll (`GET /hud/snapshot`) uses **interleaved sections** in poll-only mode (SSE inactive or `hud_transport=poll`):
+Overlay poll (`GET /hud/snapshot`) uses **interleaved sections** in poll-only mode (WSS inactive or `hud_transport=poll`):
 
 | Situation | `sections` |
 |-----------|------------|
 | Startup / context mismatch | `full` |
-| Live battle (prep/active) or SSE battle backup | `battle` |
+| Live battle (prep/active) or WSS battle backup | `battle` |
 | Post-battle terminal (finished/cancelled) | `session` (ELO) |
 | Idle competition, poll-only | **alternate** `battle` ↔ `session` each tick |
 
-This keeps Redis matchmaking (`battle`) and Convex session updates (`session`) without breaking either. SSE push is optional when TCP stream connects (`sseListeners>0`).
+This keeps Redis matchmaking (`battle`) and Convex session updates (`session`) without breaking either. WSS push is optional when the client connects (`wsListeners>0`).
 
 **PB contract:** ac-data `patchLastLapInCaches` updates **only** `last_lap_ms` in Redis. `best_lap_ms` comes from Convex via `refresh-user` (`lap_pb` / `rival_pb`). Never write PB from local lap events — small test values (e.g. `500` ms) get mis-displayed as 8:20.000 when Lua `normalize_lap_ms` treats values `<1000` as seconds.
 
@@ -32,7 +32,7 @@ sequenceDiagram
     Convex->>Convex: persist lap + recompute rank/rivals
     Convex->>AC: POST refresh-user reason=lap_pb|rival_pb
     AC->>Convex: getPlayerJoinContext
-    AC-->>HUD: SSE hud_session
+    AC-->>HUD: WSS hud_session
     HUD->>AC: poll sections=battle|session alternate
     AC-->>HUD: battle or session snapshot
 ```
@@ -49,7 +49,7 @@ sequenceDiagram
 
 Worker reasons handled in [`hudUserStatusNotify.ts`](../ac-data/src/services/hud/hudUserStatusNotify.ts):
 
-| `reason` | SSE `pushReason` | Live fetch |
+| `reason` | WSS `pushReason` | Live fetch |
 |----------|------------------|------------|
 | `lap_pb` | `lap_pb` | yes |
 | `rival_pb` | `rival_pb` | yes |
@@ -129,7 +129,7 @@ async function notifyHudSessionTargets(
 ```bash
 ./scripts/verify-push-sync-live.sh STEAM_ID lap_pb
 ./scripts/simulate-lap-completed.sh STEAM_ID --lap-ms 20000
-# overlay must have SSE connected; poll alone will not show session updates
+# overlay must have WSS connected; poll alone will not show session updates
 ```
 
 **After Convex deploy:**
@@ -162,7 +162,7 @@ Set on VPS:
 HUD_LAP_AC_DATA_REFRESH_ENABLED=true
 ```
 
-Restores ac-data debounced lap refresh + rival fan-out (legacy path). Still requires SSE for push delivery.
+Restores ac-data debounced lap refresh + rival fan-out (legacy path). Still requires WSS for push delivery.
 
 ## Deploy order
 

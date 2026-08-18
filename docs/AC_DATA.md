@@ -33,7 +33,7 @@ Host-native Node.js control plane for Assetto Corsa. **Cannot run in Docker** (s
 | **AC lifecycle** | `controller/controller.ts` | spawn/stop/restart, write INI |
 | **Events bridge** | `redisConvexBridge.ts`, `eventHandlers/*` | `ac:events` → Convex + HUD/pool side effects |
 | **Config applier** | `redisConfigApplier.ts` | `ac:config` → server_cfg.ini → restart |
-| **HUD** | `services/hud/*` (29 modules) | Redis cache + SSE + Convex queries |
+| **HUD** | `services/hud/*` (29 modules) | Redis cache + WSS push + Convex queries |
 | **Admin** | `adminRoutes.ts`, `public/js/*` | JWT, content, branding, activity |
 | **Activity** | `services/activity/*` | Read-only `XREVRANGE` on `ac:events` |
 
