@@ -630,28 +630,62 @@ export async function getPlayerCached(params: PlayerCacheParams): Promise<HudPla
   return result;
 }
 
+async function resolveSessionCacheEntry(
+  params: SessionQueryParams,
+  redisKey: string,
+  cached: string,
+  options: { deleteStaleNotConnected: boolean },
+): Promise<HudSessionResult | null> {
+  const parsed = normalizeSessionResult(JSON.parse(cached) as HudSessionResult);
+  if (isUncachedTransientError(parsed)) {
+    if (options.deleteStaleNotConnected) {
+      await hudRedisDel(redisKey);
+      return null;
+    }
+    return parsed;
+  }
+
+  if (parsed.ok && isProfileInvalidated(parsed.profile)) {
+    const invalidated = { ok: false as const, reason: 'user_invalidated' as const };
+    await markUserInvalidated(params.steamId);
+    return invalidated;
+  }
+  if (!parsed.ok && parsed.reason === 'user_invalidated') {
+    await markUserInvalidated(params.steamId);
+    return parsed;
+  }
+  if (parsed.ok) {
+    await syncUserInvalidationFromHudResults(params.steamId, undefined, parsed);
+  }
+  return parsed;
+}
+
+/** Redis-only session read; never calls Convex. Returns null on cache miss. */
+export async function peekSessionCache(params: SessionQueryParams): Promise<HudSessionResult | null> {
+  const redisKey = sessionRedisKey(buildSessionCacheKey(params));
+  const cached = await hudRedisGet(redisKey);
+  if (!cached) {
+    return null;
+  }
+  try {
+    return await resolveSessionCacheEntry(params, redisKey, cached, {
+      deleteStaleNotConnected: false,
+    });
+  } catch {
+    return null;
+  }
+}
+
 export async function getSessionCached(params: SessionQueryParams): Promise<HudSessionResult> {
   const cacheKey = buildSessionCacheKey(params);
   const redisKey = sessionRedisKey(cacheKey);
 
   const cached = await hudRedisGet(redisKey);
   if (cached) {
-    const parsed = normalizeSessionResult(JSON.parse(cached) as HudSessionResult);
-    if (isUncachedTransientError(parsed)) {
-      await hudRedisDel(redisKey);
-    } else {
-      if (parsed.ok && isProfileInvalidated(parsed.profile)) {
-        const invalidated = { ok: false as const, reason: 'user_invalidated' as const };
-        await markUserInvalidated(params.steamId);
-        return invalidated;
-      }
-      if (!parsed.ok && parsed.reason === 'user_invalidated') {
-        await markUserInvalidated(params.steamId);
-        return parsed;
-      }
-      if (parsed.ok) {
-        await syncUserInvalidationFromHudResults(params.steamId, undefined, parsed);
-      }
+    const parsed = await resolveSessionCacheEntry(params, redisKey, cached, {
+      deleteStaleNotConnected: true,
+    });
+    if (parsed) {
       return parsed;
     }
   }

@@ -7,8 +7,8 @@ import {
   resetHudPushConnectionsForTests,
   setHudPushHubTestHooks,
 } from './hudPushHub.js';
-import { setFetchPlayerJoinContextForTests } from './playerJoinContext.js';
-import { setFetchHudSessionForTests } from './lapCompletedHudRefresh.js';
+import { setFetchPlayerJoinContextForTests, resetPlayerJoinDedupeForTests } from './playerJoinContext.js';
+import { setFetchHudSessionForTests, invalidateHudCachesForSteamId } from './lapCompletedHudRefresh.js';
 import { refreshHudUserStatusFromConvex } from './hudUserStatusNotify.js';
 import { isHudRedisConfigured } from './hudRedis.js';
 import { clearUserInvalidated, readUserInvalidated } from './hudUserInvalidation.js';
@@ -30,6 +30,7 @@ test('refreshHudUserStatusFromConvex pushes hud_error after Convex invalidates u
   });
 
   await clearUserInvalidated(steamId);
+  resetPlayerJoinDedupeForTests();
 
   setFetchPlayerJoinContextForTests(async () => ({
     ok: false,
@@ -54,6 +55,7 @@ test('refreshHudUserStatusFromConvex pushes hud_error after Convex invalidates u
     setHudPushHubTestHooks(null);
     unregister();
     resetHudPushConnectionsForTests();
+    resetPlayerJoinDedupeForTests();
     await clearUserInvalidated(steamId);
   }
 });
@@ -71,6 +73,10 @@ test('refreshHudUserStatusFromConvex pushes hud_session after Convex re-validate
       events.push({ event, data });
     },
   });
+
+  await clearUserInvalidated(steamId);
+  resetPlayerJoinDedupeForTests();
+  await invalidateHudCachesForSteamId(steamId);
 
   setFetchPlayerJoinContextForTests(async () => ({
     ok: true,
@@ -151,6 +157,7 @@ test('refreshHudUserStatusFromConvex pushes hud_session after Convex re-validate
     setHudPushHubTestHooks(null);
     unregister();
     resetHudPushConnectionsForTests();
+    resetPlayerJoinDedupeForTests();
     await clearUserInvalidated(steamId);
   }
 });
@@ -170,6 +177,9 @@ test('refreshHudUserStatusFromConvex cosmetics reason bypasses session cache for
   });
 
   let loadSessionBypass: boolean | null = null;
+
+  resetPlayerJoinDedupeForTests();
+  await invalidateHudCachesForSteamId(steamId);
 
   setFetchPlayerJoinContextForTests(async () => ({
     ok: true,
@@ -261,7 +271,7 @@ test('refreshHudUserStatusFromConvex cosmetics reason bypasses session cache for
   }
 });
 
-test('refreshHudUserStatusFromConvex lap_pb reason bypasses session cache for live fetch', async () => {
+test('refreshHudUserStatusFromConvex lap_pb reason prefers session cache after join context', async () => {
   if (!isHudRedisConfigured()) {
     return;
   }
@@ -277,12 +287,15 @@ test('refreshHudUserStatusFromConvex lap_pb reason bypasses session cache for li
 
   let loadSessionBypass: boolean | null = null;
 
+  resetPlayerJoinDedupeForTests();
+  await invalidateHudCachesForSteamId(steamId);
+
   setFetchPlayerJoinContextForTests(async () => ({
     ok: true,
     user: { steamId, isInvalidated: false, name: 'Pilot' },
     session: {
       ok: true,
-      version: 'v-lap-stale',
+      version: 'v-lap-live',
       context: {
         server_id: 's1',
         server_name: 'test',
@@ -296,9 +309,9 @@ test('refreshHudUserStatusFromConvex lap_pb reason bypasses session cache for li
       },
       profile: {
         name: 'Pilot',
-        rank: 2,
-        tier: 5,
-        best_lap_ms: 280_000,
+        rank: 1,
+        tier: 6,
+        best_lap_ms: 270_000,
         car_name: 'AE86',
         car_id: 'ae86',
         steam_id: steamId,
@@ -306,32 +319,6 @@ test('refreshHudUserStatusFromConvex lap_pb reason bypasses session cache for li
       },
     },
   }));
-
-  const liveSession = {
-    ok: true as const,
-    version: 'v-lap-live',
-    context: {
-      server_id: 's1',
-      server_name: 'test',
-      track_id: 'pk_akina',
-      track_name: 'Akina',
-      layout_id: 'downhill',
-      layout_name: 'Downhill',
-      car_id: 'ae86',
-      car_name: 'AE86',
-      player_steam_id: steamId,
-    },
-    profile: {
-      name: 'Pilot',
-      rank: 1,
-      tier: 6,
-      best_lap_ms: 270_000,
-      car_name: 'AE86',
-      car_id: 'ae86',
-      steam_id: steamId,
-      rivals: { above: null, below: null },
-    },
-  };
 
   setHudPushHubTestHooks({
     fetchVersion: async () => ({
@@ -342,14 +329,38 @@ test('refreshHudUserStatusFromConvex lap_pb reason bypasses session cache for li
     }),
     loadSession: async (_id, bypassCache) => {
       loadSessionBypass = bypassCache;
-      return liveSession;
+      return {
+        ok: true as const,
+        version: 'v-lap-live',
+        context: {
+          server_id: 's1',
+          server_name: 'test',
+          track_id: 'pk_akina',
+          track_name: 'Akina',
+          layout_id: 'downhill',
+          layout_name: 'Downhill',
+          car_id: 'ae86',
+          car_name: 'AE86',
+          player_steam_id: steamId,
+        },
+        profile: {
+          name: 'Pilot',
+          rank: 1,
+          tier: 6,
+          best_lap_ms: 270_000,
+          car_name: 'AE86',
+          car_id: 'ae86',
+          steam_id: steamId,
+          rivals: { above: null, below: null },
+        },
+      };
     },
   });
 
   try {
     await refreshHudUserStatusFromConvex(steamId, { reason: 'lap_pb', publishEnforcement: false });
 
-    assert.equal(loadSessionBypass, true);
+    assert.equal(loadSessionBypass, false);
     const sessionEvent = events.find((entry) => entry.event === 'hud_session');
     assert.ok(sessionEvent);
     const payload = sessionEvent.data as { ok: boolean; profile?: { rank?: number; best_lap_ms?: number } };

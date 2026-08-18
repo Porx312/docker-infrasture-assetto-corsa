@@ -45,6 +45,10 @@ router.post('/worker/refresh-user', (req: Request, res: Response) => {
   const body = req.body as { reason?: unknown } | undefined;
   const reason = typeof body?.reason === 'string' ? body.reason.trim() : undefined;
 
+  console.log(
+    `[hud-worker] refresh-user steamId=${steamId}${reason ? ` reason=${reason}` : ''}`,
+  );
+
   void refreshHudUserStatusFromConvex(steamId, {
     publishEnforcement: true,
     reason,

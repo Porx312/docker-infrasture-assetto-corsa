@@ -1,8 +1,10 @@
 import { normalizeHudServerName } from './hudQueryNormalize.js';
-import { getSessionCached } from './lapCompletedHudRefresh.js';
+import { peekSessionCache } from './lapCompletedHudRefresh.js';
 import type { HudSessionResult } from './hudTypes.js';
 
 type HudSessionPresenceTestHooks = {
+  peekSessionCache?: (steamId: string) => Promise<HudSessionResult | null>;
+  /** @deprecated use peekSessionCache */
   getSessionCached?: (steamId: string) => Promise<HudSessionResult>;
 };
 
@@ -13,12 +15,15 @@ export function setHudSessionPresenceTestHooks(hooks: HudSessionPresenceTestHook
   testHooks = hooks;
 }
 
-async function readSessionCached(steamId: string): Promise<HudSessionResult> {
+async function readSessionCached(steamId: string): Promise<HudSessionResult | null> {
   const id = steamId.trim();
+  if (testHooks?.peekSessionCache) {
+    return testHooks.peekSessionCache(id);
+  }
   if (testHooks?.getSessionCached) {
     return testHooks.getSessionCached(id);
   }
-  return getSessionCached({ steamId: id });
+  return peekSessionCache({ steamId: id });
 }
 
 /** True when Redis session cache context.server_name differs from live presence server. */
@@ -27,7 +32,7 @@ export async function shouldBypassSessionCacheForPresence(
   presenceServerName: string,
 ): Promise<boolean> {
   const cached = await readSessionCached(steamId);
-  if (!cached.ok) {
+  if (!cached?.ok) {
     return false;
   }
   const cachedServer = normalizeHudServerName(cached.context?.server_name ?? '');

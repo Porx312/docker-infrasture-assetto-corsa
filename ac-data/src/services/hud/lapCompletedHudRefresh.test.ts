@@ -12,6 +12,7 @@ import {
   hudErrorCacheTtlSec,
   isLapPersonalBest,
   patchLastLapInCaches,
+  peekSessionCache,
   readCachedProfileBestLapMs,
   readCachedSessionFingerprint,
   refreshSessionCached,
@@ -75,6 +76,103 @@ test('hudErrorCacheTtlSec skips caching player_not_connected', () => {
 
 test('hudErrorCacheTtlSec uses long TTL for user_invalidated', () => {
   assert.equal(hudErrorCacheTtlSec('user_invalidated', 300), USER_INVALIDATED_TTL_SEC);
+});
+
+test('peekSessionCache returns null on miss without calling Convex', async () => {
+  if (!isHudRedisConfigured()) {
+    return;
+  }
+
+  const steamId = '76561199000000005';
+  const redisKey = sessionRedisKey(buildSessionCacheKey({ steamId }));
+  await hudRedisDel(redisKey);
+
+  let fetchCalls = 0;
+  setFetchHudSessionForTests(async () => {
+    fetchCalls += 1;
+    return { ok: false, reason: 'user_not_found' };
+  });
+
+  try {
+    assert.equal(await peekSessionCache({ steamId }), null);
+    assert.equal(fetchCalls, 0);
+  } finally {
+    setFetchHudSessionForTests(null);
+    await hudRedisDel(redisKey);
+  }
+});
+
+test('peekSessionCache returns cached session without calling Convex', async () => {
+  if (!isHudRedisConfigured()) {
+    return;
+  }
+
+  const steamId = '76561199000000006';
+  const redisKey = sessionRedisKey(buildSessionCacheKey({ steamId }));
+  const cachedOk: HudSessionOk = {
+    ok: true,
+    version: 'peek-v1',
+    context: {
+      server_id: 's1',
+      server_name: 'testing',
+      track_id: 'pk_akina',
+      track_name: 'Akina',
+      layout_id: 'downhill',
+      layout_name: 'Downhill',
+      car_id: 'ks_toyota_gt86',
+      car_name: 'GT86',
+      player_steam_id: steamId,
+    },
+    profile: null,
+  };
+  await hudRedisSet(redisKey, JSON.stringify(cachedOk), HUD_SESSION_TTL_SEC);
+
+  let fetchCalls = 0;
+  setFetchHudSessionForTests(async () => {
+    fetchCalls += 1;
+    return { ok: false, reason: 'user_not_found' };
+  });
+
+  try {
+    const result = await peekSessionCache({ steamId });
+    assert.equal(fetchCalls, 0);
+    assert.equal(result?.ok, true);
+    assert.equal((result as HudSessionOk).version, 'peek-v1');
+  } finally {
+    setFetchHudSessionForTests(null);
+    await hudRedisDel(redisKey);
+  }
+});
+
+test('peekSessionCache returns player_not_connected without deleting or fetching', async () => {
+  if (!isHudRedisConfigured()) {
+    return;
+  }
+
+  const steamId = '76561199000000007';
+  const redisKey = sessionRedisKey(buildSessionCacheKey({ steamId }));
+  await hudRedisSet(
+    redisKey,
+    JSON.stringify({ ok: false, reason: 'player_not_connected' }),
+    HUD_SESSION_TTL_SEC,
+  );
+
+  let fetchCalls = 0;
+  setFetchHudSessionForTests(async () => {
+    fetchCalls += 1;
+    return { ok: true, version: 'v-should-not-fetch', context: {}, profile: null };
+  });
+
+  try {
+    const result = await peekSessionCache({ steamId });
+    assert.equal(fetchCalls, 0);
+    assert.deepEqual(result, { ok: false, reason: 'player_not_connected' });
+    const stillCached = await hudRedisGet(redisKey);
+    assert.ok(stillCached);
+  } finally {
+    setFetchHudSessionForTests(null);
+    await hudRedisDel(redisKey);
+  }
 });
 
 test('getSessionCached ignores stale player_not_connected cache entries', async () => {

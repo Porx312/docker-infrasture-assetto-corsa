@@ -37,6 +37,10 @@ Convex `getHudSession` / `getHudVersion` are called only from **ac-data**, not f
 **Measure on VPS:**
 
 ```bash
+# Join fan-out check (player_join should be O(1), not N≈connected)
+./scripts/verify-join-hud-fanout.sh YOUR_STEAM_ID
+# See docs/JOIN_HUD_FANOUT_INVESTIGATION.md
+
 # In-process counters (since ac-data restart)
 ./scripts/verify-hud-convex-query-volume.sh
 

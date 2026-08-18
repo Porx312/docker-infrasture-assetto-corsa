@@ -49,8 +49,6 @@ export async function refreshHudUserStatusFromConvex(
 
   if (LIVE_SESSION_PUSH_REASONS.has(reason)) {
     console.log(`[hud-user-status] live session refresh for steamId=${trimmed}${reasonSuffix}`);
-  } else if (reason === 'cosmetics') {
-    console.log(`[hud-user-status] cosmetics refresh for steamId=${trimmed}${reasonSuffix}`);
   }
 
   try {
@@ -65,23 +63,35 @@ export async function refreshHudUserStatusFromConvex(
     throw error;
   }
 
-  if (LIVE_SESSION_PUSH_REASONS.has(reason)) {
-    const pushReason = pushReasonForWorkerReason(reason);
-    await pushHudUpdateForSteamId(trimmed, true, pushReason ? { pushReason } : undefined);
-    console.log(
-      `[hud-user-status] push done steamId=${trimmed}${reasonSuffix} wsListeners=${countHudPushListeners(trimmed)}`,
-    );
+  const pushReason = reason !== '' ? pushReasonForWorkerReason(reason) : 'join_initial';
+  const pushOptions = pushReason !== undefined ? { pushReason } : undefined;
+
+  // Cosmetics: join context can lag dedicated getHudSession — always bypass cache.
+  if (reason === 'cosmetics') {
+    await pushHudUpdateForSteamId(trimmed, true, pushOptions);
+    if (LIVE_SESSION_PUSH_REASONS.has(reason)) {
+      console.log(
+        `[hud-user-status] push done steamId=${trimmed}${reasonSuffix} wsListeners=${countHudPushListeners(trimmed)}`,
+      );
+    }
     return;
   }
 
+  // Join + lap/rival/session webhooks: getPlayerJoinContext already wrote ac:hud:session.
+  // Prefer cache; pushHudUpdateForSteamId still fetches getHudSession when version mismatches.
   const cached = await getSessionCached({ steamId: trimmed });
   if (cached.ok && cached.profile) {
     await pushHudUpdateForSteamId(trimmed, false, {
       preferCachedSession: true,
-      pushReason: 'join_initial',
+      ...pushOptions,
     });
-    return;
+  } else {
+    await pushHudUpdateForSteamId(trimmed, true, pushOptions);
   }
 
-  await pushHudUpdateForSteamId(trimmed, true, { pushReason: 'join_initial' });
+  if (LIVE_SESSION_PUSH_REASONS.has(reason)) {
+    console.log(
+      `[hud-user-status] push done steamId=${trimmed}${reasonSuffix} wsListeners=${countHudPushListeners(trimmed)}`,
+    );
+  }
 }

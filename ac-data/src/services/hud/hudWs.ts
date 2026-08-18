@@ -16,7 +16,7 @@ import {
   resolvePlayerPresence,
   unregisterBattleSsePresence,
 } from './hudPlayerPresence.js';
-import { getSessionCached } from './lapCompletedHudRefresh.js';
+import { peekSessionCache } from './lapCompletedHudRefresh.js';
 import {
   registerHudPushConnection,
   pushHudUpdateForSteamId,
@@ -135,8 +135,8 @@ async function handleHudWsConnection(ws: WebSocket, steamId: string, serverName:
     }
     void renewHudSsePresence(steamId);
     void (async () => {
-      const cached = await getSessionCached({ steamId });
-      if (!cached.ok && cached.reason === 'player_not_connected') {
+      const cached = await peekSessionCache({ steamId });
+      if (cached && !cached.ok && cached.reason === 'player_not_connected') {
         await pushHudUpdateForSteamId(steamId, true);
       }
     })();

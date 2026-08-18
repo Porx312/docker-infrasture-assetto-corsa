@@ -23,7 +23,7 @@ Header alternative: `X-Worker-Secret: <CONVEX_WORKER_SECRET>`
 
 1. Calls `getPlayerJoinContext`
 2. Updates Redis: ban, not-registered, HUD caches, `ac:user:prefs:*`, `ac:user:profile:cosmetics_fp:*`
-3. Pushes SSE to connected HUD clients (`lap_pb` / `rival_pb` / `session` / `cosmetics` use live `getHudSession`)
+3. Pushes WSS to connected HUD clients (`lap_pb` / `rival_pb` / `session` use cached session from join context when profile present; `cosmetics` uses live `getHudSession`)
 4. **`publishEnforcement: true`** — pub/sub kick for ban / `user_not_found` on all servers (mid-session)
 
 `player_join` uses the same refresh path with **`publishEnforcement: false`** (deferred kick on connect avoids pub/sub race).

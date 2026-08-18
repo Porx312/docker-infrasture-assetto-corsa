@@ -1,5 +1,6 @@
 import { fetchHudVersion, isHudConvexConfigured } from './hudConvex.js';
 import { normalizeHudProfile } from './hudProfile.js';
+import { buildSessionCacheKey, sessionRedisKey } from './hudCacheKeys.js';
 import { invalidateSessionCache } from './hudSessionCache.js';
 import {
   shouldBypassSessionCacheForPresence,
@@ -10,6 +11,7 @@ import {
   getSessionCached,
   sessionLeaderboardFingerprint,
 } from './lapCompletedHudRefresh.js';
+import { HUD_SESSION_TTL_SEC, hudRedisTouch } from './hudRedis.js';
 import { markUserInvalidated } from './hudUserInvalidation.js';
 import { TRANSIENT_SSE_SESSION_REASONS } from './hudTransientReasons.js';
 import type { HudSessionResult, HudVersionOk, HudVersionResult } from './hudTypes.js';
@@ -180,6 +182,12 @@ function emitHudSessionToSteamId(steamId: string, session: HudSessionResult): vo
   if (!listeners?.size) {
     warnNoPushListeners(steamId, 'hud_session');
     return;
+  }
+  if (session.ok) {
+    void hudRedisTouch(
+      sessionRedisKey(buildSessionCacheKey({ steamId: steamId.trim() })),
+      HUD_SESSION_TTL_SEC,
+    );
   }
   for (const conn of listeners) {
     if (sessionFingerprint !== '') {

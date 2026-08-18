@@ -12,7 +12,7 @@ const steamId = '76561199000000001';
 
 test('shouldBypassSessionCacheForPresence returns false when cache missing', async () => {
   setHudSessionPresenceTestHooks({
-    getSessionCached: async () => ({ ok: false, reason: 'player_not_connected' }),
+    peekSessionCache: async () => null,
   });
   try {
     assert.equal(await shouldBypassSessionCacheForPresence(steamId, 'Battle'), false);
@@ -49,7 +49,7 @@ test('shouldBypassSessionCacheForPresence returns false when servers match', asy
   };
 
   setHudSessionPresenceTestHooks({
-    getSessionCached: async () => session,
+    peekSessionCache: async () => session,
   });
   try {
     assert.equal(await shouldBypassSessionCacheForPresence(steamId, 'Gunsai Testing'), false);
@@ -86,7 +86,7 @@ test('shouldBypassSessionCacheForPresence returns true when presence server diff
   };
 
   setHudSessionPresenceTestHooks({
-    getSessionCached: async () => session,
+    peekSessionCache: async () => session,
   });
   try {
     assert.equal(await shouldBypassSessionCacheForPresence(steamId, 'Battle'), true);
