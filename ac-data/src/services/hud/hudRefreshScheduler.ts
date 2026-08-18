@@ -5,6 +5,7 @@ import {
   refreshPlayerHudCacheForLap,
 } from './lapCompletedHudRefresh.js';
 import { isHudConvexConfigured } from './hudConvex.js';
+import { countHudPushListeners } from './hudPushHub.js';
 import { refreshHudForRivalLapObservers, type LapAuthorPb } from './hudRivalFanout.js';
 import { isHudRedisConfigured } from './hudRedis.js';
 
@@ -180,29 +181,9 @@ function queueBattlePlayersFromPayload(payload: Record<string, unknown>): void {
   scheduleFlush();
 }
 
-const prewarmedBattleIds = new Set<string>();
-
-export function scheduleHudRefreshAfterBattleUpdate(payload: Record<string, unknown>): void {
-  if (!isHudRedisConfigured() || !isHudConvexConfigured()) {
-    return;
-  }
-
-  const data = (payload.data ?? {}) as Record<string, unknown>;
-  const status = typeof data.status === 'string' ? data.status.trim().toLowerCase() : '';
-  if (status === 'finished' || status === 'draw') {
-    return;
-  }
-
-  const battleId = typeof data.battleId === 'string' ? data.battleId.trim() : '';
-  if (battleId === '') {
-    return;
-  }
-  if (prewarmedBattleIds.has(battleId)) {
-    return;
-  }
-  prewarmedBattleIds.add(battleId);
-
-  queueBattlePlayersFromPayload(payload);
+/** Battle live frames use Redis pub/sub (pushBattleToRoom); session refresh runs on battle_finished only. */
+export function scheduleHudRefreshAfterBattleUpdate(_payload: Record<string, unknown>): void {
+  // No-op: avoid getHudSession on battle_update prewarm; battle_finished owns ELO session refresh.
 }
 
 async function repushSessionForPlayers(jobs: PlayerJob[]): Promise<void> {
@@ -217,7 +198,7 @@ async function repushSessionForPlayers(jobs: PlayerJob[]): Promise<void> {
     toPush.map((job) => {
       if (job.source === 'battle') {
         return pushHudUpdateForSteamId(job.steamId, false, {
-          skipIfSessionUnchanged: false,
+          preferCachedSession: true,
           pushReason: 'battle_elo',
         });
       }
@@ -317,6 +298,11 @@ async function flushHudRefreshQueue(): Promise<void> {
           continue;
         }
 
+        if (countHudPushListeners(job.steamId) === 0) {
+          console.log(`[hud-refresh] skip steamId=${job.steamId} no ws listeners`);
+          continue;
+        }
+
         await refreshPlayerHudCache({
           steamId: job.steamId,
           source: 'battle',
@@ -352,7 +338,6 @@ export function resetHudRefreshSchedulerForTests(): void {
   }
   pendingPlayers.clear();
   pendingBoards.clear();
-  prewarmedBattleIds.clear();
   flushPromise = null;
 }
 

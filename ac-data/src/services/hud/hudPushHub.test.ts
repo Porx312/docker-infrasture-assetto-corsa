@@ -568,6 +568,72 @@ test('pushHudUpdateForSteamId skips getHudSession when Redis version matches get
   }
 });
 
+test('pushHudUpdateForSteamId does not refetch when cached session ok but version mismatch', async () => {
+  const events: Array<{ event: string; data: unknown }> = [];
+
+  const unregister = registerHudPushConnection({
+    steamId,
+    lastVersionFingerprint: null,
+    send: (event, data) => {
+      events.push({ event, data });
+    },
+  });
+
+  const version: HudVersionOk = {
+    ok: true,
+    version: 'srv:track:layout:car:2',
+    lbVersion: 'srv:track:layout:car',
+    playerVersion: 99,
+  };
+
+  const cachedSession: HudSessionOk = {
+    ok: true,
+    version: 'srv:track:layout:car:1',
+    context: {
+      server_id: 's1',
+      server_name: 'test',
+      track_id: 'pk_akina',
+      track_name: 'Akina',
+      layout_id: 'downhill',
+      layout_name: 'Downhill',
+      car_id: 'ae86',
+      car_name: 'AE86',
+      player_steam_id: steamId,
+    },
+    profile: {
+      name: 'Pilot',
+      rank: 2,
+      tier: 4,
+      best_lap_ms: 118_000,
+      car_name: 'AE86',
+      car_id: 'ae86',
+      steam_id: steamId,
+      rivals: { above: null, below: null },
+    },
+  };
+
+  let loadCalls = 0;
+  setHudPushHubTestHooks({
+    fetchVersion: async () => version,
+    getSessionCached: async () => cachedSession,
+    loadSession: async () => {
+      loadCalls += 1;
+      return cachedSession;
+    },
+  });
+
+  try {
+    await pushHudUpdateForSteamId(steamId, false);
+    assert.equal(loadCalls, 0);
+    assert.equal(events.length, 2);
+    assert.equal((events[1]?.data as { version?: string }).version, cachedSession.version);
+  } finally {
+    setHudPushHubTestHooks(null);
+    unregister();
+    resetHudPushConnectionsForTests();
+  }
+});
+
 test('pushHudUpdateForSteamId falls back to cached session on transient live failure', async () => {
   const events: Array<{ event: string; data: unknown }> = [];
 

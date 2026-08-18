@@ -271,7 +271,9 @@ Formato wire: `event: battle\ndata: {...}\n\n`
 
 Comentarios `: keepalive` cada ~30 s mantienen la conexión viva tras proxies. En cada keepalive, ac-data **renueva** `ac:hud:presence:{steamId}` en Redis.
 
-Tras `battle_finished` (Convex actualiza elo), ac-data refresca el perfil de **ambos** pilotos con steam id válido y vuelve a emitir `battle` + `hud_session` (~400 ms delay, `HUD_BATTLE_REFRESH_DELAY_MS`).
+Tras `battle_finished` (Convex actualiza elo), ac-data refresca el perfil de **ambos** pilotos con steam id válido **solo si tienen WSS conectado** (`wsListeners > 0`) y vuelve a emitir `hud_session` desde cache Redis (~400 ms delay, `HUD_BATTLE_REFRESH_DELAY_MS`). Los frames `battle` en vivo siguen llegando por pub/sub en `battle_update` sin llamar a `getHudSession`.
+
+**Convex query volume:** `battle_update` ya no dispara refresh de session. Opcional en VPS: `HUD_BATTLE_ELO_RETRY_ATTEMPTS=1` (default 3) reduce reintentos de `getHudSession` por jugador al terminar batalla.
 
 ## Parámetros de query (obligatorios)
 

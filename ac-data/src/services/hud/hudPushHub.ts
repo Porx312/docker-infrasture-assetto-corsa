@@ -341,7 +341,10 @@ export async function pushHudUpdateForSteamId(
     return;
   }
 
-  const session = await resolveSessionForPush(steamId, bypassCache);
+  const session =
+    !bypassCache && cachedSession.ok
+      ? cachedSession
+      : await resolveSessionForPush(steamId, bypassCache);
   if (!session.ok) {
     if (session.reason === 'user_invalidated') {
       await markUserInvalidated(steamId);

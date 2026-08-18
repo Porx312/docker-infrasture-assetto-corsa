@@ -10,6 +10,7 @@ import {
   scheduleHudRefreshAfterLap,
 } from './hudRefreshScheduler.js';
 import { setRivalFanoutHandlerForTests } from './hudRivalFanout.js';
+import { setFetchHudSessionForTests } from './lapCompletedHudRefresh.js';
 
 test('scheduleHudRefreshAfterLap queues board and player without top10', () => {
   resetHudRefreshSchedulerForTests();
@@ -106,7 +107,7 @@ test('scheduleHudRefreshAfterBattleFinished ignores unknown steam ids', () => {
   assert.equal(players, 0);
 });
 
-test('scheduleHudRefreshAfterBattleUpdate queues both players once per battleId', () => {
+test('scheduleHudRefreshAfterBattleUpdate does not queue session refresh', () => {
   resetHudRefreshSchedulerForTests();
 
   const payload = {
@@ -127,7 +128,39 @@ test('scheduleHudRefreshAfterBattleUpdate queues both players once per battleId'
   scheduleHudRefreshAfterBattleUpdate(payload);
 
   const { players } = getHudRefreshQueueSizeForTests();
-  assert.equal(players, 2);
+  assert.equal(players, 0);
+});
+
+test('flushHudRefreshQueueForTests skips battle session refresh without ws listeners', async () => {
+  resetHudRefreshSchedulerForTests();
+  let fetchCalls = 0;
+  setFetchHudSessionForTests(async () => {
+    fetchCalls += 1;
+    return { ok: false, reason: 'user_not_found' };
+  });
+
+  process.env.HUD_BATTLE_REFRESH_DELAY_MS = '0';
+
+  try {
+    scheduleHudRefreshAfterBattleFinished({
+      serverName: 'ProjectD',
+      data: {
+        track: 'pk_akina',
+        trackConfig: 'downhill',
+        player1SteamId: '76561199000000001',
+        player2SteamId: '76561199000000002',
+        player1Car: 'ks_toyota_gt86',
+        player2Car: 'ks_mazda_rx7',
+      },
+    });
+
+    await flushHudRefreshQueueForTests();
+    assert.equal(fetchCalls, 0);
+  } finally {
+    delete process.env.HUD_BATTLE_REFRESH_DELAY_MS;
+    setFetchHudSessionForTests(null);
+    resetHudRefreshSchedulerForTests();
+  }
 });
 
 test('scheduleHudRefreshAfterBattleUpdate skips finished status', () => {
