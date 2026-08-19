@@ -41,9 +41,11 @@ redis-data/
 # Runtime data
 **/server_pids.json
 telemetry-data/redis_applied_config_versions.json
-# ProjectD HUD / launcher release ZIPs (admin panel uploads)
+# ProjectD HUD / launcher release ZIPs + manifests (admin panel uploads; runtime only)
+ac-data/projectd-hud/manifest.json
 ac-data/projectd-hud/releases/*
 !ac-data/projectd-hud/releases/.gitkeep
+ac-data/projectd-launcher/manifest.json
 ac-data/projectd-launcher/releases/*
 !ac-data/projectd-launcher/releases/.gitkeep
 ProjectD-HUD/releases/

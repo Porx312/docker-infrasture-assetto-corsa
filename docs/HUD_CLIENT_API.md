@@ -73,7 +73,7 @@ Admin panel → **ProjectD HUD** tab, or:
 
 | Variable | Purpose |
 |----------|---------|
-| `PROJECTD_HUD_PATH` | Directory with `manifest.json` + `releases/` |
+| `PROJECTD_HUD_PATH` | Directory with `manifest.json` (runtime; gitignored) + `releases/` |
 | `CLIENT_SYNC_MAX_ZIP_MB` | Max upload size for HUD ZIP |
 | `CLIENT_LAUNCHER_*` | Rate limits / CORS on `/client/*` (applies to HUD routes) |
 | `CLIENT_LAUNCHER_REQUIRE_API_KEY` + `CLIENT_SYNC_API_KEY` | Optional API key on `/client/*` |
