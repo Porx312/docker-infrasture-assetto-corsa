@@ -42,6 +42,18 @@ function wsKeepaliveMs(): number {
   return Number(process.env.HUD_WS_KEEPALIVE_MS || process.env.HUD_SSE_KEEPALIVE_MS || 30_000);
 }
 
+const keepaliveLogCounter = new Map<string, number>();
+
+function logKeepaliveCachePeek(steamId: string, cached: Awaited<ReturnType<typeof peekSessionCache>>): void {
+  const n = (keepaliveLogCounter.get(steamId) ?? 0) + 1;
+  keepaliveLogCounter.set(steamId, n);
+  const state = cached === null ? 'miss' : cached.ok ? 'hit' : cached.reason;
+  if (state === 'miss' && n % 20 !== 0) {
+    return;
+  }
+  console.log(`[hud-ws-keepalive] steamId=${steamId} cache=${state}`);
+}
+
 function requireQueryString(value: unknown): string | null {
   if (typeof value !== 'string') {
     return null;
@@ -136,6 +148,7 @@ async function handleHudWsConnection(ws: WebSocket, steamId: string, serverName:
     void renewHudSsePresence(steamId);
     void (async () => {
       const cached = await peekSessionCache({ steamId });
+      logKeepaliveCachePeek(steamId, cached);
       if (cached && !cached.ok && cached.reason === 'player_not_connected') {
         await pushHudUpdateForSteamId(steamId, true);
       }

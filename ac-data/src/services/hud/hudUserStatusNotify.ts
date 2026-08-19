@@ -71,7 +71,7 @@ export async function refreshHudUserStatusFromConvex(
     await pushHudUpdateForSteamId(trimmed, true, pushOptions);
     if (LIVE_SESSION_PUSH_REASONS.has(reason)) {
       console.log(
-        `[hud-user-status] push done steamId=${trimmed}${reasonSuffix} wsListeners=${countHudPushListeners(trimmed)}`,
+        `[hud-worker] refresh-user done steamId=${trimmed}${reasonSuffix} joinContext=1 fetchSession=1 wsListeners=${countHudPushListeners(trimmed)}`,
       );
     }
     return;
@@ -80,18 +80,20 @@ export async function refreshHudUserStatusFromConvex(
   // Join + lap/rival/session webhooks: getPlayerJoinContext already wrote ac:hud:session.
   // Prefer cache; pushHudUpdateForSteamId still fetches getHudSession when version mismatches.
   const cached = await getSessionCached({ steamId: trimmed });
+  let fetchSession = 0;
   if (cached.ok && cached.profile) {
     await pushHudUpdateForSteamId(trimmed, false, {
       preferCachedSession: true,
       ...pushOptions,
     });
   } else {
+    fetchSession = 1;
     await pushHudUpdateForSteamId(trimmed, true, pushOptions);
   }
 
   if (LIVE_SESSION_PUSH_REASONS.has(reason)) {
     console.log(
-      `[hud-user-status] push done steamId=${trimmed}${reasonSuffix} wsListeners=${countHudPushListeners(trimmed)}`,
+      `[hud-worker] refresh-user done steamId=${trimmed}${reasonSuffix} joinContext=1 fetchSession=${fetchSession} wsListeners=${countHudPushListeners(trimmed)}`,
     );
   }
 }

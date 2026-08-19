@@ -80,3 +80,4 @@ Copy from `.env.example` into `.env.local` / `.env.production`:
 - `USER_BAN_ENABLED=true`
 - `HUD_LAP_RIVAL_FANOUT_ENABLED=true` (only when legacy `HUD_LAP_AC_DATA_REFRESH_ENABLED=true`)
 - Lap/rival session push: Convex → `refresh-user` — see [`CONVEX_LAP_HUD_PUSH.md`](CONVEX_LAP_HUD_PUSH.md)
+- Audit report: [`HUD_GETHUDSESSION_LAP_AUDIT.md`](HUD_GETHUDSESSION_LAP_AUDIT.md) — `./scripts/verify-hud-lap-session-audit.sh`

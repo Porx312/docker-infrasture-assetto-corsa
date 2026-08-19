@@ -51,6 +51,11 @@ export async function handleLapCompletedAfterIngest(payload: EventPayload): Prom
     await patchLastLapInCaches({ steamId: lapSteamId }, lapTimeMs);
   }
 
+  const action = isPersonalBest ? 'invalidate_cache' : 'patch_only';
+  console.log(
+    `[hud-lap-post-ingest] steamId=${lapSteamId} pbLocal=${isPersonalBest} lapMs=${Number.isFinite(lapTimeMs) ? lapTimeMs : 'n/a'} action=${action}`,
+  );
+
   if (isPersonalBest) {
     await invalidateHudCachesForSteamId(lapSteamId);
   }

@@ -341,10 +341,16 @@ export async function pushHudUpdateForSteamId(
     return;
   }
 
-  const session =
-    !bypassCache && cachedSession.ok
-      ? cachedSession
-      : await resolveSessionForPush(steamId, bypassCache);
+  const pushReason = options?.pushReason ?? 'push';
+  let session: HudSessionResult;
+  if (!bypassCache && cachedSession.ok) {
+    session = cachedSession;
+  } else {
+    console.log(
+      `[hud-push] fetchHudSession steamId=${steamId} reason=${pushReason} bypassCache=${bypassCache}`,
+    );
+    session = await resolveSessionForPush(steamId, bypassCache);
+  }
   if (!session.ok) {
     if (session.reason === 'user_invalidated') {
       await markUserInvalidated(steamId);
