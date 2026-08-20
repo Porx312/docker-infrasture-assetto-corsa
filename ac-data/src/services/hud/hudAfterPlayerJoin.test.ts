@@ -16,7 +16,7 @@ import {
   resetPlayerJoinDedupeForTests,
   setFetchPlayerJoinContextForTests,
 } from './playerJoinContext.js';
-import { HUD_TRANSIENT_ERROR_TTL_SEC, hudRedisDel, hudRedisGet, isHudRedisConfigured } from './hudRedis.js';
+import { HUD_PLAYER_NOT_CONNECTED_TTL_SEC, HUD_TRANSIENT_ERROR_TTL_SEC, hudRedisDel, hudRedisGet, isHudRedisConfigured } from './hudRedis.js';
 import {
   clearUserInvalidated,
   readUserInvalidated,
@@ -30,8 +30,8 @@ import {
 
 const steamId = '76561199000000999';
 
-test('hudErrorCacheTtlSec never caches player_not_connected', () => {
-  assert.equal(hudErrorCacheTtlSec('player_not_connected', 300), null);
+test('hudErrorCacheTtlSec uses short TTL for player_not_connected', () => {
+  assert.equal(hudErrorCacheTtlSec('player_not_connected', 300), HUD_PLAYER_NOT_CONNECTED_TTL_SEC);
 });
 
 test('hudErrorCacheTtlSec uses short TTL for transient Convex errors', () => {

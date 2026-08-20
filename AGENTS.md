@@ -123,7 +123,7 @@ Session-only HUD: no `getHudPlayer` / `CONVEX_HUD_PLAYER_QUERY`. See [`docs/CONV
 - `docs/TELEMETRY_DATA.md` — telemetry-data subsystem map, env vars, deploy checklist
 - `SETUP_GUIDE.md` — Full setup with troubleshooting
 - `docs/VPS_FLEET_SETUP.md` — Multi-VPS clones: unique `AC_INSTANCE_ID`, Redis consumers, battle HUD keys
-- `docs/VPS_CAPACITY.md` — VPS sizing, 300 on-demand pool, hardware checklist
+- Battle HUD enrich: [`docs/HUD_BATTLE_ENRICH.md`](docs/HUD_BATTLE_ENRICH.md)
 - `scripts/vps-capacity-check.sh` — RAM/CPU/acServer snapshot on the host
 - `scripts/load-test-ac-servers.sh` — start N servers via API and log metrics
 - `install.sh` — Automated dependency installation

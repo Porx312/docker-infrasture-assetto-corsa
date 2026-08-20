@@ -4,7 +4,11 @@ import { createRedisClient, isRedisConfigured } from '../redisClient.js';
 
 export const HUD_PLAYER_TTL_SEC = Number(process.env.HUD_PLAYER_TTL_SEC || 10);
 export const HUD_SESSION_TTL_SEC = Number(process.env.HUD_SESSION_TTL_SEC || 300);
-/** Short TTL for transient Convex errors (not player_not_connected — that is never cached). */
+/** Short negative cache when rival/player is not in Convex live_players (battle enrich loop guard). */
+export const HUD_PLAYER_NOT_CONNECTED_TTL_SEC = Number(
+  process.env.HUD_PLAYER_NOT_CONNECTED_TTL_SEC || 4,
+);
+/** Short TTL for transient Convex errors (convex_unreachable is never cached). */
 export const HUD_TRANSIENT_ERROR_TTL_SEC = Number(process.env.HUD_TRANSIENT_ERROR_TTL_SEC || 10);
 /** Refreshed on server_status, player_join, and successful HUD reads. */
 export const HUD_PRESENCE_TTL_SEC = Number(process.env.HUD_PRESENCE_TTL_SEC || 180);

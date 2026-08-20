@@ -63,6 +63,20 @@ test('partition: unknown error is retried', () => {
   );
 });
 
+test('partition: Convex coalesced battle_update + battle_finished acks both', () => {
+  const coalesced = [pending('battle_update', '1'), pending('battle_finished', '2')];
+  const partitioned = partitionIngestResults(coalesced, {
+    ok: true,
+    failed: 0,
+    processed: 1,
+    coalescedFrom: 2,
+    results: [{ ok: true, eventType: 'battle_finished', index: 0 }],
+  });
+  assert.deepEqual(partitioned.doneIndices, [0, 1]);
+  assert.equal(partitioned.retry.length, 0);
+  assert.equal(partitioned.unsafeMissingResults, false);
+});
+
 test('partition: missing results retries whole batch', () => {
   const coalesced = [pending('player_join', '1')];
   const partitioned = partitionIngestResults(coalesced, { ok: false, failed: 1 });

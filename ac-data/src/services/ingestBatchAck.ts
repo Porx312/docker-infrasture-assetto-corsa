@@ -13,6 +13,8 @@ export type IngestBatchResult = {
   ok?: boolean;
   failed?: number;
   processed?: number;
+  /** Convex may merge multiple worker events (e.g. battle_update + battle_finished). */
+  coalescedFrom?: number;
   results?: IngestEventResult[];
 };
 
@@ -76,6 +78,23 @@ export function partitionIngestResults(
       retry: [...coalesced],
       nonRetryableCount: 0,
       unsafeMissingResults: true,
+    };
+  }
+
+  // Convex coalesced multiple events into fewer rows (e.g. battle_update +
+  // battle_finished → one battle_finished result at index 0). Trust batch-level
+  // success so we XACK all source events and run after-ingest hooks.
+  if (
+    result.ok === true &&
+    (result.failed ?? 0) === 0 &&
+    results.length < coalesced.length &&
+    results.every((row) => row.ok === true)
+  ) {
+    return {
+      doneIndices: coalesced.map((_, i) => i),
+      retry: [],
+      nonRetryableCount: 0,
+      unsafeMissingResults: false,
     };
   }
 

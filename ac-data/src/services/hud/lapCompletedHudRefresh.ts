@@ -12,10 +12,10 @@ import {
   profileCosmeticsFingerprint,
 } from './hudProfile.js';
 import {
+  HUD_PLAYER_NOT_CONNECTED_TTL_SEC,
   HUD_PLAYER_TTL_SEC,
   HUD_SESSION_TTL_SEC,
   HUD_TRANSIENT_ERROR_TTL_SEC,
-  hudRedisDel,
   hudRedisGet,
   hudRedisSet,
 } from './hudRedis.js';
@@ -133,7 +133,10 @@ export function setFetchHudSessionForTests(fn: FetchHudSessionFn | null): void {
 
 /** TTL for caching failed HUD reads; null means do not cache. */
 export function hudErrorCacheTtlSec(reason: string, defaultTtlSec: number): number | null {
-  if (reason === 'player_not_connected' || reason === 'convex_unreachable') {
+  if (reason === 'player_not_connected') {
+    return HUD_PLAYER_NOT_CONNECTED_TTL_SEC;
+  }
+  if (reason === 'convex_unreachable') {
     return null;
   }
   if (reason === 'user_invalidated') {
@@ -211,10 +214,6 @@ async function persistDerivedPlayerAndSessionCaches(
   }
 }
 
-function isUncachedTransientError(result: HudPlayerResult | HudSessionResult): boolean {
-  return !result.ok && result.reason === 'player_not_connected';
-}
-
 function isTransientHudFailure(result: HudPlayerResult | HudSessionResult): boolean {
   if (result.ok) {
     return false;
@@ -233,10 +232,6 @@ async function readCachedSessionResult(redisKey: string): Promise<HudSessionResu
   }
   try {
     const parsed = normalizeSessionResult(JSON.parse(cached) as HudSessionResult);
-    if (isUncachedTransientError(parsed)) {
-      await hudRedisDel(redisKey);
-      return null;
-    }
     if (parsed.ok && isProfileInvalidated(parsed.profile)) {
       return { ok: false, reason: 'user_invalidated' };
     }
@@ -555,21 +550,19 @@ export async function getPlayerCached(params: PlayerCacheParams): Promise<HudPla
   const cached = await hudRedisGet(redisKey);
   if (cached) {
     const parsed = normalizePlayerResult(JSON.parse(cached) as HudPlayerResult);
-    if (isUncachedTransientError(parsed)) {
-      await hudRedisDel(redisKey);
-    } else {
-      if (parsed.ok && isProfileInvalidated(parsed.profile)) {
-        const invalidated = { ok: false as const, reason: 'user_invalidated' as const };
-        await markUserInvalidated(params.steamId);
-        return invalidated;
-      }
-      if (!parsed.ok && parsed.reason === 'user_invalidated') {
-        await markUserInvalidated(params.steamId);
-        return parsed;
-      }
-      if (parsed.ok) {
-        await syncUserInvalidationFromHudResults(params.steamId, parsed);
-      }
+    if (parsed.ok && isProfileInvalidated(parsed.profile)) {
+      const invalidated = { ok: false as const, reason: 'user_invalidated' as const };
+      await markUserInvalidated(params.steamId);
+      return invalidated;
+    }
+    if (!parsed.ok && parsed.reason === 'user_invalidated') {
+      await markUserInvalidated(params.steamId);
+      return parsed;
+    }
+    if (parsed.ok) {
+      await syncUserInvalidationFromHudResults(params.steamId, parsed);
+    }
+    if (parsed.ok || parsed.reason === 'player_not_connected') {
       return parsed;
     }
   }
@@ -579,20 +572,20 @@ export async function getPlayerCached(params: PlayerCacheParams): Promise<HudPla
   if (sessionCached) {
     try {
       const session = normalizeSessionResult(JSON.parse(sessionCached) as HudSessionResult);
-      if (!isUncachedTransientError(session)) {
-        const derived = normalizePlayerResult(playerResultFromSession(session));
-        if (derived.ok && isProfileInvalidated(derived.profile)) {
-          const invalidated = { ok: false as const, reason: 'user_invalidated' as const };
-          await markUserInvalidated(params.steamId);
-          return invalidated;
-        }
-        if (!derived.ok && derived.reason === 'user_invalidated') {
-          await markUserInvalidated(params.steamId);
-          return derived;
-        }
-        if (derived.ok) {
-          await syncUserInvalidationFromHudResults(params.steamId, derived, session);
-        }
+      const derived = normalizePlayerResult(playerResultFromSession(session));
+      if (derived.ok && isProfileInvalidated(derived.profile)) {
+        const invalidated = { ok: false as const, reason: 'user_invalidated' as const };
+        await markUserInvalidated(params.steamId);
+        return invalidated;
+      }
+      if (!derived.ok && derived.reason === 'user_invalidated') {
+        await markUserInvalidated(params.steamId);
+        return derived;
+      }
+      if (derived.ok) {
+        await syncUserInvalidationFromHudResults(params.steamId, derived, session);
+      }
+      if (derived.ok || derived.reason === 'player_not_connected') {
         return derived;
       }
     } catch {
@@ -634,16 +627,8 @@ async function resolveSessionCacheEntry(
   params: SessionQueryParams,
   redisKey: string,
   cached: string,
-  options: { deleteStaleNotConnected: boolean },
 ): Promise<HudSessionResult | null> {
   const parsed = normalizeSessionResult(JSON.parse(cached) as HudSessionResult);
-  if (isUncachedTransientError(parsed)) {
-    if (options.deleteStaleNotConnected) {
-      await hudRedisDel(redisKey);
-      return null;
-    }
-    return parsed;
-  }
 
   if (parsed.ok && isProfileInvalidated(parsed.profile)) {
     const invalidated = { ok: false as const, reason: 'user_invalidated' as const };
@@ -668,9 +653,7 @@ export async function peekSessionCache(params: SessionQueryParams): Promise<HudS
     return null;
   }
   try {
-    return await resolveSessionCacheEntry(params, redisKey, cached, {
-      deleteStaleNotConnected: false,
-    });
+    return await resolveSessionCacheEntry(params, redisKey, cached);
   } catch {
     return null;
   }
@@ -682,9 +665,7 @@ export async function getSessionCached(params: SessionQueryParams): Promise<HudS
 
   const cached = await hudRedisGet(redisKey);
   if (cached) {
-    const parsed = await resolveSessionCacheEntry(params, redisKey, cached, {
-      deleteStaleNotConnected: true,
-    });
+    const parsed = await resolveSessionCacheEntry(params, redisKey, cached);
     if (parsed) {
       return parsed;
     }

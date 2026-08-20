@@ -186,12 +186,32 @@ def _maybe_notify_arming_countdown(manager, now: float) -> None:
     manager._publish_hud(hud_state="arming", force=True)
 
 
+def _maybe_publish_arming_hud(manager, now: float) -> None:
+    """Publish arming HUD on countdown tick or minimum interval (not every car_update)."""
+    from core import settings
+
+    min_interval_sec = settings.HUD_BATTLE_ARMING_PUBLISH_MIN_MS / 1000.0
+    sec = _arming_seconds_remaining(manager, now)
+    announced = getattr(manager, "_arming_countdown_announced_sec", -1)
+
+    if sec > 0 and sec != announced:
+        _maybe_notify_arming_countdown(manager, now)
+        manager._last_arming_hud_publish_at = now
+        return
+
+    last = getattr(manager, "_last_arming_hud_publish_at", 0.0)
+    if last <= 0.0 or (now - last) >= min_interval_sec:
+        manager._publish_hud(hud_state="arming", force=True)
+        manager._last_arming_hud_publish_at = now
+
+
 def _clear_arming_countdown(manager, *, notify_cancel: bool = False) -> None:
     was_arming = manager.arm_proximity_since > 0.0
     had_announced = getattr(manager, "_arming_countdown_announced_sec", -1) >= 0
     manager.arm_proximity_since = 0.0
     manager._arming_countdown_announced_sec = -1
     manager._arming_violation_since = 0.0
+    manager._last_arming_hud_publish_at = 0.0
     if notify_cancel and was_arming and had_announced:
         notify_arming_cancelled(manager)
         from network.battle_hud_publisher import format_cancel_label, make_hud_event
@@ -246,20 +266,17 @@ def _handle_idle(manager, car1, car2, distance: float, now: float) -> None:
         return
 
     if not can_start and in_countdown:
-        _maybe_notify_arming_countdown(manager, now)
-        manager._publish_hud(hud_state="arming", force=True)
+        _maybe_publish_arming_hud(manager, now)
         return
 
     manager._separated_since = 0.0
     if manager.arm_proximity_since == 0.0:
         manager.arm_proximity_since = now
         manager._arming_countdown_announced_sec = -1
-        _maybe_notify_arming_countdown(manager, now)
-        manager._publish_hud(hud_state="arming", force=True)
+        _maybe_publish_arming_hud(manager, now)
         return
     if (now - manager.arm_proximity_since) < ARM_SUSTAINED_PROXIMITY_SEC:
-        _maybe_notify_arming_countdown(manager, now)
-        manager._publish_hud(hud_state="arming", force=True)
+        _maybe_publish_arming_hud(manager, now)
         return
     _clear_arming_countdown(manager, notify_cancel=False)
     manager.state = "ARMED"

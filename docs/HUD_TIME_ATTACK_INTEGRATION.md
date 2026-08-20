@@ -171,7 +171,10 @@ Presencia se renueva en `server_status`, `player_join`, keepalive SSE (~30 s). E
 | `HUD_PRESENCE_TTL_SEC` | TTL presencia (default 180s) |
 | `HUD_PRESENCE_JOIN_TTL_SEC` | TTL al join (default 600s) |
 | `HUD_PLAYER_TTL_SEC` / `HUD_SESSION_TTL_SEC` | TTL caché Redis (player default **10s**; session 300s) |
-| `HUD_TRANSIENT_ERROR_TTL_SEC` | TTL caché errores transitorios Convex (default 10s; `player_not_connected` no se cachea) |
+| `HUD_PLAYER_NOT_CONNECTED_TTL_SEC` | Negative cache corto para `player_not_connected` (default **4s**; battle enrich loop guard) |
+| `HUD_TRANSIENT_ERROR_TTL_SEC` | TTL caché errores transitorios Convex (default 10s; `convex_unreachable` no se cachea) |
+| `HUD_BATTLE_ENRICH_LIVE` | Enrich Convex en pushes battle live (default true; prep usa peek-only cuando true) |
+| `HUD_BATTLE_ENRICH_LOG` | Log `[battle-enrich]` opt-in (default false) |
 | `HUD_LAP_REFRESH_DELAY_MS` | Espera post-debounce antes de refrescar tras `lap_completed` (default 800) |
 | `HUD_BATTLE_REFRESH_DELAY_MS` | Espera antes de refrescar tras `battle_finished` (default 400) |
 | `HUD_SESSION_RIVALS_RETRY_ATTEMPTS` | Reintentos de `getHudSession` si rivals/rank no cambian tras vuelta (default 3) |

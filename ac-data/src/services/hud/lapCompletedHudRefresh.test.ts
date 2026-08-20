@@ -8,6 +8,7 @@ import {
   resetBattleSsePresenceForTests,
 } from './hudPlayerPresence.js';
 import {
+  getPlayerCached,
   getSessionCached,
   hudErrorCacheTtlSec,
   isLapPersonalBest,
@@ -24,7 +25,7 @@ import {
   setFetchHudSessionForTests,
 } from './lapCompletedHudRefresh.js';
 import { USER_INVALIDATED_TTL_SEC } from './hudUserInvalidation.js';
-import { HUD_PLAYER_TTL_SEC, HUD_SESSION_TTL_SEC, hudRedisDel, hudRedisGet, hudRedisSet, isHudRedisConfigured } from './hudRedis.js';
+import { HUD_PLAYER_NOT_CONNECTED_TTL_SEC, HUD_PLAYER_TTL_SEC, HUD_SESSION_TTL_SEC, hudRedisDel, hudRedisGet, hudRedisSet, isHudRedisConfigured } from './hudRedis.js';
 import type { HudPlayerResult, HudSessionOk } from './hudTypes.js';
 
 const params = { steamId: '76561199000000001' };
@@ -70,8 +71,8 @@ test('isLapPersonalBest returns true when lap beats cached profile best', async 
   await hudRedisDel(playerRedisKey(buildPlayerCacheKey(params)));
 });
 
-test('hudErrorCacheTtlSec skips caching player_not_connected', () => {
-  assert.equal(hudErrorCacheTtlSec('player_not_connected', 300), null);
+test('hudErrorCacheTtlSec uses short TTL for player_not_connected', () => {
+  assert.equal(hudErrorCacheTtlSec('player_not_connected', 300), HUD_PLAYER_NOT_CONNECTED_TTL_SEC);
 });
 
 test('hudErrorCacheTtlSec uses long TTL for user_invalidated', () => {
@@ -175,7 +176,7 @@ test('peekSessionCache returns player_not_connected without deleting or fetching
   }
 });
 
-test('getSessionCached ignores stale player_not_connected cache entries', async () => {
+test('getSessionCached returns cached player_not_connected without refetch', async () => {
   if (!isHudRedisConfigured()) {
     return;
   }
@@ -185,32 +186,69 @@ test('getSessionCached ignores stale player_not_connected cache entries', async 
   await hudRedisSet(
     redisKey,
     JSON.stringify({ ok: false, reason: 'player_not_connected' }),
-    HUD_SESSION_TTL_SEC,
+    HUD_PLAYER_NOT_CONNECTED_TTL_SEC,
   );
 
-  setFetchHudSessionForTests(async () => ({
-    ok: true,
-    version: 'v2',
-    context: {
-      server_id: 's1',
-      server_name: 'testing',
-      track_id: 'pk_akina',
-      track_name: 'Akina',
-      layout_id: 'downhill',
-      layout_name: 'Downhill',
-      car_id: 'ks_toyota_gt86',
-      car_name: 'GT86',
-      player_steam_id: steamId,
-    },
-    profile: null,
-  }));
+  let fetchCalls = 0;
+  setFetchHudSessionForTests(async () => {
+    fetchCalls += 1;
+    return {
+      ok: true,
+      version: 'v2',
+      context: {
+        server_id: 's1',
+        server_name: 'testing',
+        track_id: 'pk_akina',
+        track_name: 'Akina',
+        layout_id: 'downhill',
+        layout_name: 'Downhill',
+        car_id: 'ks_toyota_gt86',
+        car_name: 'GT86',
+        player_steam_id: steamId,
+      },
+      profile: null,
+    };
+  });
 
-  const result = await getSessionCached({ steamId });
-  assert.equal(result.ok, true);
-  assert.equal((result as HudSessionOk).version, 'v2');
+  try {
+    const result = await getSessionCached({ steamId });
+    assert.equal(fetchCalls, 0);
+    assert.deepEqual(result, { ok: false, reason: 'player_not_connected' });
+  } finally {
+    setFetchHudSessionForTests(null);
+    await hudRedisDel(redisKey);
+  }
+});
 
-  setFetchHudSessionForTests(null);
-  await hudRedisDel(redisKey);
+test('getPlayerCached returns cached player_not_connected without duplicate Convex fetch', async () => {
+  if (!isHudRedisConfigured()) {
+    return;
+  }
+
+  const steamId = '76561199000000008';
+  const playerKey = playerRedisKey(buildPlayerCacheKey({ steamId }));
+  await hudRedisDel(playerKey);
+  await hudRedisDel(sessionRedisKey(buildSessionCacheKey({ steamId })));
+
+  let fetchCalls = 0;
+  setFetchHudSessionForTests(async () => {
+    fetchCalls += 1;
+    return { ok: false, reason: 'player_not_connected' };
+  });
+
+  try {
+    const first = await getPlayerCached({ steamId });
+    assert.deepEqual(first, { ok: false, reason: 'player_not_connected' });
+    assert.equal(fetchCalls, 1);
+
+    const second = await getPlayerCached({ steamId });
+    assert.deepEqual(second, { ok: false, reason: 'player_not_connected' });
+    assert.equal(fetchCalls, 1);
+  } finally {
+    setFetchHudSessionForTests(null);
+    await hudRedisDel(playerKey);
+    await hudRedisDel(sessionRedisKey(buildSessionCacheKey({ steamId })));
+  }
 });
 
 test('refreshSessionCached keeps prior OK cache when Convex returns player_not_connected', async () => {

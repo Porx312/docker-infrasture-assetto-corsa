@@ -336,15 +336,24 @@ async function flushIngestChunk(
     return [];
   }
 
-  const failed = ingestResult.results?.find(
-    (r) => r.ok !== true && !isNonRetryableIngestError(r.error),
-  );
+  const failedRows =
+    ingestResult.results?.filter(
+      (r) => r.ok !== true && !isNonRetryableIngestError(r.error),
+    ) ?? [];
+  const failed = failedRows[0];
+  const retryEventTypes = [...new Set(toRetry.map((p) => p.event))];
   const errorMsg =
-    typeof failed?.error === 'string'
-      ? failed.error
+    failedRows.length > 0
+      ? failedRows
+          .map((r) => {
+            const label = r.eventType ?? `index:${r.index ?? '?'}`;
+            const detail = typeof r.error === 'string' && r.error.trim() ? r.error : 'unknown';
+            return `${label}: ${detail}`;
+          })
+          .join('; ')
       : partitioned.unsafeMissingResults
         ? 'Convex ingest batch failed (missing per-event results)'
-        : 'Convex ingest batch failed';
+        : `Convex ingest batch incomplete (retry: ${retryEventTypes.join(', ')})`;
   console.error(
     '[redis-bridge] convex batch ingest failed (retrying):',
     toRetry.length,

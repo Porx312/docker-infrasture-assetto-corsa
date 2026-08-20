@@ -138,6 +138,10 @@ Legacy [`scheduleHudRefreshAfterLap`](../ac-data/src/services/hud/hudRefreshSche
 4. Reiniciar ac-data tras deploy para logs `[hud-lap-post-ingest]` / `[hud-worker] refresh-user done`.
 5. Correlación post-incidente: `./scripts/verify-lap-spike-correlation.sh --anchor-ms 1787136240000 --env prod` en VPS prod con Redis + log.
 
+## Battle prep (~78 getHudSession por match)
+
+Fix server-side en ac-data + telemetry (sin cambios ProjectD-HUD). Ver [`HUD_BATTLE_ENRICH.md`](HUD_BATTLE_ENRICH.md) y `./scripts/verify-battle-convex-volume.sh`.
+
 ## Riesgos
 
 - HUD stale si webhook Convex falla → monitor `[hud-worker] refresh-user failed`

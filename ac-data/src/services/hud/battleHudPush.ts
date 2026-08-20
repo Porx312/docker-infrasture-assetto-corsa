@@ -1,4 +1,6 @@
+import { battleLiveEnrichEnabled } from './battleHudEnrichConfig.js';
 import { getBattleCachedFast } from './battleHudReader.js';
+import { maybeWarmBattleProfiles } from './battleProfileWarm.js';
 import type { BattleCacheParams } from './hudTypes.js';
 import { parseBattleScopeKey } from './hudBattleRooms.js';
 import { parsePlayerScopeKey } from './hudScopeKeys.js';
@@ -19,9 +21,7 @@ const roomListeners = new Map<string, Set<BattleHudRoomListener>>();
 const clearTimers = new Map<string, ReturnType<typeof setTimeout>>();
 type BattleSnapshotFetcher = (params: BattleCacheParams) => Promise<HudBattleOk | HudBattleErr>;
 
-export function battleLiveEnrichEnabled(): boolean {
-  return (process.env.HUD_BATTLE_ENRICH_LIVE ?? 'true').trim().toLowerCase() !== 'false';
-}
+export { battleLiveEnrichEnabled } from './battleHudEnrichConfig.js';
 
 let battleSnapshotFetcher: BattleSnapshotFetcher = (params) =>
   getBattleCachedFast(params, { enrich: battleLiveEnrichEnabled() });
@@ -160,6 +160,7 @@ export async function pushBattleToRoom(room: string): Promise<void> {
 
   const result = await battleSnapshotFetcher(params);
   if (result.ok) {
+    maybeWarmBattleProfiles(result);
     emitToRoom(room, 'battle', result);
     if (shouldScheduleClear(result)) {
       scheduleBattleClear(room);
