@@ -1,19 +1,21 @@
-import { fetchHudVersion, isHudConvexConfigured } from './hudConvex.js';
+import { isHudConvexConfigured } from './hudConvex.js';
 import { normalizeHudProfile } from './hudProfile.js';
 import { buildSessionCacheKey, sessionRedisKey } from './hudCacheKeys.js';
 import { invalidateSessionCache } from './hudSessionCache.js';
+import { refreshPlayerJoinFromConvex } from './playerJoinContext.js';
 import {
   shouldBypassSessionCacheForPresence,
+  shouldRefreshJoinContextForPresence,
   sessionContextServerName,
 } from './hudSessionPresence.js';
 import {
   fetchHudSessionWithRetry,
-  getSessionCached,
+  peekSessionCache,
   sessionLeaderboardFingerprint,
 } from './lapCompletedHudRefresh.js';
 import { HUD_SESSION_TTL_SEC, hudRedisTouch } from './hudRedis.js';
+import { shouldFetchHudSession } from './hudSessionFetchPolicy.js';
 import { markUserInvalidated } from './hudUserInvalidation.js';
-import { TRANSIENT_SSE_SESSION_REASONS } from './hudTransientReasons.js';
 import type { HudSessionResult, HudVersionOk, HudVersionResult } from './hudTypes.js';
 
 export type HudPushReason =
@@ -24,7 +26,6 @@ export type HudPushReason =
   | 'worker_cosmetics';
 
 export type PushHudUpdateOptions = {
-  preferCachedSession?: boolean;
   skipIfSessionUnchanged?: boolean;
   pushReason?: HudPushReason;
 };
@@ -52,18 +53,13 @@ const connectionsBySteamId = new Map<string, Set<HudPushConnection>>();
 type HudPushHubTestHooks = {
   fetchVersion?: (steamId: string) => Promise<HudVersionResult>;
   loadSession?: (steamId: string, bypassCache: boolean) => Promise<HudSessionResult>;
-  getSessionCached?: (steamId: string) => Promise<HudSessionResult>;
+  peekSession?: (steamId: string) => Promise<HudSessionResult | null>;
 };
 
 let testHooks: HudPushHubTestHooks | null = null;
 
 export function setHudPushHubTestHooks(hooks: HudPushHubTestHooks | null): void {
   testHooks = hooks;
-}
-
-/** @deprecated use setHudPushHubTestHooks */
-export function setHudSsePushTestHooks(hooks: HudPushHubTestHooks | null): void {
-  setHudPushHubTestHooks(hooks);
 }
 
 export function versionFingerprint(version: HudVersionOk): string {
@@ -125,18 +121,8 @@ export function resetHudPushConnectionsForTests(): void {
   connectionsBySteamId.clear();
 }
 
-/** @deprecated use resetHudPushConnectionsForTests */
-export function resetHudSseConnectionsForTests(): void {
-  resetHudPushConnectionsForTests();
-}
-
 export function countHudPushListeners(steamId: string): number {
   return connectionsBySteamId.get(steamId.trim())?.size ?? 0;
-}
-
-/** @deprecated use countHudPushListeners */
-export function countHudSseListeners(steamId: string): number {
-  return countHudPushListeners(steamId);
 }
 
 export function listConnectedHudSteamIds(): string[] {
@@ -217,53 +203,29 @@ function shouldSkipSessionPush(steamId: string, session: HudSessionResult): bool
   return true;
 }
 
-function sessionHasProfile(session: HudSessionResult): boolean {
-  return session.ok && session.profile != null;
-}
-
-async function resolveSessionForPush(
-  steamId: string,
-  bypassCache: boolean,
-): Promise<HudSessionResult> {
-  const session = testHooks?.loadSession
-    ? await testHooks.loadSession(steamId, bypassCache)
-    : await loadHudSessionForPush(steamId, bypassCache);
-
-  if (sessionHasProfile(session)) {
-    return session;
+async function peekSessionForPush(steamId: string): Promise<HudSessionResult | null> {
+  if (testHooks?.peekSession) {
+    return testHooks.peekSession(steamId);
   }
-  if (!session.ok && session.reason === 'user_invalidated') {
-    return session;
-  }
-
-  if (!session.ok && TRANSIENT_SSE_SESSION_REASONS.has(session.reason)) {
-    const cached = testHooks?.getSessionCached
-      ? await testHooks.getSessionCached(steamId)
-      : await getSessionCached({ steamId });
-    if (sessionHasProfile(cached)) {
-      return cached;
-    }
-  }
-
-  return session;
+  return peekSessionCache({ steamId });
 }
 
 export async function loadHudSessionForPush(
   steamId: string,
   bypassCache = false,
+  pushReason?: HudPushReason | string,
 ): Promise<HudSessionResult> {
+  if (!shouldFetchHudSession(pushReason)) {
+    const peeked = await peekSessionForPush(steamId);
+    return peeked ?? { ok: false, reason: 'player_not_connected' };
+  }
   if (bypassCache) {
     await invalidateSessionCache({ steamId });
   }
+  if (testHooks?.loadSession) {
+    return testHooks.loadSession(steamId, bypassCache);
+  }
   return fetchHudSessionWithRetry({ steamId });
-}
-
-/** @deprecated use loadHudSessionForPush */
-export async function loadHudSessionForSse(
-  steamId: string,
-  bypassCache = false,
-): Promise<HudSessionResult> {
-  return loadHudSessionForPush(steamId, bypassCache);
 }
 
 export async function pushHudUpdateForSteamId(
@@ -280,77 +242,26 @@ export async function pushHudUpdateForSteamId(
     return;
   }
 
-  const cachedSession = testHooks?.getSessionCached
-    ? await testHooks.getSessionCached(steamId)
-    : await getSessionCached({ steamId });
+  const pushReason = options?.pushReason;
+  const allowLiveFetch = bypassCache && shouldFetchHudSession(pushReason);
 
-  if (options?.preferCachedSession && !bypassCache) {
-    const session = testHooks?.loadSession
-      ? await testHooks.loadSession(steamId, false)
-      : cachedSession;
-    if (!session.ok) {
-      if (session.reason === 'user_invalidated') {
-        await markUserInvalidated(steamId);
-      }
-      emitToSteamId(steamId, 'hud_error', buildHudErrorEvent(steamId, session.reason));
-      return;
-    }
-    if (shouldApplySessionUnchangedSkip(options) && shouldSkipSessionPush(steamId, session)) {
-      return;
-    }
-    const versionFromSession: HudVersionOk = {
-      ok: true,
-      version: session.version,
-      lbVersion: session.version,
-      playerVersion: Date.now(),
-    };
-    emitHudVersionToSteamId(steamId, versionFromSession);
-    emitHudSessionToSteamId(steamId, session);
-    return;
-  }
-
-  if (shouldApplySessionUnchangedSkip(options) && cachedSession.ok && shouldSkipSessionPush(steamId, cachedSession)) {
-    return;
-  }
-
-  const versionResult = testHooks?.fetchVersion
-    ? await testHooks.fetchVersion(steamId)
-    : await fetchHudVersion({
-        steamId,
-        now: Date.now(),
-      });
-
-  if (!versionResult.ok) {
-    if (!cachedSession.ok && cachedSession.reason === 'user_invalidated') {
-      await markUserInvalidated(steamId);
-    }
-    emitToSteamId(steamId, 'hud_error', buildHudErrorEvent(steamId, versionResult.reason));
-    return;
-  }
-
-  if (!bypassCache && cachedSession.ok && cachedSession.version === versionResult.version) {
-    if (shouldApplySessionUnchangedSkip(options) && shouldSkipSessionPush(steamId, cachedSession)) {
-      return;
-    }
-    const versionForClient: HudVersionOk = {
-      ...versionResult,
-      version: cachedSession.version,
-    };
-    emitHudVersionToSteamId(steamId, versionForClient);
-    emitHudSessionToSteamId(steamId, cachedSession);
-    return;
-  }
-
-  const pushReason = options?.pushReason ?? 'push';
   let session: HudSessionResult;
-  if (!bypassCache && cachedSession.ok) {
-    session = cachedSession;
-  } else {
+  if (allowLiveFetch) {
     console.log(
-      `[hud-push] fetchHudSession steamId=${steamId} reason=${pushReason} bypassCache=${bypassCache}`,
+      `[hud-push] fetchHudSession steamId=${steamId} reason=${pushReason ?? 'push'} bypassCache=${bypassCache}`,
     );
-    session = await resolveSessionForPush(steamId, bypassCache);
+    session = await loadHudSessionForPush(steamId, true, pushReason);
+  } else {
+    const peeked = await peekSessionForPush(steamId);
+    if (!peeked) {
+      console.warn(
+        `[hud-push] peek miss steamId=${steamId} reason=${pushReason ?? 'push'} listeners=${countHudPushListeners(steamId)}`,
+      );
+      return;
+    }
+    session = peeked;
   }
+
   if (!session.ok) {
     if (session.reason === 'user_invalidated') {
       await markUserInvalidated(steamId);
@@ -364,8 +275,10 @@ export async function pushHudUpdateForSteamId(
   }
 
   const versionForClient: HudVersionOk = {
-    ...versionResult,
+    ok: true,
     version: session.version,
+    lbVersion: session.version,
+    playerVersion: Date.now(),
   };
   emitHudVersionToSteamId(steamId, versionForClient);
   emitHudSessionToSteamId(steamId, session);
@@ -375,31 +288,23 @@ export async function sendInitialHudPushSnapshot(
   conn: HudPushConnection,
   presenceServerName?: string,
 ): Promise<void> {
-  let bypass = false;
   if (presenceServerName?.trim()) {
-    bypass = await shouldBypassSessionCacheForPresence(conn.steamId, presenceServerName);
-    if (bypass) {
+    const refreshJoin = await shouldRefreshJoinContextForPresence(
+      conn.steamId,
+      presenceServerName,
+    );
+    if (refreshJoin) {
       console.log(
-        `[hud-push-init] steamId=${conn.steamId} bypassCache=true presenceServer=${presenceServerName.trim()}`,
+        `[hud-push-init] steamId=${conn.steamId} refreshJoinContext=true presenceServer=${presenceServerName.trim()}`,
       );
+      await refreshPlayerJoinFromConvex(conn.steamId);
     }
   }
-  if (bypass) {
-    await pushHudUpdateForSteamId(conn.steamId, true, { pushReason: 'join_initial' });
-    return;
-  }
-  await pushHudUpdateForSteamId(conn.steamId, false, {
-    preferCachedSession: true,
-    pushReason: 'join_initial',
-  });
+  await pushHudUpdateForSteamId(conn.steamId, false, { pushReason: 'join_initial' });
 }
 
-/** @deprecated use sendInitialHudPushSnapshot */
-export async function sendInitialHudSseSnapshot(
-  conn: HudPushConnection,
-  presenceServerName?: string,
-): Promise<void> {
-  return sendInitialHudPushSnapshot(conn, presenceServerName);
-}
-
-export { sessionContextServerName, shouldBypassSessionCacheForPresence };
+export {
+  sessionContextServerName,
+  shouldBypassSessionCacheForPresence,
+  shouldRefreshJoinContextForPresence,
+};

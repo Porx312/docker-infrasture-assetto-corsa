@@ -3,15 +3,13 @@ import test from 'node:test';
 
 import {
   enrichBattleWithProfiles,
-  isBattlePrepState,
   mapProfileToBattlePlayer,
   normalizeBattlePlayerSnapshot,
-  shouldPeekOnlyBattleEnrich,
 } from './battleHudReader.js';
 import { buildPlayerCacheKey, buildSessionCacheKey, playerRedisKey, sessionRedisKey } from './hudCacheKeys.js';
 import { setFetchHudSessionForTests } from './lapCompletedHudRefresh.js';
 import { HUD_SESSION_TTL_SEC, hudRedisDel, hudRedisSet, isHudRedisConfigured } from './hudRedis.js';
-import type { HudBattleSnapshotOk, HudSessionOk } from './hudTypes.js';
+import type { HudBattleSnapshotOk, HudProfile, HudSessionOk } from './hudTypes.js';
 
 const profile: HudProfile = {
   name: 'Profile Name',
@@ -139,30 +137,6 @@ test('mapProfileToBattlePlayer keeps snapshot when profile is null', () => {
   assert.equal(merged.car_id, 'ks_mazda_miata');
 });
 
-test('isBattlePrepState covers pairing through launching', () => {
-  assert.equal(isBattlePrepState('pairing'), true);
-  assert.equal(isBattlePrepState('arming'), true);
-  assert.equal(isBattlePrepState('armed'), true);
-  assert.equal(isBattlePrepState('launching'), true);
-  assert.equal(isBattlePrepState('active'), false);
-  assert.equal(isBattlePrepState('finished'), false);
-});
-
-test('shouldPeekOnlyBattleEnrich is true for prep states when live enrich enabled', () => {
-  const prev = process.env.HUD_BATTLE_ENRICH_LIVE;
-  process.env.HUD_BATTLE_ENRICH_LIVE = 'true';
-  try {
-    assert.equal(shouldPeekOnlyBattleEnrich('arming'), true);
-    assert.equal(shouldPeekOnlyBattleEnrich('active'), false);
-  } finally {
-    if (prev === undefined) {
-      delete process.env.HUD_BATTLE_ENRICH_LIVE;
-    } else {
-      process.env.HUD_BATTLE_ENRICH_LIVE = prev;
-    }
-  }
-});
-
 function buildBattleSnapshot(state: HudBattleSnapshotOk['state']): HudBattleSnapshotOk {
   return {
     ok: true,
@@ -213,7 +187,72 @@ test('enrichBattleWithProfiles prep state does not call Convex on cache miss', a
   }
 });
 
-test('enrichBattleWithProfiles active state calls Convex for rival profile', async () => {
+test('enrichBattleWithProfiles does not call Convex across repeated battle snapshots', async () => {
+  const { isHudConvexConfigured } = await import('./hudConvex.js');
+  if (!isHudConvexConfigured() || !isHudRedisConfigured()) {
+    return;
+  }
+
+  const opponentSteamId = '76561199000000031';
+  await hudRedisDel(sessionRedisKey(buildSessionCacheKey({ steamId: opponentSteamId })));
+
+  const cachedOk: HudSessionOk = {
+    ok: true,
+    version: 'battle-opponent',
+    context: {
+      server_id: 's1',
+      server_name: 'Battle',
+      track_id: 'pk_akina',
+      track_name: 'Akina',
+      layout_id: 'downhill',
+      layout_name: 'Downhill',
+      car_id: 'ks_toyota_gt86',
+      car_name: 'GT86',
+      player_steam_id: opponentSteamId,
+    },
+    profile: {
+      name: 'Opponent',
+      rank: 3,
+      tier: 6,
+      best_lap_ms: 115_000,
+      car_name: 'GT86',
+      car_id: 'ks_toyota_gt86',
+      steam_id: opponentSteamId,
+      elo: 1500,
+      avatar_url: 'https://cdn.example.com/opponent.png',
+      rivals: { above: null, below: null },
+    },
+  };
+
+  await hudRedisSet(
+    sessionRedisKey(buildSessionCacheKey({ steamId: opponentSteamId })),
+    JSON.stringify(cachedOk),
+    300,
+  );
+
+  let fetchCalls = 0;
+  setFetchHudSessionForTests(async () => {
+    fetchCalls += 1;
+    return { ok: false, reason: 'user_not_found' };
+  });
+
+  const snapshot = buildBattleSnapshot('active');
+  snapshot.player2.steamId = opponentSteamId;
+
+  try {
+    for (let i = 0; i < 3; i += 1) {
+      const battle = await enrichBattleWithProfiles(snapshot);
+      assert.equal(battle.player2.elo, 1500);
+      assert.equal(battle.player2.avatar_url, 'https://cdn.example.com/opponent.png');
+    }
+    assert.equal(fetchCalls, 0);
+  } finally {
+    setFetchHudSessionForTests(null);
+    await hudRedisDel(sessionRedisKey(buildSessionCacheKey({ steamId: opponentSteamId })));
+  }
+});
+
+test('enrichBattleWithProfiles active state does not call Convex on cache miss', async () => {
   const { isHudConvexConfigured } = await import('./hudConvex.js');
   if (!isHudConvexConfigured() || !isHudRedisConfigured()) {
     return;
@@ -227,35 +266,9 @@ test('enrichBattleWithProfiles active state calls Convex for rival profile', asy
   await hudRedisDel(sessionRedisKey(buildSessionCacheKey({ steamId: steam2 })));
 
   let fetchCalls = 0;
-  setFetchHudSessionForTests(async ({ steamId }) => {
+  setFetchHudSessionForTests(async () => {
     fetchCalls += 1;
-    const session: HudSessionOk = {
-      ok: true,
-      version: 'v-active',
-      context: {
-        server_id: 's1',
-        server_name: 'Battle',
-        track_id: 'pk_akina',
-        track_name: 'Akina',
-        layout_id: 'downhill',
-        layout_name: 'Downhill',
-        car_id: 'ks_toyota_gt86',
-        car_name: 'GT86',
-        player_steam_id: steamId,
-      },
-      profile: {
-        name: 'Enriched',
-        rank: 1,
-        tier: 9,
-        best_lap_ms: 100_000,
-        car_name: 'GT86',
-        car_id: 'ks_toyota_gt86',
-        steam_id: steamId,
-        elo: 1600,
-        rivals: { above: null, below: null },
-      },
-    };
-    return session;
+    return { ok: false, reason: 'user_not_found' };
   });
 
   const snapshot = buildBattleSnapshot('active');
@@ -264,9 +277,9 @@ test('enrichBattleWithProfiles active state calls Convex for rival profile', asy
 
   try {
     const battle = await enrichBattleWithProfiles(snapshot);
-    assert.equal(fetchCalls, 2);
-    assert.equal(battle.player1.name, 'Enriched');
-    assert.equal(battle.player1.elo, 1600);
+    assert.equal(fetchCalls, 0);
+    assert.equal(battle.player1.name, 'Alice');
+    assert.equal(battle.player2.name, 'Bob');
   } finally {
     setFetchHudSessionForTests(null);
     await hudRedisDel(playerRedisKey(buildPlayerCacheKey({ steamId: steam1 })));

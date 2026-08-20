@@ -15,7 +15,7 @@ Content-Type: application/json
 }
 ```
 
-Optional `reason` for logs and push behavior: `"invalidated"`, `"registered"`, `"prefs"`, `"revalidated"`, `"cosmetics"`, `"lap_pb"`, `"rival_pb"`, `"session"`.
+Optional `reason` for logs and push behavior: `"invalidated"`, `"registered"`, `"prefs"`, `"revalidated"`, `"cosmetics"`, `"lap_pb"`, `"rival_pb"`, `"session"`, `"battle_elo"`.
 
 Header alternative: `X-Worker-Secret: <CONVEX_WORKER_SECRET>`
 
@@ -23,7 +23,7 @@ Header alternative: `X-Worker-Secret: <CONVEX_WORKER_SECRET>`
 
 1. Calls `getPlayerJoinContext`
 2. Updates Redis: ban, not-registered, HUD caches, `ac:user:prefs:*`, `ac:user:profile:cosmetics_fp:*`
-3. Pushes WSS to connected HUD clients (`lap_pb` / `rival_pb` / `session` use cached session from join context when profile present; `cosmetics` uses live `getHudSession`)
+3. Pushes WSS to connected HUD clients (`lap_pb` / `rival_pb` / `battle_elo` / `session` use cached session from join context; `cosmetics` uses live `getHudSession`)
 4. **`publishEnforcement: true`** — pub/sub kick for ban / `user_not_found` on all servers (mid-session)
 
 `player_join` uses the same refresh path with **`publishEnforcement: false`** (deferred kick on connect avoids pub/sub race).
@@ -79,6 +79,26 @@ export const notifyAcDataHudRefresh = internalAction({
 | Equip frame / update `display_style` | `{ steamId, reason: "cosmetics" }` |
 | Lap ingest (PB or rank/rivals change) | `{ steamId, reason: "lap_pb" }` for author |
 | Lap ingest (rival window affected) | `{ steamId, reason: "rival_pb" }` for each observer |
+| Battle ingest (ELO updated) | `{ steamId, reason: "battle_elo" }` for **both** players |
+
+See [`HUD_BATTLE_ENRICH.md`](HUD_BATTLE_ENRICH.md) for join + push-only battle enrich (no proactive `getHudSession`).
+
+### ProjectD: battle_elo (required for post-battle ELO overlay)
+
+After persisting battle results and updating ELO in `ingestWorkerEventsBatch` / `convex/battles.ts`:
+
+```typescript
+await ctx.scheduler.runAfter(0, internal.workerActions.notifyAcDataHudRefresh, {
+  steamId: player1SteamId,
+  reason: "battle_elo",
+});
+await ctx.scheduler.runAfter(0, internal.workerActions.notifyAcDataHudRefresh, {
+  steamId: player2SteamId,
+  reason: "battle_elo",
+});
+```
+
+Verify `getPlayerJoinContext` returns updated ELO after ingest. Until deployed, overlay may show pre-battle ELO until reconnect.
 
 See [`CONVEX_LAP_HUD_PUSH.md`](CONVEX_LAP_HUD_PUSH.md) for lap/rival notify targets and ProjectD implementation.
 

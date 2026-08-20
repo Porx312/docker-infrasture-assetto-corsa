@@ -1,5 +1,4 @@
 import { isHudConvexConfigured } from './hudConvex.js';
-import { getSessionCached } from './lapCompletedHudRefresh.js';
 import {
   refreshPlayerJoinFromConvex,
   type ApplyPlayerJoinContextOptions,
@@ -9,16 +8,26 @@ import {
   pushHudUpdateForSteamId,
   type HudPushReason,
 } from './hudPushHub.js';
+import { shouldFetchHudSession } from './hudSessionFetchPolicy.js';
 
 export type RefreshHudUserStatusOptions = ApplyPlayerJoinContextOptions & {
   reason?: string;
 };
 
-const LIVE_SESSION_PUSH_REASONS = new Set(['cosmetics', 'lap_pb', 'rival_pb', 'session']);
+const LIVE_SESSION_PUSH_REASONS = new Set([
+  'cosmetics',
+  'lap_pb',
+  'rival_pb',
+  'session',
+  'battle_elo',
+]);
 
 function pushReasonForWorkerReason(reason: string): HudPushReason | undefined {
   if (reason === 'lap_pb' || reason === 'rival_pb') {
     return reason;
+  }
+  if (reason === 'battle_elo') {
+    return 'battle_elo';
   }
   if (reason === 'cosmetics') {
     return 'worker_cosmetics';
@@ -63,37 +72,23 @@ export async function refreshHudUserStatusFromConvex(
     throw error;
   }
 
-  const pushReason = reason !== '' ? pushReasonForWorkerReason(reason) : 'join_initial';
-  const pushOptions = pushReason !== undefined ? { pushReason } : undefined;
-
-  // Cosmetics: join context can lag dedicated getHudSession — always bypass cache.
-  if (reason === 'cosmetics') {
-    await pushHudUpdateForSteamId(trimmed, true, pushOptions);
-    if (LIVE_SESSION_PUSH_REASONS.has(reason)) {
-      console.log(
-        `[hud-worker] refresh-user done steamId=${trimmed}${reasonSuffix} joinContext=1 fetchSession=1 wsListeners=${countHudPushListeners(trimmed)}`,
-      );
-    }
+  if (countHudPushListeners(trimmed) === 0) {
     return;
   }
 
-  // Join + lap/rival/session webhooks: getPlayerJoinContext already wrote ac:hud:session.
-  // Prefer cache; pushHudUpdateForSteamId still fetches getHudSession when version mismatches.
-  const cached = await getSessionCached({ steamId: trimmed });
-  let fetchSession = 0;
-  if (cached.ok && cached.profile) {
-    await pushHudUpdateForSteamId(trimmed, false, {
-      preferCachedSession: true,
-      ...pushOptions,
-    });
-  } else {
-    fetchSession = 1;
+  const pushReason = reason !== '' ? pushReasonForWorkerReason(reason) : 'join_initial';
+  const pushOptions = pushReason !== undefined ? { pushReason } : undefined;
+  const fetchSession = shouldFetchHudSession(reason === 'cosmetics' ? 'worker_cosmetics' : reason);
+
+  if (fetchSession) {
     await pushHudUpdateForSteamId(trimmed, true, pushOptions);
+  } else {
+    await pushHudUpdateForSteamId(trimmed, false, pushOptions);
   }
 
   if (LIVE_SESSION_PUSH_REASONS.has(reason)) {
     console.log(
-      `[hud-worker] refresh-user done steamId=${trimmed}${reasonSuffix} joinContext=1 fetchSession=${fetchSession} wsListeners=${countHudPushListeners(trimmed)}`,
+      `[hud-worker] refresh-user done steamId=${trimmed}${reasonSuffix} joinContext=1 fetchSession=${fetchSession ? 1 : 0} wsListeners=${countHudPushListeners(trimmed)}`,
     );
   }
 }

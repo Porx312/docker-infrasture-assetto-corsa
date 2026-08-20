@@ -1,7 +1,6 @@
 import {
   bumpBoardVersionsForLap,
   patchLastLapInCaches,
-  refreshPlayerHudCache,
   refreshPlayerHudCacheForLap,
 } from './lapCompletedHudRefresh.js';
 import { isHudConvexConfigured } from './hudConvex.js';
@@ -181,11 +180,7 @@ function queueBattlePlayersFromPayload(payload: Record<string, unknown>): void {
   scheduleFlush();
 }
 
-/** Battle live frames use Redis pub/sub (pushBattleToRoom); session refresh runs on battle_finished only. */
-export function scheduleHudRefreshAfterBattleUpdate(_payload: Record<string, unknown>): void {
-  // No-op: avoid getHudSession on battle_update prewarm; battle_finished owns ELO session refresh.
-}
-
+/** battle_finished: repush battle WSS + peek-only session push (ELO via battle_elo webhook). */
 async function repushSessionForPlayers(jobs: PlayerJob[]): Promise<void> {
   if (jobs.length === 0) {
     return;
@@ -197,10 +192,7 @@ async function repushSessionForPlayers(jobs: PlayerJob[]): Promise<void> {
   await Promise.all(
     toPush.map((job) => {
       if (job.source === 'battle') {
-        return pushHudUpdateForSteamId(job.steamId, false, {
-          preferCachedSession: true,
-          pushReason: 'battle_elo',
-        });
+        return pushHudUpdateForSteamId(job.steamId, false, { pushReason: 'battle_elo' });
       }
       return pushHudUpdateForSteamId(job.steamId, false, { pushReason: 'lap_pb' });
     }),
@@ -298,17 +290,15 @@ async function flushHudRefreshQueue(): Promise<void> {
           continue;
         }
 
-        if (countHudPushListeners(job.steamId) === 0) {
-          console.log(`[hud-refresh] skip steamId=${job.steamId} no ws listeners`);
+        if (job.source === 'battle') {
+          if (countHudPushListeners(job.steamId) === 0) {
+            console.log(`[hud-refresh] skip battle repush steamId=${job.steamId} no ws listeners`);
+            continue;
+          }
+          // Join + push-only: ELO refresh comes from Convex battle_elo webhook, not getHudSession here.
+          refreshedPlayers.push({ ...job, pushAfterRefresh: true });
           continue;
         }
-
-        await refreshPlayerHudCache({
-          steamId: job.steamId,
-          source: 'battle',
-          retryEloUntilChange: true,
-        });
-        refreshedPlayers.push({ ...job, pushAfterRefresh: true });
       }
 
       await repushBattleHudForPlayers(refreshedPlayers);

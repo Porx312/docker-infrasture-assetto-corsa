@@ -1,6 +1,6 @@
 import { normalizeHudServerName } from './hudQueryNormalize.js';
 import { peekSessionCache } from './lapCompletedHudRefresh.js';
-import type { HudSessionResult } from './hudTypes.js';
+import type { HudSessionOk, HudSessionResult } from './hudTypes.js';
 
 type HudSessionPresenceTestHooks = {
   peekSessionCache?: (steamId: string) => Promise<HudSessionResult | null>;
@@ -26,6 +26,30 @@ async function readSessionCached(steamId: string): Promise<HudSessionResult | nu
   return peekSessionCache({ steamId: id });
 }
 
+function sessionCacheServerMismatch(
+  cached: HudSessionOk,
+  presenceServerName: string,
+): boolean {
+  const cachedServer = normalizeHudServerName(cached.context?.server_name ?? '');
+  const presence = normalizeHudServerName(presenceServerName);
+  if (!cachedServer || !presence) {
+    return false;
+  }
+  return cachedServer !== presence;
+}
+
+/** True when WSS/snapshot should call getPlayerJoinContext before peek push. */
+export async function shouldRefreshJoinContextForPresence(
+  steamId: string,
+  presenceServerName: string,
+): Promise<boolean> {
+  const cached = await readSessionCached(steamId);
+  if (!cached?.ok) {
+    return true;
+  }
+  return sessionCacheServerMismatch(cached, presenceServerName);
+}
+
 /** True when Redis session cache context.server_name differs from live presence server. */
 export async function shouldBypassSessionCacheForPresence(
   steamId: string,
@@ -35,12 +59,7 @@ export async function shouldBypassSessionCacheForPresence(
   if (!cached?.ok) {
     return false;
   }
-  const cachedServer = normalizeHudServerName(cached.context?.server_name ?? '');
-  const presence = normalizeHudServerName(presenceServerName);
-  if (!cachedServer || !presence) {
-    return false;
-  }
-  return cachedServer !== presence;
+  return sessionCacheServerMismatch(cached, presenceServerName);
 }
 
 export function sessionContextServerName(session: HudSessionResult): string {

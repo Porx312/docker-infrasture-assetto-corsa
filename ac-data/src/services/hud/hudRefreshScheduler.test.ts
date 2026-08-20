@@ -6,7 +6,6 @@ import {
   getHudRefreshQueueSizeForTests,
   resetHudRefreshSchedulerForTests,
   scheduleHudRefreshAfterBattleFinished,
-  scheduleHudRefreshAfterBattleUpdate,
   scheduleHudRefreshAfterLap,
 } from './hudRefreshScheduler.js';
 import { setRivalFanoutHandlerForTests } from './hudRivalFanout.js';
@@ -107,30 +106,6 @@ test('scheduleHudRefreshAfterBattleFinished ignores unknown steam ids', () => {
   assert.equal(players, 0);
 });
 
-test('scheduleHudRefreshAfterBattleUpdate does not queue session refresh', () => {
-  resetHudRefreshSchedulerForTests();
-
-  const payload = {
-    serverName: 'ProjectD',
-    data: {
-      battleId: 'battle-abc',
-      track: 'pk_akina',
-      trackConfig: 'downhill',
-      status: 'active',
-      player1SteamId: '76561199000000001',
-      player2SteamId: '76561199000000002',
-      player1Car: 'ks_toyota_gt86',
-      player2Car: 'ks_mazda_rx7',
-    },
-  };
-
-  scheduleHudRefreshAfterBattleUpdate(payload);
-  scheduleHudRefreshAfterBattleUpdate(payload);
-
-  const { players } = getHudRefreshQueueSizeForTests();
-  assert.equal(players, 0);
-});
-
 test('flushHudRefreshQueueForTests skips battle session refresh without ws listeners', async () => {
   resetHudRefreshSchedulerForTests();
   let fetchCalls = 0;
@@ -161,24 +136,6 @@ test('flushHudRefreshQueueForTests skips battle session refresh without ws liste
     setFetchHudSessionForTests(null);
     resetHudRefreshSchedulerForTests();
   }
-});
-
-test('scheduleHudRefreshAfterBattleUpdate skips finished status', () => {
-  resetHudRefreshSchedulerForTests();
-
-  scheduleHudRefreshAfterBattleUpdate({
-    serverName: 'ProjectD',
-    data: {
-      battleId: 'battle-done',
-      track: 'pk_akina',
-      status: 'finished',
-      player1SteamId: '76561199000000001',
-      player2SteamId: '76561199000000002',
-    },
-  });
-
-  const { players } = getHudRefreshQueueSizeForTests();
-  assert.equal(players, 0);
 });
 
 test('flushHudRefreshQueueForTests invokes rival fan-out for lap boards', async () => {

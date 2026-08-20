@@ -15,6 +15,7 @@ import {
   refreshPlayerJoinFromConvex,
   resetPlayerJoinDedupeForTests,
   setFetchPlayerJoinContextForTests,
+  setJoinContextRetryDelayMsForTests,
 } from './playerJoinContext.js';
 import { HUD_PLAYER_NOT_CONNECTED_TTL_SEC, HUD_TRANSIENT_ERROR_TTL_SEC, hudRedisDel, hudRedisGet, isHudRedisConfigured } from './hudRedis.js';
 import {
@@ -215,6 +216,7 @@ test('refreshPlayerJoinFromConvex dedupes repeated player_join within 5s', async
   }
 
   resetPlayerJoinDedupeForTests();
+  setJoinContextRetryDelayMsForTests(-1);
   await clearUserInvalidated(steamId);
 
   let fetchCalls = 0;
@@ -247,6 +249,7 @@ test('refreshPlayerJoinFromConvex bypasses dedupe for worker publishEnforcement'
   }
 
   resetPlayerJoinDedupeForTests();
+  setJoinContextRetryDelayMsForTests(-1);
   await clearUserInvalidated(steamId);
 
   let fetchCalls = 0;
@@ -319,4 +322,81 @@ test('refreshHudAfterPlayerJoin uses unified join context', async () => {
   setFetchPlayerJoinContextForTests(null);
   await invalidatePlayerCache({ steamId });
   await invalidateSessionCache({ steamId });
+});
+
+test('refreshPlayerJoinFromConvex retries once when join returns player_not_connected', async () => {
+  if (!isHudRedisConfigured()) {
+    return;
+  }
+
+  resetPlayerJoinDedupeForTests();
+  setJoinContextRetryDelayMsForTests(0);
+  await clearUserInvalidated(steamId);
+  await hudRedisDel(sessionRedisKey(buildSessionCacheKey({ steamId })));
+
+  let fetchCalls = 0;
+  setFetchPlayerJoinContextForTests(async () => {
+    fetchCalls += 1;
+    if (fetchCalls === 1) {
+      return {
+        ok: true,
+        user: { steamId, isInvalidated: false, name: 'Pilot' },
+        session: { ok: false, reason: 'player_not_connected' },
+      };
+    }
+    return {
+      ok: true,
+      user: { steamId, isInvalidated: false, name: 'Pilot' },
+      session: {
+        ok: true,
+        version: 'v1',
+        context: {
+          server_id: 's1',
+          server_name: 'Battle',
+          track_id: 'pk_akina',
+          track_name: 'Akina',
+          layout_id: 'downhill',
+          layout_name: 'Downhill',
+          car_id: 'ks_toyota_gt86',
+          car_name: 'GT86',
+          player_steam_id: steamId,
+        },
+        profile: {
+          name: 'Pilot',
+          rank: 2,
+          tier: 5,
+          best_lap_ms: 120_000,
+          car_name: 'GT86',
+          car_id: 'ks_toyota_gt86',
+          steam_id: steamId,
+          elo: 1420,
+          avatar_url: 'https://cdn.example.com/a.png',
+          rivals: { above: null, below: null },
+        },
+      },
+    };
+  });
+
+  try {
+    await refreshPlayerJoinFromConvex(steamId);
+    const sessionKey = sessionRedisKey(buildSessionCacheKey({ steamId }));
+    let sessionCached: string | null = null;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      if (fetchCalls >= 2) {
+        sessionCached = await hudRedisGet(sessionKey);
+        if (sessionCached?.includes('"ok":true')) {
+          break;
+        }
+      }
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    assert.equal(fetchCalls, 2);
+    assert.match(sessionCached ?? '', /"ok":true/);
+    assert.match(sessionCached ?? '', /1420/);
+  } finally {
+    setFetchPlayerJoinContextForTests(null);
+    resetPlayerJoinDedupeForTests();
+    await clearUserInvalidated(steamId);
+    await hudRedisDel(sessionRedisKey(buildSessionCacheKey({ steamId })));
+  }
 });

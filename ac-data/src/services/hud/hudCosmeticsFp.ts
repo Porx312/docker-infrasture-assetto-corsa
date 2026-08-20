@@ -7,7 +7,7 @@ import {
   readProfileCosmeticsFingerprint,
   syncProfileCosmeticsFromProfile,
 } from './hudProfileCosmetics.js';
-import { getSessionCached } from './lapCompletedHudRefresh.js';
+import { peekSessionCache } from './lapCompletedHudRefresh.js';
 import { isHudRedisConfigured } from './hudRedis.js';
 
 function requireQueryString(value: unknown): string | null {
@@ -38,8 +38,8 @@ export async function handleHudProfileCosmeticsFp(req: Request, res: Response): 
   }
 
   let fingerprint = (await readProfileCosmeticsFingerprint(steamId)) ?? '';
-  const cached = await getSessionCached({ steamId });
-  if (cached.ok && cached.profile) {
+  const cached = await peekSessionCache({ steamId });
+  if (cached?.ok && cached.profile) {
     const profile = normalizeHudProfile(cached.profile);
     if (profile) {
       const synced = await syncProfileCosmeticsFromProfile(steamId, profile);

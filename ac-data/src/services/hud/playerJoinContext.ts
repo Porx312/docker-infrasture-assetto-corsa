@@ -38,6 +38,53 @@ let fetchPlayerJoinContextImpl: FetchPlayerJoinContextFn = fetchPlayerJoinContex
 const JOIN_REFRESH_DEDUPE_MS = 5000;
 const joinRefreshInFlight = new Map<string, Promise<void>>();
 const joinRefreshCompletedAt = new Map<string, number>();
+const joinRetryScheduled = new Set<string>();
+const joinRetryTimers = new Map<string, NodeJS.Timeout>();
+let joinRetryGeneration = 0;
+
+let joinRetryDelayMsOverride: number | null = null;
+
+function joinContextRetryMs(): number {
+  if (joinRetryDelayMsOverride !== null) {
+    return joinRetryDelayMsOverride;
+  }
+  return Number(process.env.HUD_JOIN_CONTEXT_RETRY_MS || 1500);
+}
+
+function shouldScheduleJoinRetry(session: HudSessionResult): boolean {
+  return !session.ok && session.reason === 'player_not_connected';
+}
+
+function scheduleJoinContextRetry(
+  steamId: string,
+  options?: ApplyPlayerJoinContextOptions,
+): void {
+  if (joinRetryScheduled.has(steamId)) {
+    return;
+  }
+  const delayMs = joinContextRetryMs();
+  if (delayMs <= 0 && joinRetryDelayMsOverride !== 0) {
+    return;
+  }
+  joinRetryScheduled.add(steamId);
+  const generation = joinRetryGeneration;
+  const runRetry = (): void => {
+    if (generation !== joinRetryGeneration) {
+      return;
+    }
+    joinRetryScheduled.delete(steamId);
+    joinRetryTimers.delete(steamId);
+    void refreshPlayerJoinFromConvex(steamId, { ...options, joinRetry: true });
+  };
+  if (delayMs <= 0) {
+    setImmediate(runRetry);
+    return;
+  }
+  console.log(
+    `[player-join] steamId=${steamId} scheduling join retry in ${delayMs}ms (live_players race)`,
+  );
+  joinRetryTimers.set(steamId, setTimeout(runRetry, delayMs));
+}
 
 /** Test helper: override unified player join fetch. */
 export function setFetchPlayerJoinContextForTests(fn: FetchPlayerJoinContextFn | null): void {
@@ -46,8 +93,20 @@ export function setFetchPlayerJoinContextForTests(fn: FetchPlayerJoinContextFn |
 
 /** Test helper: reset join dedupe state. */
 export function resetPlayerJoinDedupeForTests(): void {
+  joinRetryGeneration += 1;
+  for (const timer of joinRetryTimers.values()) {
+    clearTimeout(timer);
+  }
+  joinRetryTimers.clear();
   joinRefreshInFlight.clear();
   joinRefreshCompletedAt.clear();
+  joinRetryScheduled.clear();
+  joinRetryDelayMsOverride = null;
+}
+
+/** Test helper: run join retry immediately (0ms) or after fixed delay. */
+export function setJoinContextRetryDelayMsForTests(ms: number | null): void {
+  joinRetryDelayMsOverride = ms;
 }
 
 function readJoinUser(raw: Record<string, unknown>, steamId: string): PlayerJoinUser | undefined {
@@ -117,6 +176,8 @@ function normalizeSessionForCache(result: HudSessionResult): HudSessionResult {
 export type ApplyPlayerJoinContextOptions = {
   /** When true (worker refresh-user), pub/sub kick fires for ban / not-registered mid-session. */
   publishEnforcement?: boolean;
+  /** One-shot retry after player_join when Convex live_players is not ready yet. */
+  joinRetry?: boolean;
 };
 
 /** Persist ban + HUD caches from unified player join context. */
@@ -174,6 +235,19 @@ export async function applyPlayerJoinContext(
   return { player, session };
 }
 
+async function runPlayerJoinRefresh(
+  steamId: string,
+  options?: ApplyPlayerJoinContextOptions,
+): Promise<HudSessionResult> {
+  const context = await fetchPlayerJoinContextImpl(steamId);
+  await invalidateHudCachesForSteamId(steamId);
+  const { session } = await applyPlayerJoinContext(steamId, context, options);
+  if (shouldScheduleJoinRetry(session) && options?.joinRetry !== true) {
+    scheduleJoinContextRetry(steamId, options);
+  }
+  return session;
+}
+
 /** Single Convex fetch on player_join or worker refresh-user. */
 export async function refreshPlayerJoinFromConvex(
   steamId: string,
@@ -184,7 +258,7 @@ export async function refreshPlayerJoinFromConvex(
     return;
   }
 
-  const skipDedupe = options?.publishEnforcement === true;
+  const skipDedupe = options?.publishEnforcement === true || options?.joinRetry === true;
 
   if (!skipDedupe) {
     const inflight = joinRefreshInFlight.get(trimmed);
@@ -200,9 +274,7 @@ export async function refreshPlayerJoinFromConvex(
 
   const run = async (): Promise<void> => {
     try {
-      const context = await fetchPlayerJoinContextImpl(trimmed);
-      await invalidateHudCachesForSteamId(trimmed);
-      await applyPlayerJoinContext(trimmed, context, options);
+      await runPlayerJoinRefresh(trimmed, options);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.warn(

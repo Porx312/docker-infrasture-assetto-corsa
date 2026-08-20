@@ -39,6 +39,14 @@ import {
   invalidateSessionCache,
 } from './hudSessionCache.js';
 
+/**
+ * Join + push-only HUD session policy:
+ * - Proactive paths (battle enrich, WSS push, snapshot) must use peekSessionCache only.
+ * - Live fetchHudSession is allowed only via shouldFetchHudSession (cosmetics webhook).
+ * - Profile data is populated on player_join via getPlayerJoinContext; mid-session updates
+ *   arrive through Convex notifyAcDataHudRefresh → refresh-user.
+ */
+
 export {
   invalidateHudCachesForSteamId,
   invalidatePlayerCache,
@@ -55,13 +63,10 @@ const HUD_SESSION_FETCH_RETRY_ATTEMPTS = Number(
 const HUD_SESSION_FETCH_RETRY_MS = Number(
   process.env.HUD_SESSION_FETCH_RETRY_MS || process.env.HUD_PLAYER_FETCH_RETRY_MS || 400,
 );
-const HUD_BATTLE_ELO_RETRY_ATTEMPTS = Number(process.env.HUD_BATTLE_ELO_RETRY_ATTEMPTS || 3);
-const HUD_BATTLE_ELO_RETRY_MS = Number(process.env.HUD_BATTLE_ELO_RETRY_MS || 400);
 
 export type RefreshPlayerHudCacheOptions = PlayerCacheParams & {
   lastLapMs?: number;
-  source?: 'lap' | 'battle';
-  retryEloUntilChange?: boolean;
+  source?: 'lap';
 };
 
 export type RefreshPlayerHudCacheResult = {
@@ -436,39 +441,15 @@ function shouldRetryHudFetch(result: HudPlayerResult | HudSessionResult): boolea
   return !result.ok && isTransientHudFailure(result);
 }
 
-function sessionElo(result: HudSessionResult): number {
-  if (!result.ok || !result.profile) {
-    return 0;
-  }
-  return result.profile.elo ?? 0;
-}
-
-export async function fetchHudSessionWithRetry(
-  params: SessionQueryParams,
-  options: { retryEloUntilChange?: boolean; previousElo?: number | null } = {},
-): Promise<HudSessionResult> {
+export async function fetchHudSessionWithRetry(params: SessionQueryParams): Promise<HudSessionResult> {
   if (!isHudConvexConfigured()) {
     return { ok: false, reason: 'user_not_found' };
   }
 
-  const maxAttempts = options.retryEloUntilChange
-    ? HUD_BATTLE_ELO_RETRY_ATTEMPTS
-    : HUD_SESSION_FETCH_RETRY_ATTEMPTS;
-  const retryMs = options.retryEloUntilChange ? HUD_BATTLE_ELO_RETRY_MS : HUD_SESSION_FETCH_RETRY_MS;
-
   let last = normalizeSessionResult(await fetchHudSessionImpl(params));
 
-  for (let attempt = 1; attempt < maxAttempts; attempt++) {
-    if (last.ok) {
-      if (options.retryEloUntilChange && options.previousElo != null) {
-        const nextElo = sessionElo(last);
-        if (nextElo > 0 && nextElo !== options.previousElo) {
-          break;
-        }
-      } else {
-        break;
-      }
-    } else if (!shouldRetryHudFetch(last)) {
+  for (let attempt = 1; attempt < HUD_SESSION_FETCH_RETRY_ATTEMPTS; attempt++) {
+    if (last.ok || !shouldRetryHudFetch(last)) {
       break;
     }
 
@@ -479,7 +460,7 @@ export async function fetchHudSessionWithRetry(
       }
     }
 
-    await sleep(retryMs);
+    await sleep(HUD_SESSION_FETCH_RETRY_MS);
     last = normalizeSessionResult(await fetchHudSessionImpl(params));
   }
 
@@ -488,7 +469,7 @@ export async function fetchHudSessionWithRetry(
 
 export function logHudRefreshDetail(
   steamId: string,
-  source: 'lap' | 'battle',
+  source: 'lap',
   previousElo: number | null,
   player: HudPlayerResult,
   session: HudSessionResult,
@@ -518,10 +499,7 @@ export async function refreshPlayerHudCache(
   await invalidatePlayerCache(job);
   await invalidateSessionCache(sessionParams);
 
-  const sessionResult = await fetchHudSessionWithRetry(sessionParams, {
-    retryEloUntilChange: job.retryEloUntilChange === true,
-    previousElo,
-  });
+  const sessionResult = await fetchHudSessionWithRetry(sessionParams);
 
   const normalizedSession = normalizeSessionResult(sessionResult);
   const normalizedPlayer = applyLastLapToPlayerResult(

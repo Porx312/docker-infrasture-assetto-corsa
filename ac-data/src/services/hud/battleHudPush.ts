@@ -1,6 +1,4 @@
-import { battleLiveEnrichEnabled } from './battleHudEnrichConfig.js';
 import { getBattleCachedFast } from './battleHudReader.js';
-import { maybeWarmBattleProfiles } from './battleProfileWarm.js';
 import type { BattleCacheParams } from './hudTypes.js';
 import { parseBattleScopeKey } from './hudBattleRooms.js';
 import { parsePlayerScopeKey } from './hudScopeKeys.js';
@@ -21,10 +19,8 @@ const roomListeners = new Map<string, Set<BattleHudRoomListener>>();
 const clearTimers = new Map<string, ReturnType<typeof setTimeout>>();
 type BattleSnapshotFetcher = (params: BattleCacheParams) => Promise<HudBattleOk | HudBattleErr>;
 
-export { battleLiveEnrichEnabled } from './battleHudEnrichConfig.js';
-
 let battleSnapshotFetcher: BattleSnapshotFetcher = (params) =>
-  getBattleCachedFast(params, { enrich: battleLiveEnrichEnabled() });
+  getBattleCachedFast(params, { enrich: true });
 let battleInitialSnapshotFetcher: BattleSnapshotFetcher = (params) =>
   getBattleCachedFast(params, { enrich: true });
 let hubStarted = false;
@@ -122,10 +118,8 @@ export function initHudPushHub(): void {
     onPlayerUpdate: (update) => {
       const parsed = parsePlayerScopeKey(update.scopeKey);
       if (parsed) {
-        // Cache was just written by refreshPlayerHudCache; avoid duplicate Convex fetch.
-        void pushHudUpdateForSteamId(parsed.cacheKey, false, {
-          preferCachedSession: true,
-        });
+        // Join cache updated via player version pub/sub; push peek-only session to listeners.
+        void pushHudUpdateForSteamId(parsed.cacheKey, false);
       }
     },
   });
@@ -160,7 +154,6 @@ export async function pushBattleToRoom(room: string): Promise<void> {
 
   const result = await battleSnapshotFetcher(params);
   if (result.ok) {
-    maybeWarmBattleProfiles(result);
     emitToRoom(room, 'battle', result);
     if (shouldScheduleClear(result)) {
       scheduleBattleClear(room);
@@ -200,7 +193,7 @@ export function resetBattleHudPushForTests(): void {
   }
   clearTimers.clear();
   roomListeners.clear();
-  battleSnapshotFetcher = (params) => getBattleCachedFast(params, { enrich: battleLiveEnrichEnabled() });
+  battleSnapshotFetcher = (params) => getBattleCachedFast(params, { enrich: true });
   battleInitialSnapshotFetcher = (params) => getBattleCachedFast(params, { enrich: true });
   hubStarted = false;
 }

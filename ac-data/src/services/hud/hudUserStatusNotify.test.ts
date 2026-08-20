@@ -360,7 +360,7 @@ test('refreshHudUserStatusFromConvex lap_pb reason prefers session cache after j
   try {
     await refreshHudUserStatusFromConvex(steamId, { reason: 'lap_pb', publishEnforcement: false });
 
-    assert.equal(loadSessionBypass, false);
+    assert.equal(loadSessionBypass, null);
     const sessionEvent = events.find((entry) => entry.event === 'hud_session');
     assert.ok(sessionEvent);
     const payload = sessionEvent.data as { ok: boolean; profile?: { rank?: number; best_lap_ms?: number } };

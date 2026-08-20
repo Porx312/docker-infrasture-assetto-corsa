@@ -156,10 +156,7 @@ export async function refreshHudForRivalLapObservers(
       continue;
     }
 
-    await pushHudUpdateForSteamId(steamId, false, {
-      preferCachedSession: true,
-      pushReason: 'rival_pb',
-    });
+    await pushHudUpdateForSteamId(steamId, false, { pushReason: 'rival_pb' });
     localOnly += 1;
     refreshed += 1;
   }

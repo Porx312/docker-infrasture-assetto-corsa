@@ -2,7 +2,7 @@ import '../../config/loadEnv.js';
 import type { RedisClientType } from 'redis';
 import { createRedisClient, isRedisConfigured } from '../redisClient.js';
 
-export const HUD_PLAYER_TTL_SEC = Number(process.env.HUD_PLAYER_TTL_SEC || 10);
+export const HUD_PLAYER_TTL_SEC = Number(process.env.HUD_PLAYER_TTL_SEC || 300);
 export const HUD_SESSION_TTL_SEC = Number(process.env.HUD_SESSION_TTL_SEC || 300);
 /** Short negative cache when rival/player is not in Convex live_players (battle enrich loop guard). */
 export const HUD_PLAYER_NOT_CONNECTED_TTL_SEC = Number(

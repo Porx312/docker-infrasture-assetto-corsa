@@ -5,8 +5,8 @@ import {
   sessionRedisKey,
 } from './hudCacheKeys.js';
 import {
-  getPlayerCached,
   getSessionCached,
+  peekSessionCache,
   persistPlayerCacheResult,
   persistSessionCacheResult,
 } from './lapCompletedHudRefresh.js';
@@ -110,9 +110,9 @@ export function patchRivalLapInProfile(
 }
 
 export async function resolveAuthorName(authorSteamId: string): Promise<string> {
-  const cached = await getPlayerCached({ steamId: authorSteamId });
-  if (cached.ok && cached.profile?.name) {
-    return cached.profile.name;
+  const session = await peekSessionCache({ steamId: authorSteamId });
+  if (session?.ok && session.profile?.name) {
+    return session.profile.name;
   }
   return '';
 }

@@ -17,6 +17,7 @@ import {
   unregisterBattleSsePresence,
 } from './hudPlayerPresence.js';
 import { peekSessionCache } from './lapCompletedHudRefresh.js';
+import { refreshPlayerJoinFromConvex } from './playerJoinContext.js';
 import {
   registerHudPushConnection,
   pushHudUpdateForSteamId,
@@ -149,8 +150,10 @@ async function handleHudWsConnection(ws: WebSocket, steamId: string, serverName:
     void (async () => {
       const cached = await peekSessionCache({ steamId });
       logKeepaliveCachePeek(steamId, cached);
-      if (cached && !cached.ok && cached.reason === 'player_not_connected') {
-        await pushHudUpdateForSteamId(steamId, true);
+      const needsJoinRefresh = cached === null || !cached.ok;
+      if (needsJoinRefresh) {
+        await refreshPlayerJoinFromConvex(steamId);
+        await pushHudUpdateForSteamId(steamId, false, { pushReason: 'join_initial' });
       }
     })();
     void refreshBattleRoomSubscription(steamId, battleSubscription).then((next) => {

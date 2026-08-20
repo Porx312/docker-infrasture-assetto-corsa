@@ -2,9 +2,8 @@ import {
   battleRedisKey,
   buildBattleCacheKey,
 } from './hudCacheKeys.js';
-import { battleLiveEnrichEnabled } from './battleHudEnrichConfig.js';
-import { getPlayerCached, peekSessionCache } from './lapCompletedHudRefresh.js';
-import { isProfileInvalidated, mergeCosmeticFields, playerResultFromSession } from './hudProfile.js';
+import { peekSessionCache } from './lapCompletedHudRefresh.js';
+import { isProfileInvalidated, mergeCosmeticFields } from './hudProfile.js';
 import { hudRedisGet } from './hudRedis.js';
 import type {
   BattleCacheParams,
@@ -16,24 +15,6 @@ import type {
   HudProfile,
 } from './hudTypes.js';
 
-const BATTLE_PREP_STATES = new Set<HudBattleOk['state']>([
-  'pairing',
-  'arming',
-  'armed',
-  'launching',
-]);
-
-export function isBattlePrepState(state: HudBattleOk['state']): boolean {
-  return BATTLE_PREP_STATES.has(state);
-}
-
-export function shouldPeekOnlyBattleEnrich(state: HudBattleOk['state']): boolean {
-  if (!battleLiveEnrichEnabled()) {
-    return true;
-  }
-  return isBattlePrepState(state);
-}
-
 function battleEnrichLogEnabled(): boolean {
   return (process.env.HUD_BATTLE_ENRICH_LOG ?? 'false').trim().toLowerCase() === 'true';
 }
@@ -41,14 +22,12 @@ function battleEnrichLogEnabled(): boolean {
 function logBattleEnrich(
   state: HudBattleOk['state'],
   steamId: string,
-  source: 'peek' | 'cache' | 'convex' | 'snapshot',
-  reason?: string,
+  source: 'peek' | 'snapshot' | 'miss',
 ): void {
   if (!battleEnrichLogEnabled()) {
     return;
   }
-  const reasonPart = reason ? ` reason=${reason}` : '';
-  console.log(`[battle-enrich] state=${state} steamId=${steamId} source=${source}${reasonPart}`);
+  console.log(`[battle-enrich] state=${state} steamId=${steamId} source=${source}`);
 }
 
 function snapshotCarId(player: HudBattlePlayerSnapshot): string {
@@ -106,49 +85,31 @@ export function mapProfileToBattlePlayer(
   return mergeCosmeticFields(merged, profile as unknown as Record<string, unknown>);
 }
 
-async function loadBattlePlayerProfilePeekOnly(steamId: string): Promise<HudProfile | null> {
-  const session = await peekSessionCache({ steamId });
-  if (!session?.ok || isProfileInvalidated(session.profile)) {
-    if (session && !session.ok) {
-      return null;
-    }
-    return null;
-  }
-  return session.profile;
-}
-
-async function loadBattlePlayerProfile(
+/** Join cache peek only — never calls Convex during battle enrich. */
+async function loadBattlePlayerProfileFromCache(
   steamId: string,
   state: HudBattleOk['state'],
-  peekOnly: boolean,
 ): Promise<HudProfile | null> {
-  if (peekOnly) {
-    const profile = await loadBattlePlayerProfilePeekOnly(steamId);
-    logBattleEnrich(state, steamId, profile ? 'peek' : 'snapshot');
-    return profile;
-  }
-
-  const profileResult = await getPlayerCached({ steamId });
-  if (!profileResult.ok) {
-    logBattleEnrich(state, steamId, 'convex', profileResult.reason);
+  const session = await peekSessionCache({ steamId });
+  if (session === null) {
+    logBattleEnrich(state, steamId, 'miss');
     return null;
   }
-  if (isProfileInvalidated(profileResult.profile)) {
-    logBattleEnrich(state, steamId, 'convex', 'user_invalidated');
+  if (!session.ok || isProfileInvalidated(session.profile)) {
+    logBattleEnrich(state, steamId, 'snapshot');
     return null;
   }
-  logBattleEnrich(state, steamId, 'cache');
-  return profileResult.profile;
+  logBattleEnrich(state, steamId, 'peek');
+  return session.profile;
 }
 
 async function enrichBattlePlayer(
   battle: HudBattleSnapshotOk,
   player: HudBattlePlayerSnapshot,
-  peekOnly: boolean,
 ): Promise<HudBattlePlayer> {
   const base = normalizeBattlePlayerSnapshot(player);
 
-  const profile = await loadBattlePlayerProfile(player.steamId, battle.state, peekOnly);
+  const profile = await loadBattlePlayerProfileFromCache(player.steamId, battle.state);
   if (!profile) {
     return base;
   }
@@ -157,10 +118,9 @@ async function enrichBattlePlayer(
 }
 
 export async function enrichBattleWithProfiles(battle: HudBattleSnapshotOk): Promise<HudBattleOk> {
-  const peekOnly = shouldPeekOnlyBattleEnrich(battle.state);
   const [player1, player2] = await Promise.all([
-    enrichBattlePlayer(battle, battle.player1, peekOnly),
-    enrichBattlePlayer(battle, battle.player2, peekOnly),
+    enrichBattlePlayer(battle, battle.player1),
+    enrichBattlePlayer(battle, battle.player2),
   ]);
 
   return {
@@ -206,14 +166,4 @@ export async function getBattleCachedFast(
 
 export async function getBattleCached(params: BattleCacheParams): Promise<HudBattleResult> {
   return getBattleCachedFast(params, { enrich: true });
-}
-
-/** Test helper: derive profile from peek-only session cache (no Convex). */
-export async function peekBattlePlayerProfile(steamId: string): Promise<HudProfile | null> {
-  const session = await peekSessionCache({ steamId });
-  if (!session?.ok || isProfileInvalidated(session.profile)) {
-    return null;
-  }
-  const player = playerResultFromSession(session);
-  return player.ok ? player.profile : null;
 }

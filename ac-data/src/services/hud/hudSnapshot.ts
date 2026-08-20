@@ -1,19 +1,22 @@
 import type { Request, Response } from 'express';
 
 import { getBattleCachedFast } from './battleHudReader.js';
-import { battleLiveEnrichEnabled, isHudSseEnabled } from './battleHudPush.js';
+import { isHudSseEnabled } from './battleHudPush.js';
 import { battleRoomFromParams, parseBattleScopeKey } from './hudBattleRooms.js';
-import { fetchHudVersion, isHudConvexConfigured } from './hudConvex.js';
+import { isHudConvexConfigured } from './hudConvex.js';
 import { requireHudApiKeyFromQuery } from './hudBattleAuth.js';
 import { lookupManagedServer } from './hudManagedServers.js';
 import { resolvePlayerPresence } from './hudPlayerPresence.js';
-import { shouldBypassSessionCacheForPresence, sessionContextServerName } from './hudSessionPresence.js';
+import {
+  sessionContextServerName,
+  shouldRefreshJoinContextForPresence,
+} from './hudSessionPresence.js';
 import { isHudRedisConfigured } from './hudRedis.js';
-import { getSessionCached } from './lapCompletedHudRefresh.js';
+import { peekSessionCache } from './lapCompletedHudRefresh.js';
+import { refreshPlayerJoinFromConvex } from './playerJoinContext.js';
 import {
   buildHudSessionEvent,
   buildHudVersionEvent,
-  loadHudSessionForPush,
 } from './hudPushHub.js';
 import { normalizeHudProfile } from './hudProfile.js';
 import { syncProfileCosmeticsFromProfile } from './hudProfileCosmetics.js';
@@ -46,40 +49,29 @@ async function loadSessionSnapshotPayload(
 > {
   const managed = lookupManagedServer(serverName);
 
-  const versionResult = await fetchHudVersion({
-    steamId,
-    now: Date.now(),
-  });
-
-  if (!versionResult.ok) {
-    return {
-      ok: false,
-      reason: versionResult.reason,
-      logLine: `[hud-snapshot] steamId=${steamId} presenceServer=${serverName} managed=${managed?.folderSlug ?? '?'} version_ok=false reason=${versionResult.reason}`,
-    };
+  const refreshJoin = await shouldRefreshJoinContextForPresence(steamId, serverName);
+  if (refreshJoin) {
+    await refreshPlayerJoinFromConvex(steamId);
   }
 
-  const cachedSession = await getSessionCached({ steamId });
-  const bypassSessionCache = await shouldBypassSessionCacheForPresence(steamId, serverName);
-  const session =
-    !bypassSessionCache && cachedSession.ok && cachedSession.version === versionResult.version
-      ? cachedSession
-      : await loadHudSessionForPush(steamId, bypassSessionCache);
-
-  if (!session.ok) {
-    if (session.reason === 'user_invalidated') {
+  const session = await peekSessionCache({ steamId });
+  if (!session?.ok) {
+    const reason = session?.reason ?? 'player_not_connected';
+    if (reason === 'user_invalidated') {
       await markUserInvalidated(steamId);
     }
     return {
       ok: false,
-      reason: session.reason,
-      logLine: `[hud-snapshot] steamId=${steamId} presenceServer=${serverName} managed=${managed?.folderSlug ?? '?'} session_ok=false reason=${session.reason}`,
+      reason,
+      logLine: `[hud-snapshot] steamId=${steamId} presenceServer=${serverName} managed=${managed?.folderSlug ?? '?'} session_ok=false reason=${reason}`,
     };
   }
 
   const versionForClient: HudVersionOk = {
-    ...versionResult,
+    ok: true,
     version: session.version,
+    lbVersion: session.version,
+    playerVersion: Date.now(),
   };
 
   const profile = session.profile ? normalizeHudProfile(session.profile) : null;
@@ -107,7 +99,7 @@ async function loadBattleSnapshotForPresence(
   if (!battleParams) {
     return { ok: false, reason: 'no_battle' };
   }
-  return getBattleCachedFast(battleParams, { enrich: battleLiveEnrichEnabled() });
+  return getBattleCachedFast(battleParams, { enrich: true });
 }
 
 /** Battle-only snapshot: Redis battle path, no Convex session/version. */

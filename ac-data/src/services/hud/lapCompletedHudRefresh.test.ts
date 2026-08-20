@@ -425,8 +425,7 @@ test('refreshPlayerHudCache persists player cache derived from session after ret
 
   const result = await refreshPlayerHudCache({
     steamId,
-    source: 'battle',
-    retryEloUntilChange: true,
+    source: 'lap',
     lastLapMs: 294_026,
   });
 
