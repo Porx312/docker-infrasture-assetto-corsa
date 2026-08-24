@@ -43,13 +43,18 @@ type SessionSnapshotPayload = {
 async function loadSessionSnapshotPayload(
   steamId: string,
   serverName: string,
+  presenceCarModel?: string,
 ): Promise<
   | { ok: true; payload: SessionSnapshotPayload }
   | { ok: false; reason: string; logLine: string }
 > {
   const managed = lookupManagedServer(serverName);
 
-  const refreshJoin = await shouldRefreshJoinContextForPresence(steamId, serverName);
+  const refreshJoin = await shouldRefreshJoinContextForPresence(
+    steamId,
+    serverName,
+    presenceCarModel,
+  );
   if (refreshJoin) {
     await refreshPlayerJoinFromConvex(steamId);
   }
@@ -161,7 +166,11 @@ export async function handleHudSnapshot(req: Request, res: Response): Promise<vo
     return;
   }
 
-  const sessionLoad = await loadSessionSnapshotPayload(steamId, resolved.presence.serverName);
+  const sessionLoad = await loadSessionSnapshotPayload(
+    steamId,
+    resolved.presence.serverName,
+    resolved.presence.carModel,
+  );
   if (!sessionLoad.ok) {
     console.log(sessionLoad.logLine);
     res.status(404).json({ ok: false, reason: sessionLoad.reason });

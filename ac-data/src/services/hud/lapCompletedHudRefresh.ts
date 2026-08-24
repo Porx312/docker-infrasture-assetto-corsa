@@ -79,12 +79,16 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Stable fingerprint for rank, rivals, elo/tier, and profile cosmetics (SSE skip guard). */
+/** Stable fingerprint for rank, rivals, elo/tier, car, and profile cosmetics (SSE skip guard). */
 export function sessionLeaderboardFingerprint(result: HudSessionResult): string {
   if (!result.ok || !result.profile) {
     return '';
   }
   const rivals = result.profile.rivals;
+  const carPart =
+    result.context?.car_id?.trim() ||
+    result.profile.car_id?.trim() ||
+    '';
   const rankPart = [
     result.profile.rank,
     rivals.above?.rank ?? '',
@@ -95,7 +99,8 @@ export function sessionLeaderboardFingerprint(result: HudSessionResult): string 
     result.profile.tier ?? '',
   ].join(':');
   const cosmeticsPart = profileCosmeticsFingerprint(result.profile);
-  return cosmeticsPart ? `${rankPart}|${cosmeticsPart}` : rankPart;
+  const body = cosmeticsPart ? `${rankPart}|${cosmeticsPart}` : rankPart;
+  return carPart ? `${carPart}|${body}` : body;
 }
 
 export function sessionHudUnchanged(before: string | null, after: string | null): boolean {

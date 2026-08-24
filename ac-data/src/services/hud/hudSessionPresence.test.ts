@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  sessionCacheCarMismatch,
   setHudSessionPresenceTestHooks,
+  shouldBypassJoinRefreshDedupe,
   shouldBypassSessionCacheForPresence,
   shouldRefreshJoinContextForPresence,
   sessionContextServerName,
@@ -209,4 +211,84 @@ test('sessionContextServerName normalizes cached session server name', () => {
   };
 
   assert.equal(sessionContextServerName(session), 'Battle');
+});
+
+test('shouldRefreshJoinContextForPresence returns true when presence car differs from cache', async () => {
+  const session: HudSessionOk = {
+    ok: true,
+    version: 'v1',
+    context: {
+      server_id: 's1',
+      server_name: 'Gunsai Testing',
+      track_id: 'pk_gunsai',
+      track_name: 'Gunsai',
+      layout_id: '',
+      layout_name: '',
+      car_id: 'ks_mazda_rx7',
+      car_name: 'RX7',
+      player_steam_id: steamId,
+    },
+    profile: {
+      name: 'Pilot',
+      rank: 1,
+      tier: 5,
+      best_lap_ms: 120_000,
+      car_name: 'RX7',
+      car_id: 'ks_mazda_rx7',
+      steam_id: steamId,
+      rivals: { above: null, below: null },
+    },
+  };
+
+  setHudSessionPresenceTestHooks({
+    peekSessionCache: async () => session,
+  });
+  try {
+    assert.equal(
+      await shouldRefreshJoinContextForPresence(steamId, 'Gunsai Testing', 'ks_mazda_miata'),
+      true,
+    );
+  } finally {
+    setHudSessionPresenceTestHooks(null);
+  }
+});
+
+test('shouldBypassJoinRefreshDedupe returns true when cached car differs from presence', async () => {
+  const session: HudSessionOk = {
+    ok: true,
+    version: 'v1',
+    context: {
+      server_id: 's1',
+      server_name: 'Gunsai Testing',
+      track_id: 'pk_gunsai',
+      track_name: 'Gunsai',
+      layout_id: '',
+      layout_name: '',
+      car_id: 'ks_mazda_rx7',
+      car_name: 'RX7',
+      player_steam_id: steamId,
+    },
+    profile: {
+      name: 'Pilot',
+      rank: 1,
+      tier: 5,
+      best_lap_ms: 120_000,
+      car_name: 'RX7',
+      car_id: 'ks_mazda_rx7',
+      steam_id: steamId,
+      rivals: { above: null, below: null },
+    },
+  };
+
+  setHudSessionPresenceTestHooks({
+    peekSessionCache: async () => session,
+    readPresenceCarModel: async () => 'ks_mazda_miata',
+  });
+  try {
+    assert.equal(await shouldBypassJoinRefreshDedupe(steamId), true);
+    assert.equal(sessionCacheCarMismatch(session, 'ks_mazda_miata'), true);
+    assert.equal(sessionCacheCarMismatch(session, 'ks_mazda_rx7'), false);
+  } finally {
+    setHudSessionPresenceTestHooks(null);
+  }
 });

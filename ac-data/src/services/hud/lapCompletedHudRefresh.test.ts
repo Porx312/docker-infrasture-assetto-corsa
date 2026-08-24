@@ -493,10 +493,10 @@ test('sessionLeaderboardFingerprint encodes rank and rivals lap times', () => {
     },
   };
 
-  assert.equal(sessionLeaderboardFingerprint(session), '3:2:125000:4:135000::2');
-  assert.equal(sessionHudUnchanged('3:2:125000:4:135000::2', '3:2:125000:4:135000::2'), true);
-  assert.equal(sessionHudUnchanged('3:2:125000:4:135000::2', '2:1:120000:3:130000::2'), false);
-  assert.equal(sessionHudUnchanged(null, '3:2:125000:4:135000::2'), false);
+  assert.equal(sessionLeaderboardFingerprint(session), 'ae86|3:2:125000:4:135000::2');
+  assert.equal(sessionHudUnchanged('ae86|3:2:125000:4:135000::2', 'ae86|3:2:125000:4:135000::2'), true);
+  assert.equal(sessionHudUnchanged('ae86|3:2:125000:4:135000::2', '2:1:120000:3:130000::2'), false);
+  assert.equal(sessionHudUnchanged(null, 'ae86|3:2:125000:4:135000::2'), false);
 });
 
 test('sessionLeaderboardFingerprint changes when elo changes with same rank', () => {
@@ -575,6 +575,48 @@ test('sessionLeaderboardFingerprint changes when display_style changes', () => {
       ...base.profile,
       display_style: { fontId: 'orbitron', effectId: 'gradient', color: '#FF4530', gradientColor: '#FFFFFF' },
     },
+  };
+
+  const before = sessionLeaderboardFingerprint(base);
+  const after = sessionLeaderboardFingerprint(updated);
+  assert.notEqual(before, after);
+  assert.equal(sessionHudUnchanged(before, after), false);
+});
+
+test('sessionLeaderboardFingerprint changes when car_id changes', () => {
+  const base: HudSessionOk = {
+    ok: true,
+    version: 'v1',
+    context: {
+      server_id: 's1',
+      server_name: 'test',
+      track_id: 'pk_akina',
+      track_name: 'Akina',
+      layout_id: 'downhill',
+      layout_name: 'Downhill',
+      car_id: 'ks_mazda_rx7',
+      car_name: 'RX7',
+      player_steam_id: params.steamId,
+    },
+    profile: {
+      name: 'Pilot',
+      rank: 3,
+      tier: 2,
+      best_lap_ms: 130_000,
+      car_name: 'RX7',
+      car_id: 'ks_mazda_rx7',
+      steam_id: params.steamId,
+      rivals: {
+        above: { rank: 2, name: 'Rival', tier: 3, lap_ms: 125_000, car_name: 'RX7' },
+        below: { rank: 4, name: 'Below', tier: 1, lap_ms: 135_000, car_name: 'RX7' },
+      },
+    },
+  };
+
+  const updated: HudSessionOk = {
+    ...base,
+    context: { ...base.context, car_id: 'ks_mazda_miata', car_name: 'Miata' },
+    profile: { ...base.profile, car_id: 'ks_mazda_miata', car_name: 'Miata' },
   };
 
   const before = sessionLeaderboardFingerprint(base);

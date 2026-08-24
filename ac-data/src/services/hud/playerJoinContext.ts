@@ -104,6 +104,16 @@ export function resetPlayerJoinDedupeForTests(): void {
   joinRetryDelayMsOverride = null;
 }
 
+/** Clear join refresh dedupe after car change so Convex re-fetches immediately. */
+export function clearJoinRefreshDedupe(steamId: string): void {
+  const trimmed = steamId.trim();
+  if (!trimmed) {
+    return;
+  }
+  joinRefreshCompletedAt.delete(trimmed);
+  joinRefreshInFlight.delete(trimmed);
+}
+
 /** Test helper: run join retry immediately (0ms) or after fixed delay. */
 export function setJoinContextRetryDelayMsForTests(ms: number | null): void {
   joinRetryDelayMsOverride = ms;
@@ -271,7 +281,10 @@ export async function refreshPlayerJoinFromConvex(
     }
     const lastCompleted = joinRefreshCompletedAt.get(trimmed);
     if (lastCompleted !== undefined && Date.now() - lastCompleted < JOIN_REFRESH_DEDUPE_MS) {
-      return;
+      const { shouldBypassJoinRefreshDedupe } = await import('./hudSessionPresence.js');
+      if (!(await shouldBypassJoinRefreshDedupe(trimmed))) {
+        return;
+      }
     }
   }
 

@@ -7,10 +7,14 @@ import {
 } from './hudManagedServers.js';
 import {
   buildPresenceRecordForTests,
+  noteHudPlayerJoin,
   registerBattleSsePresence,
   resetBattleSsePresenceForTests,
+  setHudPlayerPresenceTestHooks,
   validateResolvedPresence,
 } from './hudPlayerPresence.js';
+import { presenceRedisKey } from './hudCacheKeys.js';
+import { hudRedisGet, isHudRedisConfigured } from './hudRedis.js';
 
 test('validateResolvedPresence returns player_not_connected without record', () => {
   resetManagedServersForTests();
@@ -94,4 +98,49 @@ test('validateResolvedPresence accepts in-memory battle SSE fallback', () => {
   );
   assert.equal(result.ok, true);
   resetBattleSsePresenceForTests();
+});
+
+test('noteHudPlayerJoin invalidates session cache when car changes', async () => {
+  if (!isHudRedisConfigured()) {
+    return;
+  }
+
+  const steamId = '76561199000000002';
+  const serverName = 'ProjectD';
+  let invalidateReason: 'server' | 'car' | null = null;
+
+  setHudPlayerPresenceTestHooks({
+    onSessionCacheInvalidated: (_id, reason) => {
+      invalidateReason = reason;
+    },
+  });
+
+  try {
+    await noteHudPlayerJoin({
+      serverName,
+      data: {
+        steamId,
+        trackName: 'pk_akina',
+        trackConfig: 'downhill',
+        carModel: 'ks_mazda_rx7',
+      },
+    });
+
+    invalidateReason = null;
+    await noteHudPlayerJoin({
+      serverName,
+      data: {
+        steamId,
+        trackName: 'pk_akina',
+        trackConfig: 'downhill',
+        carModel: 'ks_mazda_miata',
+      },
+    });
+
+    assert.equal(invalidateReason, 'car');
+    const raw = await hudRedisGet(presenceRedisKey(steamId));
+    assert.ok(raw?.includes('ks_mazda_miata'));
+  } finally {
+    setHudPlayerPresenceTestHooks(null);
+  }
 });

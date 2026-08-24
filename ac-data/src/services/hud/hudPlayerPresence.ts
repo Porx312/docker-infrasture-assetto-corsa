@@ -147,6 +147,37 @@ async function readPresenceRecord(steamId: string): Promise<PlayerPresenceRecord
   }
 }
 
+/** Read live HUD presence from Redis (for leave race / session presence checks). */
+export async function readHudPlayerPresenceRecord(
+  steamId: string,
+): Promise<PlayerPresenceRecord | null> {
+  return readPresenceRecord(steamId.trim());
+}
+
+function normalizePresenceCarModel(carModel: string): string {
+  return pickCarModelId(carModel) ?? carModel.trim();
+}
+
+function presenceCarChanged(prior: PlayerPresenceRecord, nextCarModel: string): boolean {
+  const priorCar = normalizePresenceCarModel(prior.carModel);
+  const nextCar = normalizePresenceCarModel(nextCarModel);
+  if (!priorCar || !nextCar) {
+    return false;
+  }
+  return priorCar !== nextCar;
+}
+
+type HudPlayerPresenceTestHooks = {
+  onSessionCacheInvalidated?: (steamId: string, reason: 'server' | 'car') => void;
+};
+
+let presenceTestHooks: HudPlayerPresenceTestHooks | null = null;
+
+/** Test hook: observe session cache invalidation on join. */
+export function setHudPlayerPresenceTestHooks(hooks: HudPlayerPresenceTestHooks | null): void {
+  presenceTestHooks = hooks;
+}
+
 async function readRoster(normalizedServerName: string): Promise<string[]> {
   if (!isHudRedisConfigured()) {
     return [];
@@ -270,9 +301,20 @@ export async function noteHudPlayerJoin(payload: Record<string, unknown>): Promi
     const priorServer = normalizeHudServerName(prior.serverName);
     if (priorServer && priorServer !== normalizedServer) {
       await invalidateSessionCache({ steamId });
+      presenceTestHooks?.onSessionCacheInvalidated?.(steamId, 'server');
       console.log(
         `[hud-presence] steamId=${steamId} server changed ${priorServer} -> ${normalizedServer} session cache invalidated`,
       );
+    } else if (presenceCarChanged(prior, carModel)) {
+      await invalidateSessionCache({ steamId });
+      presenceTestHooks?.onSessionCacheInvalidated?.(steamId, 'car');
+      const priorCar = normalizePresenceCarModel(prior.carModel);
+      const nextCar = normalizePresenceCarModel(carModel);
+      console.log(
+        `[hud-presence] steamId=${steamId} car changed ${priorCar} -> ${nextCar} session cache invalidated`,
+      );
+      const { clearJoinRefreshDedupe } = await import('./playerJoinContext.js');
+      clearJoinRefreshDedupe(steamId);
     }
   }
   const record = buildPresenceRecord(serverName, data, steamId, carModel);
@@ -285,16 +327,22 @@ export async function noteHudPlayerJoin(payload: Record<string, unknown>): Promi
   }
 }
 
-export async function noteHudPlayerLeave(payload: Record<string, unknown>): Promise<void> {
+export async function noteHudPlayerLeave(payload: Record<string, unknown>): Promise<boolean> {
   if (!isHudRedisConfigured()) {
-    return;
+    return false;
   }
 
   const serverName = typeof payload.serverName === 'string' ? payload.serverName : '';
   const data = parseEventData(payload);
   const steamId = typeof data.steamId === 'string' ? data.steamId.trim() : '';
   if (!steamId) {
-    return;
+    return false;
+  }
+
+  const leaveCarModel = readCarModelFromEventData(data);
+  const current = await readPresenceRecord(steamId);
+  if (current && presenceCarChanged(current, leaveCarModel)) {
+    return false;
   }
 
   await hudRedisDel(presenceRedisKey(steamId));
@@ -309,6 +357,8 @@ export async function noteHudPlayerLeave(payload: Record<string, unknown>): Prom
       await writeRoster(normalizedServer, next);
     }
   }
+
+  return true;
 }
 
 /** Test helper: reset in-memory battle SSE presence map. */
