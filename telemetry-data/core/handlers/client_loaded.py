@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from core import settings
 from core.logging_config import get_logger
-from core.user_ban_enforcer import is_steam_id_banned, kick_driver
-from core.user_registration_enforcer import is_steam_id_not_registered, kick_unregistered_driver
+from core.user_ban_enforcer import is_steam_id_banned, schedule_deferred_ban_kick
+from core.user_registration_enforcer import (
+    is_steam_id_not_registered,
+    schedule_deferred_registration_kick,
+)
+from core.user_status_cache import read_not_registered_cached
 
 log = get_logger("packet_handlers")
 
@@ -37,16 +41,21 @@ def handle_client_loaded(parser, server_state, addr) -> None:
     if not guid or guid.startswith("unknown_"):
         return
 
-    if is_steam_id_banned(guid):
+    if is_steam_id_banned(guid, force_refresh=True):
         log.info("[%s] CLIENT_LOADED banned guid=%s car=%s", server_state.port, guid, car_id)
-        kick_driver(server_state, driver, "user_invalidated_client_loaded", wait_client_loaded=False)
+        schedule_deferred_ban_kick(server_state, driver)
         return
 
-    if settings.USER_REGISTRATION_REQUIRED and is_steam_id_not_registered(guid):
-        log.info("[%s] CLIENT_LOADED not registered guid=%s car=%s", server_state.port, guid, car_id)
-        kick_unregistered_driver(
-            server_state,
-            driver,
-            "user_not_found_client_loaded",
-            wait_client_loaded=False,
+    if settings.USER_REGISTRATION_REQUIRED:
+        cached = read_not_registered_cached(guid)
+        not_registered = is_steam_id_not_registered(guid)
+        log.info(
+            "[%s] CLIENT_LOADED regCheck guid=%s car=%s notRegistered=%s cache=%s",
+            server_state.port,
+            guid,
+            car_id,
+            not_registered,
+            cached,
         )
+        if not_registered:
+            schedule_deferred_registration_kick(server_state, driver)

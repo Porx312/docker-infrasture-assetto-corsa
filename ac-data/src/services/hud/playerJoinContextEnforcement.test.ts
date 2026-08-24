@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { isHudRedisConfigured } from './hudRedis.js';
 import {
+  setClearUserInvalidatedForTests,
   setMarkUserInvalidatedForTests,
 } from './hudUserInvalidation.js';
 import {
@@ -94,6 +95,35 @@ test('applyPlayerJoinContext publishEnforcement true passes publish to mark help
     assert.equal(notRegisteredCalls[0]?.publish, true);
   } finally {
     setMarkUserInvalidatedForTests(null);
+    setMarkUserNotRegisteredForTests(null);
+  }
+});
+
+test('applyPlayerJoinContext user_not_found does not clear ban key', async () => {
+  if (!isHudRedisConfigured()) {
+    return;
+  }
+
+  const clearCalls: string[] = [];
+  const notRegisteredCalls: Array<{ publish?: boolean }> = [];
+
+  setClearUserInvalidatedForTests(async (id) => {
+    clearCalls.push(id);
+  });
+  setMarkUserNotRegisteredForTests(async (_id, options) => {
+    notRegisteredCalls.push(options ?? {});
+  });
+
+  try {
+    await applyPlayerJoinContext(steamId, {
+      ok: false,
+      reason: 'user_not_found',
+    });
+
+    assert.equal(notRegisteredCalls.length, 1);
+    assert.equal(clearCalls.length, 0);
+  } finally {
+    setClearUserInvalidatedForTests(null);
     setMarkUserNotRegisteredForTests(null);
   }
 });

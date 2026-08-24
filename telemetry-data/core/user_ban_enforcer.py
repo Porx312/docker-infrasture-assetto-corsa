@@ -12,7 +12,12 @@ from core.redis_pubsub_subscriber import parse_steam_id_message, run_pubsub_subs
 from core.server_registry import find_driver_by_steam_id
 from core.session_manager import DriverInfo
 from core.user_kick_common import execute_warn_then_kick, find_driver_on_server
-from core.user_status_cache import read_banned_cached, write_banned_cached
+from core.user_status_cache import (
+    invalidate_banned_cache,
+    read_banned_cached,
+    seed_banned_cache,
+    write_banned_cached,
+)
 
 if TYPE_CHECKING:
     from core.session_manager import ServerState
@@ -21,13 +26,20 @@ log = get_logger("user_ban_enforcer")
 
 _subscriber_started = False
 _subscriber_lock = threading.Lock()
+_defer_ban_kick_lock = threading.Lock()
+_defer_ban_kick_scheduled: set[tuple[int, str]] = set()
+
+
+def reset_defer_ban_kick_scheduled_for_tests() -> None:
+    with _defer_ban_kick_lock:
+        _defer_ban_kick_scheduled.clear()
 
 
 def user_invalidated_redis_key(steam_id: str) -> str:
     return f"{settings.USER_INVALIDATED_REDIS_PREFIX}{steam_id.strip()}"
 
 
-def is_steam_id_banned(steam_id: str, *, quiet: bool = False) -> bool:
+def is_steam_id_banned(steam_id: str, *, quiet: bool = False, force_refresh: bool = False) -> bool:
     if not settings.USER_BAN_ENABLED:
         return False
 
@@ -35,7 +47,10 @@ def is_steam_id_banned(steam_id: str, *, quiet: bool = False) -> bool:
     if not trimmed or trimmed.startswith("unknown_"):
         return False
 
-    cached = read_banned_cached(trimmed)
+    if not force_refresh:
+        cached = read_banned_cached(trimmed)
+    else:
+        cached = None
     if cached is not None:
         if cached and not quiet:
             log.info("ban check: steamId=%s banned (cache)", trimmed)
@@ -90,32 +105,52 @@ def kick_banned_car(
 
 def schedule_deferred_ban_kick(server_state: ServerState, driver: DriverInfo) -> None:
     """Give ac-data time to refresh Convex ban state via player_join before kicking."""
+    if not settings.USER_BAN_ENABLED:
+        return
+
     guid = driver.guid
     if not guid or guid.startswith("unknown_"):
         return
 
+    defer_key = (server_state.port, guid.strip())
+    with _defer_ban_kick_lock:
+        if defer_key in _defer_ban_kick_scheduled:
+            return
+        _defer_ban_kick_scheduled.add(defer_key)
+
     def _run() -> None:
-        interval = settings.USER_BAN_DEFER_POLL_MS / 1000.0
-        for _ in range(settings.USER_BAN_DEFER_ATTEMPTS):
-            time.sleep(interval)
-            if not is_steam_id_banned(guid, quiet=True):
+        try:
+            interval = settings.USER_BAN_DEFER_POLL_MS / 1000.0
+            saw_banned = False
+            for _ in range(settings.USER_BAN_DEFER_ATTEMPTS):
+                time.sleep(interval)
+                if is_steam_id_banned(guid, quiet=True, force_refresh=True):
+                    saw_banned = True
+                    continue
+                if not saw_banned:
+                    log.info(
+                        "[%s] ban cleared after join refresh guid=%s",
+                        server_state.port,
+                        guid,
+                    )
+                    return
+
+            if not saw_banned:
+                return
+
+            current = find_driver_on_server(server_state, guid)
+            if current is None:
                 log.info(
-                    "[%s] ban cleared after join refresh guid=%s",
+                    "[%s] deferred ban kick skipped (driver gone) guid=%s",
                     server_state.port,
                     guid,
                 )
                 return
 
-        current = find_driver_on_server(server_state, guid)
-        if current is None:
-            log.info(
-                "[%s] deferred ban kick skipped (driver gone) guid=%s",
-                server_state.port,
-                guid,
-            )
-            return
-
-        kick_driver(server_state, current, "user_invalidated")
+            kick_driver(server_state, current, "user_invalidated", wait_client_loaded=False)
+        finally:
+            with _defer_ban_kick_lock:
+                _defer_ban_kick_scheduled.discard(defer_key)
 
     threading.Thread(
         target=_run,
@@ -199,6 +234,7 @@ def _handle_invalidation_message(raw: str) -> None:
     steam_id = parse_steam_id_message(raw)
     if not steam_id:
         return
+    seed_banned_cache(steam_id, True)
     kick_steam_id_everywhere(steam_id)
 
 

@@ -6,9 +6,9 @@ import {
   mapProfileToBattlePlayer,
   normalizeBattlePlayerSnapshot,
 } from './battleHudReader.js';
-import { buildPlayerCacheKey, buildSessionCacheKey, playerRedisKey, sessionRedisKey } from './hudCacheKeys.js';
+import { buildPlayerCacheKey, buildSessionCacheKey, battleProfileRedisKey, playerRedisKey, sessionRedisKey } from './hudCacheKeys.js';
 import { setFetchHudSessionForTests } from './lapCompletedHudRefresh.js';
-import { HUD_SESSION_TTL_SEC, hudRedisDel, hudRedisSet, isHudRedisConfigured } from './hudRedis.js';
+import { HUD_BATTLE_PROFILE_TTL_SEC, HUD_SESSION_TTL_SEC, hudRedisDel, hudRedisGet, hudRedisSet, isHudRedisConfigured } from './hudRedis.js';
 import type { HudBattleSnapshotOk, HudProfile, HudSessionOk } from './hudTypes.js';
 
 const profile: HudProfile = {
@@ -341,5 +341,102 @@ test('enrichBattleWithProfiles prep uses peek cache when session is cached', asy
   } finally {
     setFetchHudSessionForTests(null);
     await hudRedisDel(redisKey);
+  }
+});
+
+test('enrichBattleWithProfiles falls back to sticky battle profile when session cache misses', async () => {
+  if (!isHudRedisConfigured()) {
+    return;
+  }
+
+  const steamId = '76561199000000014';
+  const sessionKey = sessionRedisKey(buildSessionCacheKey({ steamId }));
+  const battleProfileKey = battleProfileRedisKey(steamId);
+  const stickyProfile: HudProfile = {
+    name: 'Sticky Rival',
+    tier: 5,
+    car_name: 'GT86',
+    car_id: 'ks_toyota_gt86',
+    avatar_url: 'https://example.com/sticky.png',
+    frame_url: 'https://example.com/sticky-frame.png',
+    steam_id: steamId,
+    elo: 1400,
+  };
+  await hudRedisSet(battleProfileKey, JSON.stringify(stickyProfile), HUD_BATTLE_PROFILE_TTL_SEC);
+
+  let fetchCalls = 0;
+  setFetchHudSessionForTests(async () => {
+    fetchCalls += 1;
+    return { ok: false, reason: 'user_not_found' };
+  });
+
+  const snapshot = buildBattleSnapshot('active');
+  snapshot.player2.steamId = steamId;
+  snapshot.player2.name = 'Bob';
+
+  try {
+    const battle = await enrichBattleWithProfiles(snapshot);
+    assert.equal(fetchCalls, 0);
+    assert.equal(battle.player2.name, 'Sticky Rival');
+    assert.equal(battle.player2.avatar_url, 'https://example.com/sticky.png');
+    assert.equal(battle.player2.frame_url, 'https://example.com/sticky-frame.png');
+  } finally {
+    setFetchHudSessionForTests(null);
+    await hudRedisDel(sessionKey);
+    await hudRedisDel(battleProfileKey);
+  }
+});
+
+test('enrichBattleWithProfiles persists battle profile cache on session peek', async () => {
+  if (!isHudRedisConfigured()) {
+    return;
+  }
+
+  const steamId = '76561199000000015';
+  const sessionKey = sessionRedisKey(buildSessionCacheKey({ steamId }));
+  const battleProfileKey = battleProfileRedisKey(steamId);
+  const cachedOk: HudSessionOk = {
+    ok: true,
+    version: 'peek-persist',
+    context: {
+      server_id: 's1',
+      server_name: 'Battle',
+      track_id: 'pk_akina',
+      track_name: 'Akina',
+      layout_id: 'downhill',
+      layout_name: 'Downhill',
+      car_id: 'ks_toyota_gt86',
+      car_name: 'GT86',
+      player_steam_id: steamId,
+    },
+    profile: {
+      name: 'Persist Rival',
+      rank: 1,
+      tier: 9,
+      best_lap_ms: 100_000,
+      car_name: 'GT86',
+      car_id: 'ks_toyota_gt86',
+      steam_id: steamId,
+      avatar_url: 'https://example.com/persist.png',
+      elo: 1600,
+      rivals: { above: null, below: null },
+    },
+  };
+  await hudRedisSet(sessionKey, JSON.stringify(cachedOk), HUD_SESSION_TTL_SEC);
+
+  const snapshot = buildBattleSnapshot('arming');
+  snapshot.player2.steamId = steamId;
+
+  try {
+    await enrichBattleWithProfiles(snapshot);
+    const raw = await hudRedisGet(battleProfileKey);
+    assert.ok(raw);
+    const parsed = JSON.parse(raw) as HudProfile;
+    assert.equal(parsed.name, 'Persist Rival');
+    assert.equal(parsed.avatar_url, 'https://example.com/persist.png');
+  } finally {
+    setFetchHudSessionForTests(null);
+    await hudRedisDel(sessionKey);
+    await hudRedisDel(battleProfileKey);
   }
 });

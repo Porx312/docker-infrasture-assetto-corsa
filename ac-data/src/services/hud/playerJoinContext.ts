@@ -203,7 +203,6 @@ export async function applyPlayerJoinContext(
     await clearUserNotRegistered(trimmed);
   } else if (notRegistered) {
     await markUserNotRegistered(trimmed, { publish });
-    await clearUserInvalidated(trimmed);
   } else {
     await clearUserInvalidated(trimmed);
     await clearUserNotRegistered(trimmed);
@@ -239,9 +238,13 @@ async function runPlayerJoinRefresh(
   steamId: string,
   options?: ApplyPlayerJoinContextOptions,
 ): Promise<HudSessionResult> {
+  const startedAt = Date.now();
   const context = await fetchPlayerJoinContextImpl(steamId);
   await invalidateHudCachesForSteamId(steamId);
-  const { session } = await applyPlayerJoinContext(steamId, context, options);
+  const { player, session } = await applyPlayerJoinContext(steamId, context, options);
+  console.log(
+    `[player-join-timing] steamId=${steamId.trim()} ms=${Date.now() - startedAt} notRegistered=${!context.ok && context.reason === 'user_not_found'} player=${player.ok ? 'ok' : player.reason} session=${session.ok ? 'ok' : session.reason}`,
+  );
   if (shouldScheduleJoinRetry(session) && options?.joinRetry !== true) {
     scheduleJoinContextRetry(steamId, options);
   }

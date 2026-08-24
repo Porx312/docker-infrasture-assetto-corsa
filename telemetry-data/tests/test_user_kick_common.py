@@ -4,6 +4,7 @@ from core.session_manager import DriverInfo, ServerState
 from core.user_kick_common import (
     clear_kick_state,
     execute_warn_then_kick,
+    join_kick_threads_for_tests,
     reset_kick_state_for_tests,
 )
 
@@ -33,6 +34,7 @@ def test_execute_warn_then_kick_chat_wait_kick_once(_sleep, mock_chat, mock_kick
         log_label="test",
         wait_client_loaded=False,
     ) is True
+    join_kick_threads_for_tests()
     mock_chat.assert_called_once_with(server, 3, "Hello")
     _sleep.assert_called_once_with(3.0)
     mock_kick.assert_called_once_with(server, 3)
@@ -62,3 +64,4 @@ def test_execute_warn_then_kick_chat_wait_kick_once(_sleep, mock_chat, mock_kick
         log_label="test",
         wait_client_loaded=False,
     ) is True
+    join_kick_threads_for_tests()

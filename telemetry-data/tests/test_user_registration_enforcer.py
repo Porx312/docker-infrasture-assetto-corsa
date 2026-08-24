@@ -9,6 +9,8 @@ from core.user_registration_enforcer import (
     is_steam_id_not_registered,
     kick_unregistered_driver,
     kick_steam_id_everywhere_unregistered,
+    maybe_kick_unregistered_driver_on_car_update,
+    reset_defer_kick_scheduled_for_tests,
     schedule_deferred_registration_kick,
     user_not_registered_redis_key,
 )
@@ -18,6 +20,7 @@ from core.user_status_cache import reset_user_status_cache_for_tests
 def setup_function():
     reset_registry_for_tests()
     reset_user_status_cache_for_tests()
+    reset_defer_kick_scheduled_for_tests()
 
 
 def test_user_not_registered_redis_key():
@@ -129,17 +132,15 @@ def test_schedule_deferred_registration_kick_kicks_when_still_not_registered(
     mock_kick.assert_called_once()
 
 
-@patch("core.user_registration_enforcer.kick_unregistered_driver")
 @patch("core.user_registration_enforcer.is_steam_id_not_registered")
 @patch("core.user_registration_enforcer.is_steam_id_banned", return_value=True)
 @patch("core.user_registration_enforcer.time.sleep", return_value=None)
 @patch("core.user_registration_enforcer.settings.USER_BAN_DEFER_ATTEMPTS", 2)
 @patch("core.user_registration_enforcer.settings.USER_BAN_DEFER_POLL_MS", 1)
-def test_schedule_deferred_registration_kick_skips_when_banned(
+def test_schedule_deferred_registration_kick_hands_off_to_ban(
     _sleep,
     _mock_banned,
     mock_is_not_registered,
-    mock_kick,
 ):
     reset_registry_for_tests()
     server = ServerState(12001, 8081, "track", "layout", "Test Server")
@@ -149,10 +150,13 @@ def test_schedule_deferred_registration_kick_skips_when_banned(
     server.guid_to_driver[driver.guid] = driver
     mock_is_not_registered.return_value = True
 
-    schedule_deferred_registration_kick(server, driver)
-    time.sleep(0.05)
+    with patch("core.user_registration_enforcer.schedule_deferred_ban_kick") as mock_ban_defer:
+        with patch("core.user_registration_enforcer.kick_unregistered_driver") as mock_kick:
+            schedule_deferred_registration_kick(server, driver)
+            time.sleep(0.2)
 
-    mock_kick.assert_not_called()
+            mock_kick.assert_not_called()
+            mock_ban_defer.assert_called_once_with(server, driver)
 
 
 @patch("core.user_registration_enforcer.kick_unregistered_driver")
@@ -180,11 +184,38 @@ def test_kick_steam_id_everywhere_unregistered_on_all_servers(mock_kick):
 
 
 @patch("core.user_registration_enforcer.kick_unregistered_driver")
+@patch("core.user_registration_enforcer.is_kick_pending_or_done", return_value=True)
+@patch("core.user_registration_enforcer.is_steam_id_banned", return_value=False)
+@patch("core.user_registration_enforcer.is_steam_id_not_registered", return_value=True)
+def test_maybe_kick_unregistered_driver_on_car_update_skips_when_kick_pending(
+    _mock_not_reg,
+    _mock_banned,
+    _mock_pending,
+    mock_kick,
+):
+    reset_registry_for_tests()
+    server = ServerState(12001, 8081, "track", "layout", "Test Server")
+    driver = DriverInfo("Pilot", "76561199000000001", "ks_toyota_gt86")
+    driver.car_id = 3
+    server.active_drivers[3] = driver
+    server.guid_to_driver[driver.guid] = driver
+
+    from core.user_registration_enforcer import maybe_kick_unregistered_driver_on_car_update
+
+    with patch("core.user_registration_enforcer.settings.USER_REGISTRATION_REQUIRED", True):
+        maybe_kick_unregistered_driver_on_car_update(server, driver)
+
+    mock_kick.assert_not_called()
+
+
+@patch("core.user_registration_enforcer.kick_unregistered_driver")
+@patch("core.user_registration_enforcer.is_kick_pending_or_done", return_value=False)
 @patch("core.user_registration_enforcer.is_steam_id_banned", return_value=False)
 @patch("core.user_registration_enforcer.is_steam_id_not_registered", return_value=True)
 def test_maybe_kick_unregistered_driver_on_car_update_skips_wait_client_loaded(
     _mock_not_reg,
     _mock_banned,
+    _mock_pending,
     mock_kick,
 ):
     reset_registry_for_tests()

@@ -4,6 +4,8 @@ import { createRedisClient, isRedisConfigured } from '../redisClient.js';
 
 export const HUD_PLAYER_TTL_SEC = Number(process.env.HUD_PLAYER_TTL_SEC || 300);
 export const HUD_SESSION_TTL_SEC = Number(process.env.HUD_SESSION_TTL_SEC || 300);
+/** Sticky battle opponent profile cache (survives session TTL expiry between rematches). */
+export const HUD_BATTLE_PROFILE_TTL_SEC = Number(process.env.HUD_BATTLE_PROFILE_TTL_SEC || 3600);
 /** Short negative cache when rival/player is not in Convex live_players (battle enrich loop guard). */
 export const HUD_PLAYER_NOT_CONNECTED_TTL_SEC = Number(
   process.env.HUD_PLAYER_NOT_CONNECTED_TTL_SEC || 4,

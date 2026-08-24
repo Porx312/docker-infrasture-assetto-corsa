@@ -42,6 +42,23 @@ def write_banned_cached(steam_id: str, value: bool) -> None:
     _write_cached(_banned_cache, steam_id, value)
 
 
+def invalidate_banned_cache(steam_id: str) -> None:
+    """Drop cached ban state so the next check reads Redis."""
+    trimmed = (steam_id or "").strip()
+    if not trimmed:
+        return
+    with _cache_lock:
+        _banned_cache.pop(trimmed, None)
+
+
+def seed_banned_cache(steam_id: str, value: bool) -> None:
+    """Force cached ban state (e.g. after pub/sub invalidation)."""
+    trimmed = (steam_id or "").strip()
+    if not trimmed:
+        return
+    _write_cached(_banned_cache, trimmed, value)
+
+
 def read_not_registered_cached(steam_id: str) -> bool | None:
     return _read_cached(_not_registered_cache, steam_id)
 

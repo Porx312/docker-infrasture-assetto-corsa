@@ -8,14 +8,21 @@ from core.user_ban_enforcer import (
     is_steam_id_banned,
     kick_driver,
     kick_steam_id_everywhere,
+    reset_defer_ban_kick_scheduled_for_tests,
     user_invalidated_redis_key,
 )
-from core.user_status_cache import reset_user_status_cache_for_tests
+from core.user_status_cache import (
+    invalidate_banned_cache,
+    reset_user_status_cache_for_tests,
+    seed_banned_cache,
+    write_banned_cached,
+)
 
 
 def setup_function():
     reset_registry_for_tests()
     reset_user_status_cache_for_tests()
+    reset_defer_ban_kick_scheduled_for_tests()
 
 
 def test_user_invalidated_redis_key():
@@ -45,6 +52,32 @@ def test_is_steam_id_banned_uses_ttl_cache(mock_get_client):
     assert is_steam_id_banned("steam-cache") is True
     assert is_steam_id_banned("steam-cache", quiet=True) is True
     assert redis.get.call_count == 1
+
+
+@patch("core.user_ban_enforcer.settings.USER_BAN_ENABLED", True)
+@patch("core.user_ban_enforcer.settings.REDIS_HOST", "127.0.0.1")
+@patch("core.redis_client.get_redis_client")
+def test_is_steam_id_banned_force_refresh_bypasses_stale_cache(mock_get_client):
+    redis = MagicMock()
+    redis.get.return_value = "1"
+    mock_get_client.return_value = redis
+    write_banned_cached("steam-stale", False)
+
+    assert is_steam_id_banned("steam-stale") is False
+    assert is_steam_id_banned("steam-stale", force_refresh=True) is True
+    assert redis.get.call_count == 1
+
+
+@patch("core.user_ban_enforcer.settings.USER_BAN_ENABLED", True)
+@patch("core.user_ban_enforcer.kick_steam_id_everywhere")
+def test_handle_invalidation_message_seeds_cache_before_kick(mock_kick):
+    steam_id = "76561199000000001"
+    write_banned_cached(steam_id, False)
+
+    _handle_invalidation_message(f'{{"steamId":"{steam_id}","ts":1}}')
+
+    mock_kick.assert_called_once_with(steam_id)
+    assert is_steam_id_banned(steam_id) is True
 
 
 @patch("core.user_ban_enforcer.settings.USER_BAN_ENABLED", False)
@@ -120,6 +153,33 @@ def test_schedule_deferred_ban_kick_kicks_when_still_banned(
     server.active_drivers[3] = driver
     server.guid_to_driver[driver.guid] = driver
     mock_is_banned.return_value = True
+
+    from core.user_ban_enforcer import schedule_deferred_ban_kick
+
+    schedule_deferred_ban_kick(server, driver)
+    time.sleep(0.05)
+
+    mock_kick.assert_called_once()
+
+
+@patch("core.user_ban_enforcer.kick_driver")
+@patch("core.user_ban_enforcer.is_steam_id_banned")
+@patch("core.user_ban_enforcer.time.sleep", return_value=None)
+@patch("core.user_ban_enforcer.settings.USER_BAN_ENABLED", True)
+@patch("core.user_ban_enforcer.settings.USER_BAN_DEFER_ATTEMPTS", 3)
+@patch("core.user_ban_enforcer.settings.USER_BAN_DEFER_POLL_MS", 1)
+def test_schedule_deferred_ban_kick_sticky_after_transient_clear(
+    _sleep,
+    mock_is_banned,
+    mock_kick,
+):
+    reset_registry_for_tests()
+    server = ServerState(12001, 8081, "track", "layout", "Test Server")
+    driver = DriverInfo("Pilot", "76561199000000001", "ks_toyota_gt86")
+    driver.car_id = 3
+    server.active_drivers[3] = driver
+    server.guid_to_driver[driver.guid] = driver
+    mock_is_banned.side_effect = [True, False, False]
 
     from core.user_ban_enforcer import schedule_deferred_ban_kick
 

@@ -11,8 +11,12 @@ from core.logging_config import get_logger
 from core.redis_pubsub_subscriber import parse_steam_id_message, run_pubsub_subscriber_loop
 from core.server_registry import find_driver_by_steam_id
 from core.session_manager import DriverInfo
-from core.user_ban_enforcer import is_steam_id_banned
-from core.user_kick_common import execute_warn_then_kick, find_driver_on_server
+from core.user_ban_enforcer import is_steam_id_banned, schedule_deferred_ban_kick
+from core.user_kick_common import (
+    execute_warn_then_kick,
+    find_driver_on_server,
+    is_kick_pending_or_done,
+)
 from core.user_status_cache import read_not_registered_cached, write_not_registered_cached
 
 if TYPE_CHECKING:
@@ -22,6 +26,13 @@ log = get_logger("user_registration_enforcer")
 
 _subscriber_started = False
 _subscriber_lock = threading.Lock()
+_defer_kick_lock = threading.Lock()
+_defer_kick_scheduled: set[tuple[int, str]] = set()
+
+
+def reset_defer_kick_scheduled_for_tests() -> None:
+    with _defer_kick_lock:
+        _defer_kick_scheduled.clear()
 
 
 def user_not_registered_redis_key(steam_id: str) -> str:
@@ -128,38 +139,50 @@ def schedule_deferred_registration_kick(server_state: ServerState, driver: Drive
     if not guid or guid.startswith("unknown_"):
         return
 
+    defer_key = (server_state.port, guid.strip())
+    with _defer_kick_lock:
+        if defer_key in _defer_kick_scheduled:
+            return
+        _defer_kick_scheduled.add(defer_key)
+
     def _run() -> None:
-        interval = settings.USER_BAN_DEFER_POLL_MS / 1000.0
-        for _ in range(settings.USER_BAN_DEFER_ATTEMPTS):
-            time.sleep(interval)
-            if is_steam_id_banned(guid, quiet=True):
+        try:
+            interval = settings.USER_BAN_DEFER_POLL_MS / 1000.0
+            for _ in range(settings.USER_BAN_DEFER_ATTEMPTS):
+                time.sleep(interval)
+                if is_steam_id_banned(guid, quiet=True, force_refresh=True):
+                    log.info(
+                        "[%s] registration defer handoff to ban kick guid=%s",
+                        server_state.port,
+                        guid,
+                    )
+                    schedule_deferred_ban_kick(server_state, driver)
+                    return
+                if not is_steam_id_not_registered(guid, quiet=True):
+                    log.info(
+                        "[%s] registration cleared after join refresh guid=%s",
+                        server_state.port,
+                        guid,
+                    )
+                    return
+
+            current = find_driver_on_server(server_state, guid)
+            if current is None:
                 log.info(
-                    "[%s] registration defer skipped (banned) guid=%s",
+                    "[%s] deferred registration kick skipped (driver gone) guid=%s",
                     server_state.port,
                     guid,
                 )
                 return
-            if not is_steam_id_not_registered(guid, quiet=True):
-                log.info(
-                    "[%s] registration cleared after join refresh guid=%s",
-                    server_state.port,
-                    guid,
-                )
+
+            if is_steam_id_banned(guid, quiet=True, force_refresh=True):
+                schedule_deferred_ban_kick(server_state, current)
                 return
 
-        current = find_driver_on_server(server_state, guid)
-        if current is None:
-            log.info(
-                "[%s] deferred registration kick skipped (driver gone) guid=%s",
-                server_state.port,
-                guid,
-            )
-            return
-
-        if is_steam_id_banned(guid, quiet=True):
-            return
-
-        kick_unregistered_driver(server_state, current, "user_not_found")
+            kick_unregistered_driver(server_state, current, "user_not_found")
+        finally:
+            with _defer_kick_lock:
+                _defer_kick_scheduled.discard(defer_key)
 
     threading.Thread(
         target=_run,
@@ -179,6 +202,9 @@ def maybe_kick_unregistered_driver_on_car_update(
     if is_steam_id_banned(guid, quiet=True):
         return
     if not is_steam_id_not_registered(guid, quiet=True):
+        return
+
+    if is_kick_pending_or_done(server_state.port, guid):
         return
 
     log.info(

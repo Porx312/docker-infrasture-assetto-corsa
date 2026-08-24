@@ -1,10 +1,19 @@
 import {
+  battleProfileRedisKey,
   battleRedisKey,
   buildBattleCacheKey,
+  buildSessionCacheKey,
+  sessionRedisKey,
 } from './hudCacheKeys.js';
 import { peekSessionCache } from './lapCompletedHudRefresh.js';
 import { isProfileInvalidated, mergeCosmeticFields } from './hudProfile.js';
-import { hudRedisGet } from './hudRedis.js';
+import {
+  HUD_BATTLE_PROFILE_TTL_SEC,
+  HUD_SESSION_TTL_SEC,
+  hudRedisGet,
+  hudRedisSet,
+  hudRedisTouch,
+} from './hudRedis.js';
 import type {
   BattleCacheParams,
   HudBattleOk,
@@ -15,6 +24,8 @@ import type {
   HudProfile,
 } from './hudTypes.js';
 
+type BattleEnrichSource = 'peek' | 'battle-profile' | 'snapshot' | 'miss';
+
 function battleEnrichLogEnabled(): boolean {
   return (process.env.HUD_BATTLE_ENRICH_LOG ?? 'false').trim().toLowerCase() === 'true';
 }
@@ -22,7 +33,7 @@ function battleEnrichLogEnabled(): boolean {
 function logBattleEnrich(
   state: HudBattleOk['state'],
   steamId: string,
-  source: 'peek' | 'snapshot' | 'miss',
+  source: BattleEnrichSource,
 ): void {
   if (!battleEnrichLogEnabled()) {
     return;
@@ -36,6 +47,59 @@ function snapshotCarId(player: HudBattlePlayerSnapshot): string {
 
 function snapshotCosmeticSource(player: HudBattlePlayerSnapshot): Record<string, unknown> {
   return player as unknown as Record<string, unknown>;
+}
+
+function battleProfileFromHudProfile(profile: HudProfile): HudProfile {
+  return {
+    name: profile.name,
+    ...(profile.avatar_url ? { avatar_url: profile.avatar_url } : {}),
+    ...(profile.display_style !== undefined ? { display_style: profile.display_style } : {}),
+    ...(profile.frame_url ? { frame_url: profile.frame_url } : {}),
+    ...(profile.tier !== undefined ? { tier: profile.tier } : {}),
+    ...(profile.elo !== undefined ? { elo: profile.elo } : {}),
+    ...(profile.car_name ? { car_name: profile.car_name } : {}),
+    ...(profile.car_id ? { car_id: profile.car_id } : {}),
+    ...(profile.input_type ? { input_type: profile.input_type } : {}),
+    ...(profile.steam_id ? { steam_id: profile.steam_id } : {}),
+  };
+}
+
+async function readBattleProfileCache(steamId: string): Promise<HudProfile | null> {
+  const trimmed = steamId.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const raw = await hudRedisGet(battleProfileRedisKey(trimmed));
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as HudProfile;
+    if (!parsed || typeof parsed !== 'object') {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function persistBattleProfileCache(steamId: string, profile: HudProfile): Promise<void> {
+  const trimmed = steamId.trim();
+  if (!trimmed) {
+    return;
+  }
+  const subset = battleProfileFromHudProfile(profile);
+  await hudRedisSet(
+    battleProfileRedisKey(trimmed),
+    JSON.stringify(subset),
+    HUD_BATTLE_PROFILE_TTL_SEC,
+  );
+}
+
+async function touchSessionCache(steamId: string): Promise<void> {
+  const key = sessionRedisKey(buildSessionCacheKey({ steamId }));
+  await hudRedisTouch(key, HUD_SESSION_TTL_SEC);
 }
 
 export function normalizeBattlePlayerSnapshot(
@@ -85,13 +149,18 @@ export function mapProfileToBattlePlayer(
   return mergeCosmeticFields(merged, profile as unknown as Record<string, unknown>);
 }
 
-/** Join cache peek only — never calls Convex during battle enrich. */
+/** Join cache peek + sticky battle profile fallback — never calls Convex during battle enrich. */
 async function loadBattlePlayerProfileFromCache(
   steamId: string,
   state: HudBattleOk['state'],
 ): Promise<HudProfile | null> {
   const session = await peekSessionCache({ steamId });
   if (session === null) {
+    const battleProfile = await readBattleProfileCache(steamId);
+    if (battleProfile) {
+      logBattleEnrich(state, steamId, 'battle-profile');
+      return battleProfile;
+    }
     logBattleEnrich(state, steamId, 'miss');
     return null;
   }
@@ -100,6 +169,10 @@ async function loadBattlePlayerProfileFromCache(
     return null;
   }
   logBattleEnrich(state, steamId, 'peek');
+  await touchSessionCache(steamId);
+  if (session.profile) {
+    await persistBattleProfileCache(steamId, session.profile);
+  }
   return session.profile;
 }
 

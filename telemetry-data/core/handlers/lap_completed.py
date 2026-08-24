@@ -63,10 +63,13 @@ def handle_lap_completed(parser, server_state, addr) -> None:
         server_state.battle_manager.handle_lap_completed(driver.guid)
 
     if not runtime_config.time_attack_enabled(server_mode):
-        log.debug(
-            "[%s] lap_completed ignored mode=%r name=%s",
+        log.info(
+            "[%s] lap_completed SKIPPED mode=%r guid=%s car=%s lapMs=%s name=%s",
             server_state.port,
             server_mode,
+            driver.guid,
+            car_id,
+            ac_lap_time,
             driver.name,
         )
         return

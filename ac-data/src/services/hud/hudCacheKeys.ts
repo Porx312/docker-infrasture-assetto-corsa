@@ -23,6 +23,7 @@ export function buildSessionCacheKey(params: SessionQueryParams): string {
 export const HUD_PLAYER_PREFIX = 'ac:hud:player:';
 export const HUD_SESSION_PREFIX = 'ac:hud:session:';
 export const HUD_BATTLE_PREFIX = 'ac:hud:battle:';
+export const HUD_BATTLE_PROFILE_PREFIX = 'ac:hud:battle:profile:';
 export const HUD_PRESENCE_PREFIX = 'ac:hud:presence:';
 export const HUD_PRESENCE_ROSTER_PREFIX = 'ac:hud:presence:roster:';
 export const HUD_SSE_PRESENCE_PREFIX = 'ac:hud:sse:';
@@ -53,6 +54,10 @@ export function buildBattleCacheKey(params: BattleCacheParams): string {
 
 export function battleRedisKey(cacheKey: string): string {
   return `${HUD_BATTLE_PREFIX}${cacheKey}`;
+}
+
+export function battleProfileRedisKey(steamId: string): string {
+  return `${HUD_BATTLE_PROFILE_PREFIX}${steamId.trim()}`;
 }
 
 export function battleVersionRedisKey(cacheKey: string): string {

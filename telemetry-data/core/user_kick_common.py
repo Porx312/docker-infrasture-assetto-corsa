@@ -17,6 +17,7 @@ log = get_logger("user_kick_common")
 _lock = threading.Lock()
 _in_progress: set[tuple[int, str]] = set()
 _done: set[tuple[int, str]] = set()
+_kick_threads: list[threading.Thread] = []
 
 _CLIENT_LOADED_POLL_SEC = 0.2
 _CMD_ADDR_POLL_SEC = 0.1
@@ -36,9 +37,26 @@ def clear_kick_state(port: int, guid: str, car_id: int | None = None) -> None:
 
 
 def reset_kick_state_for_tests() -> None:
+    join_kick_threads_for_tests()
     with _lock:
         _in_progress.clear()
         _done.clear()
+
+
+def join_kick_threads_for_tests() -> None:
+    for thread in list(_kick_threads):
+        thread.join(timeout=2.0)
+    _kick_threads.clear()
+
+
+def is_kick_pending_or_done(port: int, guid: str) -> bool:
+    """True when a warn-then-kick is in progress or already completed for this connection."""
+    trimmed = (guid or "").strip()
+    if not trimmed:
+        return False
+    with _lock:
+        key = _kick_key(port, trimmed)
+        return key in _in_progress or key in _done
 
 
 def find_driver_on_server(server_state: ServerState, guid: str) -> DriverInfo | None:
@@ -121,7 +139,7 @@ def _send_kick_once(server_state: ServerState, car_id: int) -> bool:
     return True
 
 
-def execute_warn_then_kick(
+def _execute_warn_then_kick_body(
     server_state: ServerState,
     car_id: int,
     guid: str,
@@ -129,24 +147,11 @@ def execute_warn_then_kick(
     warn_delay_sec: float,
     *,
     log_label: str,
-    wait_client_loaded: bool = True,
-    client_loaded_timeout_sec: float = 45.0,
-    cmd_addr_timeout_sec: float = 10.0,
+    wait_client_loaded: bool,
+    client_loaded_timeout_sec: float,
+    cmd_addr_timeout_sec: float,
 ) -> bool:
-    """Chat warning, wait, then one kick. Waits for UDP cmd addr + CLIENT_LOADED when possible."""
-    trimmed_guid = (guid or "").strip()
-    if not trimmed_guid:
-        return False
-
-    if not _try_begin_kick(server_state.port, trimmed_guid):
-        log.debug(
-            "[%s] %s kick skipped (already done) guid=%s",
-            server_state.port,
-            log_label,
-            trimmed_guid,
-        )
-        return False
-
+    trimmed_guid = guid.strip()
     success = False
     try:
         if not _wait_for_cmd_addr(server_state, cmd_addr_timeout_sec):
@@ -222,3 +227,52 @@ def execute_warn_then_kick(
             _finish_kick(server_state.port, trimmed_guid)
         else:
             _abort_kick(server_state.port, trimmed_guid)
+
+
+def execute_warn_then_kick(
+    server_state: ServerState,
+    car_id: int,
+    guid: str,
+    message: str,
+    warn_delay_sec: float,
+    *,
+    log_label: str,
+    wait_client_loaded: bool = True,
+    client_loaded_timeout_sec: float = 45.0,
+    cmd_addr_timeout_sec: float = 10.0,
+) -> bool:
+    """Schedule chat warning + one kick on a background thread (non-blocking for UDP listener)."""
+    trimmed_guid = (guid or "").strip()
+    if not trimmed_guid:
+        return False
+
+    if not _try_begin_kick(server_state.port, trimmed_guid):
+        log.debug(
+            "[%s] %s kick skipped (already done) guid=%s",
+            server_state.port,
+            log_label,
+            trimmed_guid,
+        )
+        return False
+
+    def _run() -> None:
+        _execute_warn_then_kick_body(
+            server_state,
+            car_id,
+            trimmed_guid,
+            message,
+            warn_delay_sec,
+            log_label=log_label,
+            wait_client_loaded=wait_client_loaded,
+            client_loaded_timeout_sec=client_loaded_timeout_sec,
+            cmd_addr_timeout_sec=cmd_addr_timeout_sec,
+        )
+
+    thread = threading.Thread(
+        target=_run,
+        daemon=True,
+        name=f"kick-warn-{server_state.port}-{trimmed_guid[-6:]}",
+    )
+    _kick_threads.append(thread)
+    thread.start()
+    return True

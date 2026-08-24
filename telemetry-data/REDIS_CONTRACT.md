@@ -130,8 +130,9 @@ On every `NEW_CONNECTION`, telemetry emits `player_join` **before** ban kick so 
 Enforcement reads **only** `ac:user:invalidated:{steamId}` (not HUD player cache).
 
 Both ban and registration kicks: **one private chat warning** (`ACSP` 202 to `car_id`), wait
-`USER_KICK_WARN_DELAY_SEC` (default 3s), then **one** `KICK_USER` packet. Deduped per connection
-(no retries, no `/kick_id` duplicate, no CAR_UPDATE spam).
+`USER_KICK_WARN_DELAY_SEC` (default 3s), then **one** `KICK_USER` packet on a **background thread**
+(non-blocking for the UDP listener). Deduped per connection via `is_kick_pending_or_done` — CAR_UPDATE
+and mid-session paths skip when a kick is already pending or done (no log spam).
 
 Env: `USER_BAN_ENABLED`, `USER_INVALIDATED_REDIS_PREFIX`, `USER_INVALIDATED_CHANNEL`,
 `USER_INVALIDATED_KICK_MESSAGE`, `USER_KICK_WARN_DELAY_SEC`, `USER_BAN_DEFER_POLL_MS`, `USER_BAN_DEFER_ATTEMPTS`.
@@ -153,7 +154,8 @@ when `reason === user_not_found`. Ban state takes precedence (invalidated users 
 
 On every `NEW_CONNECTION`, telemetry emits `player_join` **before** registration kick so ac-data
 can call Convex and run `clearUserNotRegistered` when the user registers. Kick is deferred
-(`USER_BAN_DEFER_POLL_MS` × `USER_BAN_DEFER_ATTEMPTS`) while ac-data refreshes Redis.
+(`USER_BAN_DEFER_POLL_MS` × `USER_BAN_DEFER_ATTEMPTS`) on **NEW_CONNECTION** and **CLIENT_LOADED**
+(never immediate kick on CLIENT_LOADED) while ac-data refreshes Redis.
 
 Uses the same warn-then-kick flow as bans (see above).
 

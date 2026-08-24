@@ -281,6 +281,14 @@ async function flushIngestChunk(
   const { forward, localOnly } = await partitionCoalescedByIngestPrefs(coalesced);
 
   for (const { payload, event } of forward) {
+    if (event === 'lap_completed') {
+      const lapData = (payload.data ?? {}) as Record<string, unknown>;
+      const steamId = typeof lapData.steamId === 'string' ? lapData.steamId : '?';
+      const serverName = typeof payload.serverName === 'string' ? payload.serverName : '?';
+      console.log(
+        `[redis-bridge] lap_completed forward steamId=${steamId} server=${serverName}`,
+      );
+    }
     await handleEventBeforeIngest(event, payload);
   }
 

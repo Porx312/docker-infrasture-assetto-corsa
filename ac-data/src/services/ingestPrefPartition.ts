@@ -31,6 +31,11 @@ export async function partitionCoalescedByIngestPrefs(
   const localOnly: PendingIngestMessage[] = [];
   for (const item of coalesced) {
     if (item.event === 'lap_completed' && (await skipLapIngest(item.payload as EventPayload))) {
+      const lapData = (item.payload.data ?? {}) as Record<string, unknown>;
+      const steamId = typeof lapData.steamId === 'string' ? lapData.steamId : '?';
+      console.log(
+        `[redis-bridge] lap_completed localOnly steamId=${steamId} reason=saveTime=false`,
+      );
       localOnly.push(item);
     } else if (
       shouldSkipServerStatusConvexIngest(item.event, item.payload, skipEmptyServerStatus)

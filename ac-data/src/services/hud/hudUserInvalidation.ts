@@ -36,11 +36,19 @@ type MarkInvalidatedFn = (
   options?: { publish?: boolean },
 ) => Promise<void>;
 
+type ClearInvalidatedFn = (steamId: string) => Promise<void>;
+
 let markUserInvalidatedOverride: MarkInvalidatedFn | null = null;
+let clearUserInvalidatedOverride: ClearInvalidatedFn | null = null;
 
 /** Test helper: override markUserInvalidated. */
 export function setMarkUserInvalidatedForTests(fn: MarkInvalidatedFn | null): void {
   markUserInvalidatedOverride = fn;
+}
+
+/** Test helper: override clearUserInvalidated. */
+export function setClearUserInvalidatedForTests(fn: ClearInvalidatedFn | null): void {
+  clearUserInvalidatedOverride = fn;
 }
 
 export async function markUserInvalidated(
@@ -55,5 +63,9 @@ export async function markUserInvalidated(
 }
 
 export async function clearUserInvalidated(steamId: string): Promise<void> {
+  if (clearUserInvalidatedOverride) {
+    await clearUserInvalidatedOverride(steamId);
+    return;
+  }
   await clearUserStatusFlag(USER_INVALIDATED_REDIS_PREFIX, steamId, FLAG_CONFIG.logLabel);
 }
