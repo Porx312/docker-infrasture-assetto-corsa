@@ -9,11 +9,6 @@ import {
   type PendingIngestMessage,
 } from './coalesceIngestBatch.js';
 import { ensureConvexClient, isConvexConfigured } from './convexClient.js';
-import { fetchWorkerSyncVersion } from './hud/hudConvex.js';
-import {
-  updateManagedServersFromSnapshot,
-  type ManagedServerRow,
-} from './hud/hudManagedServers.js';
 import { publishWorkerErrorEvent } from './activity/activityService.js';
 import {
   handleEventAfterIngest,
@@ -29,11 +24,11 @@ import {
   type IngestBatchResult,
 } from './ingestBatchAck.js';
 import { connectRedisClient, createRedisClient, isRedisConfigured } from './redisClient.js';
+import { bindConfigSyncRedisClient, startConvexConfigPublisher } from './configSyncFromConvex.js';
 
 export { ingestBatchSucceeded } from './ingestBatchAck.js';
 
 const REDIS_STREAM_KEY = process.env.REDIS_STREAM_KEY || 'ac:events';
-const REDIS_CONFIG_STREAM_KEY = process.env.REDIS_CONFIG_STREAM_KEY || 'ac:config';
 const AC_INSTANCE_ID = process.env.AC_INSTANCE_ID || 'default';
 
 // All VPS in the fleet should share the same group so Redis load-balances
@@ -49,13 +44,8 @@ const CONVEX_INGEST_SECRET = (process.env.CONVEX_INGEST_SECRET || '').trim();
 const CONVEX_WORKER_SECRET = (process.env.CONVEX_WORKER_SECRET || '').trim();
 const PENDING_RECLAIM_MIN_IDLE_MS = Number(process.env.REDIS_PENDING_RECLAIM_MIN_IDLE_MS || 60_000);
 const PENDING_RECLAIM_BATCH = Number(process.env.REDIS_PENDING_RECLAIM_BATCH || 50);
-const CONVEX_CONFIG_SNAPSHOT_QUERY =
-  process.env.CONVEX_CONFIG_SNAPSHOT_QUERY || 'timeAttackServers:getWorkerInstanceServerConfigs';
-const CONVEX_WORKER_SYNC_QUERY =
-  process.env.CONVEX_WORKER_SYNC_QUERY || 'workerSync:getWorkerInstanceSyncVersion';
 const REDIS_CONFIG_SYNC_ENABLED =
   (process.env.REDIS_CONFIG_SYNC_ENABLED || 'true').trim().toLowerCase() === 'true';
-const REDIS_CONFIG_SYNC_INTERVAL_MS = Number(process.env.REDIS_CONFIG_SYNC_INTERVAL_MS || 30_000);
 // Recommended: keep enabled on every VPS sharing the same REDIS_CONSUMER_GROUP.
 // Redis load-balances events across consumers (no duplicates, no SPOF).
 // Set to false on a node only if you want a single-primary topology.
@@ -79,19 +69,6 @@ type StreamReadResult = Array<{
   name: string;
   messages: StreamMessage[];
 }>;
-
-type WorkerConfigSnapshotResult = {
-  instanceId: string;
-  includeInactive: boolean;
-  totalServers: number;
-  maxUpdatedAt: number;
-  version: string;
-  servers: unknown[];
-};
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 const CONFIG_ONLY_EVENTS = new Set<string>([
   'server_config_snapshot',
@@ -134,108 +111,6 @@ async function forwardBatchToConvex(
 
   const raw = await mutation(CONVEX_MUTATION_BATCH, mutationArgs);
   return parseIngestBatchResult(raw);
-}
-
-async function publishConfigSnapshotToRedis(
-  client: RedisClientType,
-  snapshot: WorkerConfigSnapshotResult,
-): Promise<void> {
-  const now = Date.now();
-  const payload = {
-    eventId: `cfg-${snapshot.instanceId}-${snapshot.version}-${now}`,
-    schemaVersion: '1',
-    event: 'server_config_snapshot',
-    serverName: '__config__',
-    instanceId: snapshot.instanceId,
-    ts: now,
-    data: {
-      instanceId: snapshot.instanceId,
-      version: snapshot.version,
-      includeInactive: snapshot.includeInactive,
-      totalServers: snapshot.totalServers,
-      maxUpdatedAt: snapshot.maxUpdatedAt,
-      servers: snapshot.servers,
-    },
-  };
-  await client.xAdd(
-    REDIS_CONFIG_STREAM_KEY,
-    '*',
-    {
-      event: payload.event,
-      eventId: payload.eventId,
-      schemaVersion: payload.schemaVersion,
-      instanceId: payload.instanceId,
-      serverName: payload.serverName,
-      ts: String(payload.ts),
-      payload: JSON.stringify(payload),
-    },
-    {
-      TRIM: {
-        strategy: 'MAXLEN',
-        strategyModifier: '~',
-        threshold: 200000,
-      },
-    },
-  );
-}
-
-async function startConvexConfigPublisher(client: RedisClientType): Promise<void> {
-  if (!REDIS_CONFIG_SYNC_ENABLED) {
-    console.log('[redis-config-sync] disabled');
-    return;
-  }
-  if (!isConvexConfigured() || !CONVEX_WORKER_SECRET) {
-    console.log('[redis-config-sync] missing convex env, disabled');
-    return;
-  }
-
-  const { query } = ensureConvexClient();
-  let lastConfigVersion = '';
-
-  let pollIntervalMs = REDIS_CONFIG_SYNC_INTERVAL_MS;
-  try {
-    const sync = await fetchWorkerSyncVersion();
-    pollIntervalMs = sync.pollIntervalMs > 0 ? sync.pollIntervalMs : REDIS_CONFIG_SYNC_INTERVAL_MS;
-    if (sync.pollJitterMs > 0) {
-      await sleep(sync.pollJitterMs);
-    }
-  } catch (err) {
-    console.warn('[redis-config-sync] worker sync bootstrap failed, using defaults:', err);
-  }
-
-  const loop = async () => {
-    try {
-      const sync = await fetchWorkerSyncVersion();
-      const configVersion = sync.configVersion;
-      if (!configVersion || configVersion === lastConfigVersion) {
-        return;
-      }
-
-      const snapshotResult = await query(CONVEX_CONFIG_SNAPSHOT_QUERY, {
-        workerSecret: CONVEX_WORKER_SECRET,
-        instanceId: AC_INSTANCE_ID,
-        includeInactive: true,
-      });
-
-  const snapshot = snapshotResult as WorkerConfigSnapshotResult;
-  updateManagedServersFromSnapshot((snapshot.servers ?? []) as ManagedServerRow[]);
-  await publishConfigSnapshotToRedis(client, snapshot);
-      lastConfigVersion = configVersion;
-      console.log(
-        `[redis-config-sync] published snapshot configVersion=${configVersion} snapshotVersion=${snapshot.version} servers=${snapshot.totalServers}`,
-      );
-    } catch (err) {
-      console.error('[redis-config-sync] loop error:', err);
-    }
-  };
-
-  console.log(
-    `[redis-config-sync] enabled instance=${AC_INSTANCE_ID} interval=${pollIntervalMs}ms stream=${REDIS_CONFIG_STREAM_KEY} syncQuery=${CONVEX_WORKER_SYNC_QUERY}`,
-  );
-  await loop();
-  setInterval(() => {
-    void loop();
-  }, pollIntervalMs);
 }
 
 type IngestBufferState = {
@@ -580,9 +455,14 @@ export async function startRedisConvexBridge(): Promise<void> {
   }
 
   const client = await connectRedisClient(createRedisClient('redis-bridge'));
+  bindConfigSyncRedisClient(client);
 
   if (REDIS_CONFIG_SYNC_ENABLED) {
-    await startConvexConfigPublisher(client);
+    if (!isConvexConfigured() || !CONVEX_WORKER_SECRET) {
+      console.log('[redis-config-sync] missing convex env, disabled');
+    } else {
+      await startConvexConfigPublisher(client);
+    }
   } else {
     console.log('[redis-config-sync] disabled (REDIS_CONFIG_SYNC_ENABLED=false)');
   }

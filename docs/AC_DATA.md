@@ -13,7 +13,8 @@ Host-native Node.js control plane for Assetto Corsa. **Cannot run in Docker** (s
 │ controller/       AC spawn/stop, admin handlers, activity       │
 ├─────────────────────────────────────────────────────────────────┤
 │ redisConvexBridge   XREADGROUP ac:events → Convex ingest        │
-│                     Convex config poll → XADD ac:config         │
+│                     Convex config webhook + fallback poll       │
+│                     → XADD ac:config                            │
 │                     dispatches eventHandlers/* side effects     │
 │ redisConfigApplier  XREADGROUP ac:config → INI + restart        │
 │ serverPool          idle shutdown from server_status counts     │
@@ -32,6 +33,7 @@ Host-native Node.js control plane for Assetto Corsa. **Cannot run in Docker** (s
 |-----------|-----------|-----------|
 | **AC lifecycle** | `controller/controller.ts` | spawn/stop/restart, write INI |
 | **Events bridge** | `redisConvexBridge.ts`, `eventHandlers/*` | `ac:events` → Convex + HUD/pool side effects |
+| **Config sync** | `configSyncFromConvex.ts`, `redisConvexBridge.ts` | Webhook + fallback poll → `ac:config` |
 | **Config applier** | `redisConfigApplier.ts` | `ac:config` → server_cfg.ini → restart |
 | **HUD** | `services/hud/*` (29 modules) | Redis cache + WSS push + Convex queries |
 | **Admin** | `adminRoutes.ts`, `public/js/*` | JWT, content, branding, activity |
@@ -86,6 +88,8 @@ Env is loaded from repo root `.env.local` (dev) or `.env.production` (prod) via 
 |----------|---------|--------------|
 | `REDIS_EVENTS_BRIDGE_ENABLED` | `true` | `false` — no Convex ingest from Redis |
 | `REDIS_CONFIG_SYNC_ENABLED` | `true` | `false` — no Convex→Redis config publish |
+| `REDIS_CONFIG_SYNC_INTERVAL_MS` | `600000` | Fallback poll interval when webhook misses |
+| `REDIS_CONFIG_SYNC_FALLBACK_ENABLED` | `true` | `false` — webhook-only config sync |
 | `REDIS_CONFIG_APPLIER_ENABLED` | `true` | `false` — no INI apply from Redis |
 | `SERVER_POOL_ENABLED` | `false` | idle shutdown off |
 
@@ -117,6 +121,17 @@ After **any** change to `ac-data/src/` (routes, services, controllers):
 | Activity shows "Error" / 404 on `/admin/activity/*` | Old process without new routes |
 | HUD stale after code change | Bridge not restarted |
 | Config not applying | Applier disabled or wrong `AC_INSTANCE_ID` |
+
+## Worker webhooks (ProjectD → ac-data)
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /hud/worker/refresh-user` | HUD/ban/prefs push — see [`CONVEX_PUSH_USER_SYNC.md`](CONVEX_PUSH_USER_SYNC.md) |
+| `POST /hud/worker/refresh-config` | Server config snapshot → Redis — see [`CONVEX_PUSH_CONFIG_SYNC.md`](CONVEX_PUSH_CONFIG_SYNC.md) |
+
+Auth: `X-Worker-Secret` or body `workerSecret` = `CONVEX_WORKER_SECRET`. Config refresh requires matching `instanceId` = `AC_INSTANCE_ID`.
+
+Verify: `./scripts/verify-config-push.sh`
 
 ## Health endpoint
 
