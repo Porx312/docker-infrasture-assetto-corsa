@@ -6,12 +6,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STEAM_ID="${1:-76561199230780195}"
 
-if [[ ! -f "${ROOT}/ac-data/dist/services/hud/hudConvex.js" ]]; then
-  echo "ac-data dist missing — run: cd ac-data && npm run build"
+EDGE="${ROOT}/packages/ac-data-edge"
+if [[ ! -f "${EDGE}/dist/services/hud/hudConvex.js" ]]; then
+  echo "ac-data-edge dist missing — run: npm run build:edge"
   exit 1
 fi
 
-cd "${ROOT}/ac-data"
+cd "${EDGE}"
 ASSETTO_ENV_FILE="${ROOT}/.env.local" node --input-type=module <<EOF
 import './dist/config/loadEnv.js';
 import { fetchHudSession, fetchHudVersion } from './dist/services/hud/hudConvex.js';

@@ -13,22 +13,7 @@ services:
       timeout: 3s
       retries: 5
 
-  ac-data:
-    build:
-      context: ./ac-data
-      dockerfile: Dockerfile
-    container_name: assetto-ac-data
-    env_file:
-      - path: ./.env.production
-        required: true
-    volumes:
-      - /home/jose/assetto-infra/server:/home/jose/assetto-infra/server:ro
-    ports:
-      - "3000:3000"
-    depends_on:
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
+  # ac-data-edge runs on the host (spawns 32-bit acServer); not containerized here.
 
   telemetry-data:
     build:

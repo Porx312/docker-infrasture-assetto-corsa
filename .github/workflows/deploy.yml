@@ -23,6 +23,8 @@ jobs:
           script: |
             cd /home/jose/assetto-infra
             git pull origin main
+            npm ci
+            npm run build:edge
             docker compose -f docker-compose.prod.yml build telemetry-data redis
             docker compose -f docker-compose.prod.yml up -d telemetry-data redis
 

@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProjectD Admin</title>
+    <meta name="theme-color" content="#0d1117">
+    <link rel="stylesheet" href="/admin/css/admin.css">
+</head>
+<body class="admin-layout">
+    <header class="admin-header">
+        <div class="admin-header-brand">
+            <h1>ProjectD Admin</h1>
+            <p class="admin-header-sub">Content · servers · activity · HUD</p>
+        </div>
+        <div class="admin-header-actions">
+            <label class="fleet-edge-label hidden" id="fleetEdgeLabel">
+                <span class="fleet-edge-caption">Region</span>
+                <select id="fleetEdgeSelect" class="input fleet-edge-select" aria-label="Filter by region"></select>
+            </label>
+            <button type="button" class="btn btn-ghost" id="logoutBtn">Sign out</button>
+        </div>
+    </header>
+
+    <nav class="admin-toolbar" id="tabNav" aria-label="Sections"></nav>
+
+    <main class="content">
+        <div id="panelContainer"></div>
+    </main>
+
+    <div id="toastStack" class="toast-stack" aria-live="polite"></div>
+
+    <div id="confirmModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+        <div class="modal">
+            <h3 id="confirmTitle">Confirm</h3>
+            <p id="confirmMessage"></p>
+            <div class="modal-actions">
+                <button type="button" class="btn" id="confirmCancel">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirmOk">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modTitle">
+        <div class="modal modal-mod">
+            <header class="modal-mod-header">
+                <div>
+                    <h3 id="modTitle"></h3>
+                    <p id="modMeta" class="modal-mod-meta"></p>
+                </div>
+                <button type="button" class="btn btn-ghost btn-icon" id="modCloseBtn" aria-label="Close">✕</button>
+            </header>
+            <div id="modVariants" class="modal-mod-body"></div>
+            <footer class="modal-mod-footer">
+                <button type="button" class="btn btn-danger" id="modDeleteBtn">Delete mod</button>
+            </footer>
+        </div>
+    </div>
+
+    <div id="globalBrandingModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="globalBrandingTitle">
+        <div class="modal modal-server">
+            <header class="modal-mod-header">
+                <div>
+                    <h3 id="globalBrandingTitle">Apply branding to servers</h3>
+                    <p id="globalBrandingMeta" class="modal-mod-meta">Shared lobby / CM settings · pick which instances to update</p>
+                </div>
+                <button type="button" class="btn btn-ghost btn-icon" id="globalBrandingCloseBtn" aria-label="Close">✕</button>
+            </header>
+            <form id="globalBrandingForm" class="modal-server-body" novalidate>
+                <div class="global-branding-targets-section">
+                    <div class="global-branding-targets-header">
+                        <p class="modal-mod-section">Target instances</p>
+                        <div class="global-branding-targets-actions">
+                            <button type="button" class="btn btn-sm btn-ghost" id="globalBrandingSelectAll">Select all</button>
+                            <button type="button" class="btn btn-sm btn-ghost" id="globalBrandingSelectNone">Clear</button>
+                        </div>
+                    </div>
+                    <div id="globalBrandingTargets" class="global-branding-targets" role="group" aria-label="Server instances"></div>
+                    <p id="globalBrandingTargetsEmpty" class="global-branding-targets-empty hidden">No instances loaded yet.</p>
+                </div>
+                <p class="modal-mod-section">Branding</p>
+                <div id="globalBrandingFieldsMount"></div>
+            </form>
+            <footer class="modal-mod-footer">
+                <button type="button" class="btn" id="globalBrandingCancelBtn">Cancel</button>
+                <button type="submit" form="globalBrandingForm" class="btn btn-primary" id="globalBrandingSaveBtn">Apply branding</button>
+            </footer>
+        </div>
+    </div>
+
+    <div id="serverConfigModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="serverConfigTitle">
+        <div class="modal modal-server modal-server-manage">
+            <header class="modal-mod-header">
+                <div>
+                    <h3 id="serverConfigTitle">Manage instance</h3>
+                    <p id="serverConfigMeta" class="modal-mod-meta"></p>
+                </div>
+                <button type="button" class="btn btn-ghost btn-icon" id="serverConfigCloseBtn" aria-label="Close">✕</button>
+            </header>
+            <nav class="server-manage-tabs" id="serverManageTabs" aria-label="Instance sections">
+                <button type="button" class="server-manage-tab active" data-server-tab="overview">Overview</button>
+                <button type="button" class="server-manage-tab" data-server-tab="lobby">Gameplay &amp; weather</button>
+                <button type="button" class="server-manage-tab" data-server-tab="branding">Branding</button>
+            </nav>
+            <div class="modal-server-body">
+                <section class="server-manage-panel" data-server-panel="overview">
+                    <div class="server-runtime-status">
+                        <span id="serverRuntimeBadge" class="server-status-badge">—</span>
+                        <span id="serverRuntimePid" class="server-runtime-meta"></span>
+                    </div>
+                    <dl class="server-runtime-ports" id="serverRuntimePorts"></dl>
+                    <div class="server-runtime-actions">
+                        <button type="button" class="btn btn-primary btn-sm" id="serverStartBtn">Start</button>
+                        <button type="button" class="btn btn-sm" id="serverStopBtn">Stop</button>
+                        <button type="button" class="btn btn-sm" id="serverRestartBtn">Restart</button>
+                    </div>
+                    <div class="server-mod-readiness" id="serverModReadinessBlock">
+                        <p class="modal-mod-section">Required mods (VPS)</p>
+                        <ul id="serverModReadinessList" class="server-mod-readiness-list"></ul>
+                        <button type="button" class="btn btn-sm btn-ghost hidden" id="serverModSyncMissingBtn">Sync missing mods</button>
+                    </div>
+                </section>
+                <form id="serverLobbyForm" class="server-manage-panel hidden" data-server-panel="lobby" novalidate>
+                    <p class="modal-mod-section">Lobby &amp; content</p>
+                    <div class="branding-grid modal-server-grid">
+                        <div class="form-group">
+                            <label for="scDisplayName">Lobby name</label>
+                            <input class="input" type="text" id="scDisplayName" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label for="scPassword">Password</label>
+                            <input class="input" type="text" id="scPassword" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label for="scMaxClients">Max clients</label>
+                            <input class="input" type="number" id="scMaxClients" min="1" max="128">
+                        </div>
+                        <div class="form-group">
+                            <label class="checkbox-label"><input type="checkbox" id="scRegisterLobby"> Register to lobby</label>
+                        </div>
+                        <div class="form-group branding-full">
+                            <label for="scTrack">Track</label>
+                            <input class="input" type="text" id="scTrack" placeholder="ks_nordschleife">
+                        </div>
+                        <div class="form-group branding-full">
+                            <label for="scConfigTrack">Config track</label>
+                            <input class="input" type="text" id="scConfigTrack" placeholder="layout">
+                        </div>
+                        <div class="form-group branding-full">
+                            <label for="scCars">Cars</label>
+                            <input class="input" type="text" id="scCars" placeholder="ks_mazda_miata;ks_porsche_911">
+                        </div>
+                    </div>
+                    <p class="modal-mod-section">Simulation rules</p>
+                    <div class="branding-grid modal-server-grid">
+                        <div class="form-group">
+                            <label for="scFuelRate">Fuel rate</label>
+                            <input class="input" type="number" id="scFuelRate" min="0" step="1" title="0 = no consumption multiplier">
+                            <p class="form-hint">Maps to FUEL_RATE in server_cfg.ini (0 = default/off).</p>
+                        </div>
+                        <div class="form-group">
+                            <label class="checkbox-label"><input type="checkbox" id="scTyreBlankets"> Tyre blankets allowed</label>
+                        </div>
+                    </div>
+                    <p class="modal-mod-section">Weather ([WEATHER_0])</p>
+                    <div class="branding-grid modal-server-grid">
+                        <div class="form-group branding-full">
+                            <label for="scWeatherGraphics">Weather preset (GRAPHICS)</label>
+                            <input class="input" type="text" id="scWeatherGraphics" list="scWeatherGraphicsList" placeholder="3_clear">
+                            <datalist id="scWeatherGraphicsList">
+                                <option value="3_clear"></option>
+                                <option value="4_clouds"></option>
+                                <option value="5_light_clouds"></option>
+                                <option value="6_mid_clear"></option>
+                                <option value="7_mid_clouds"></option>
+                                <option value="8_heavy_clouds"></option>
+                                <option value="9_overcast"></option>
+                                <option value="10_fog"></option>
+                                <option value="11_rain"></option>
+                                <option value="12_thunderstorm"></option>
+                            </datalist>
+                        </div>
+                        <div class="form-group">
+                            <label for="scWeatherAmbient">Ambient °C</label>
+                            <input class="input" type="number" id="scWeatherAmbient" step="0.1">
+                        </div>
+                        <div class="form-group">
+                            <label for="scWeatherRoad">Road °C</label>
+                            <input class="input" type="number" id="scWeatherRoad" step="0.1">
+                        </div>
+                    </div>
+                    <div class="server-manage-panel-actions">
+                        <button type="submit" class="btn btn-primary btn-sm" id="serverLobbySaveBtn">Save gameplay settings</button>
+                        <button type="button" class="btn btn-sm btn-ghost hidden" id="serverLobbyRestartBtn">Restart now</button>
+                    </div>
+                </form>
+                <form id="serverConfigForm" class="server-manage-panel hidden" data-server-panel="branding" novalidate>
+                    <div class="branding-grid modal-server-grid">
+                        <div class="form-group">
+                            <label for="scDescription">Lobby description</label>
+                            <textarea class="input branding-textarea" id="scDescription" rows="2"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="scWebLink">Website URL</label>
+                            <input class="input" type="url" id="scWebLink">
+                        </div>
+                        <div class="form-group branding-full">
+                            <label for="scCmBody">CM description body</label>
+                            <textarea class="input branding-textarea" id="scCmBody" rows="4"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="scBannerUrl">Banner image</label>
+                            <input class="input" type="url" id="scBannerUrl">
+                        </div>
+                        <div class="form-group branding-full loading-urls-field">
+                            <div class="loading-urls-header">
+                                <label>Loading screen images (rotates per join)</label>
+                                <button type="button" class="btn btn-ghost btn-sm" id="scLoadingUrlAdd">Add image</button>
+                            </div>
+                            <p class="loading-urls-note">One random URL from this list is shown each time a player connects via Content Manager.</p>
+                            <div class="loading-url-list" id="scLoadingUrlsList"></div>
+                        </div>
+                    </div>
+                    <div class="branding-preview modal-server-preview">
+                        <div class="branding-preview-block">
+                            <span class="branding-preview-label">Banner</span>
+                            <div class="branding-preview-img" id="scBannerPreview"></div>
+                        </div>
+                        <div class="branding-preview-block">
+                            <span class="branding-preview-label">Loading previews</span>
+                            <div class="branding-preview-img loading-preview-multi" id="scLoadingPreview"></div>
+                        </div>
+                        <div class="branding-preview-block branding-full">
+                            <span class="branding-preview-label">CM description</span>
+                            <pre class="branding-preview-text" id="scCmPreview"></pre>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <footer class="modal-mod-footer">
+                <button type="button" class="btn" id="serverConfigCancelBtn">Close</button>
+                <button type="submit" form="serverConfigForm" class="btn btn-primary" id="serverConfigSaveBtn">Save branding</button>
+            </footer>
+        </div>
+    </div>
+
+    <div id="serverProvisionModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="serverProvisionTitle">
+        <div class="modal modal-server">
+            <header class="modal-mod-header">
+                <div>
+                    <h3 id="serverProvisionTitle">Add server instance</h3>
+                    <p class="modal-mod-meta">Clones the template on the selected VPS edge</p>
+                </div>
+                <button type="button" class="btn btn-ghost btn-icon" id="serverProvisionCloseBtn" aria-label="Close">✕</button>
+            </header>
+            <form id="serverProvisionForm" class="modal-server-body" novalidate>
+                <div class="form-group">
+                    <label for="provisionDisplayName">Lobby name (optional)</label>
+                    <input class="input" type="text" id="provisionDisplayName" placeholder="ProjectD server-3">
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-label"><input type="checkbox" id="provisionStartAfter"> Start after create</label>
+                </div>
+                <p id="provisionFleetHint" class="panel-note hidden">Uses the region filter in the header when set; otherwise the first fleet edge.</p>
+            </form>
+            <footer class="modal-mod-footer">
+                <button type="button" class="btn" id="serverProvisionCancelBtn">Cancel</button>
+                <button type="submit" form="serverProvisionForm" class="btn btn-primary" id="serverProvisionSubmitBtn">Create instance</button>
+            </footer>
+        </div>
+    </div>
+
+    <div id="uploadOverlay" class="modal-overlay hidden">
+        <div class="modal modal-upload">
+            <div class="spinner"></div>
+            <p id="uploadingStatus">Uploading…</p>
+        </div>
+    </div>
+
+    <script type="module" src="/admin/js/dashboard.js"></script>
+</body>
+</html>

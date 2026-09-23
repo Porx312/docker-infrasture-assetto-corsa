@@ -84,7 +84,7 @@ Steps: create users, move `SERVERS_PATH` ownership, systemd units with `User=`, 
 - Set `PermitRootLogin no` in `/etc/ssh/sshd_config.d/`
 - Install fail2ban
 - Run `./scripts/audit-firewall.sh` and close unnecessary public ports
-- Restrict admin vhost by IP in Caddy if possible
+- Restrict admin URL by IP at your reverse proxy (Dokploy / Traefik) if possible
 
 ### 9. Dev-only escape hatch
 

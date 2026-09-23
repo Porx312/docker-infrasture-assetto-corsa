@@ -1,3 +1,6 @@
+# Nested hub repo (own git remote; do not commit into assetto-infra)
+ProjectD-Backend-Servers/
+
 # Environment files (contain secrets)
 .env
 .env.local
@@ -10,7 +13,8 @@ ac-data.log
 ac-data.pid
 
 # Node modules
-ac-data/node_modules/
+node_modules/
+packages/*/node_modules/
 telemetry-data/__pycache__/
 telemetry-data/*.pyc
 
@@ -32,7 +36,7 @@ assetto-install/
 Thumbs.db
 
 # Build artifacts
-ac-data/dist/
+packages/*/dist/
 telemetry-data/.pytest_cache/
 
 # Docker volumes
@@ -42,12 +46,12 @@ redis-data/
 **/server_pids.json
 telemetry-data/redis_applied_config_versions.json
 # ProjectD HUD / launcher release ZIPs + manifests (admin panel uploads; runtime only)
-ac-data/projectd-hud/manifest.json
-ac-data/projectd-hud/releases/*
-!ac-data/projectd-hud/releases/.gitkeep
-ac-data/projectd-launcher/manifest.json
-ac-data/projectd-launcher/releases/*
-!ac-data/projectd-launcher/releases/.gitkeep
+packages/ac-data-edge/projectd-hud/manifest.json
+packages/ac-data-edge/projectd-hud/releases/*
+!packages/ac-data-edge/projectd-hud/releases/.gitkeep
+packages/ac-data-backend/projectd-hud/manifest.json
+packages/ac-data-backend/projectd-hud/releases/*
+!packages/ac-data-backend/projectd-hud/releases/.gitkeep
 ProjectD-HUD/releases/
 ProjectD-HUD/*.zip
 

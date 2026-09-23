@@ -1,0 +1,16 @@
+{
+  "name": "projectd-ac-data-backend-hub",
+  "private": true,
+  "description": "Minimal npm workspace: backend hub only (no edge, no AC servers)",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build -w @projectd/ac-data-shared && npm run build -w @projectd/ac-data-backend",
+    "start": "node packages/ac-data-backend/dist/index.js",
+    "dev": "npm run build -w @projectd/ac-data-shared && npm run dev -w @projectd/ac-data-backend"
+  }
+}

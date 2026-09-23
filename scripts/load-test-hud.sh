@@ -49,11 +49,9 @@ if [[ -z "${HUD_API_KEY:-}" ]]; then
   exit 1
 fi
 
-AC_DATA_DIR="$ROOT/ac-data"
-if [[ ! -d "$AC_DATA_DIR/node_modules" ]]; then
-  echo "Installing ac-data dependencies (tsx, redis, dotenv)..."
-  (cd "$AC_DATA_DIR" && npm install --silent)
+if [[ ! -d "$ROOT/node_modules" ]]; then
+  echo "Installing workspace dependencies..."
+  (cd "$ROOT" && npm install --silent)
 fi
 
-exec env NODE_PATH="$AC_DATA_DIR/node_modules" \
-  "$AC_DATA_DIR/node_modules/.bin/tsx" "$ROOT/scripts/hud-load-test/run.ts" "$@"
+exec "$ROOT/node_modules/.bin/tsx" "$ROOT/scripts/hud-load-test/run.ts" "$@"

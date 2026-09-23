@@ -72,14 +72,10 @@ This infrastructure manages multiple Assetto Corsa dedicated server instances wi
 │   ├── telemetry-data.log     # telemetry logs (dev)
 │   ├── server_pids.json        # AC server PIDs
 │   │
-│   ├── ac-data/               # Node.js service
-│   │   ├── package.json
-│   │   ├── tsconfig.json
-│   │   ├── src/
-│   │   │   ├── index.ts
-│   │   │   ├── controller/
-│   │   │   └── services/
-│   │   └── dist/              # Compiled output (ES2020)
+│   ├── packages/
+│   │   ├── ac-data-edge/      # Node.js on game VPS (spawn AC, Redis bridge)
+│   │   ├── ac-data-backend/   # Hub (deploy separately, e.g. Dokploy)
+│   │   └── ac-data-shared/
 │   │
 │   └── telemetry-data/         # Python service
 │       ├── requirements.txt

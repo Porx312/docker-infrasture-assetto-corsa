@@ -1,0 +1,20 @@
+{
+  "name": "assetto-infra",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @projectd/ac-data-shared && npm run build -w @projectd/ac-data-edge && npm run build -w @projectd/ac-data-backend",
+    "build:shared": "npm run build -w @projectd/ac-data-shared",
+    "build:edge": "npm run build -w @projectd/ac-data-edge",
+    "build:backend": "npm run build -w @projectd/ac-data-backend",
+    "dev:edge": "npm run dev -w @projectd/ac-data-edge",
+    "dev:backend": "npm run dev -w @projectd/ac-data-backend",
+    "sync:hub-repo": "./scripts/sync-projectd-backend-servers.sh",
+    "package:hub": "./scripts/package-backend-hub.sh",
+    "test:shared": "npm run test -w @projectd/ac-data-shared",
+    "test:edge": "npm run test -w @projectd/ac-data-edge",
+    "test:backend": "npm run test -w @projectd/ac-data-backend"
+  }
+}

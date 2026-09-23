@@ -101,11 +101,6 @@ done
 # ac-data API
 sudo iptables -A INPUT -p tcp --dport 3000 -j ACCEPT
 
-# HTTPS reverse proxy (Caddy staging/prod)
-for port in 80 443; do
-    sudo iptables -A INPUT -p tcp --dport $port -j ACCEPT 2>/dev/null || true
-done
-
 # Assetto Manager (optional)
 sudo iptables -A INPUT -p tcp --dport 8772 -j ACCEPT
 
@@ -122,13 +117,12 @@ done
 echo -e "${GREEN}Firewall ports opened${NC}"
 
 # ──────────────────────────────────────────────
-# 5. ac-data Setup
+# 5. Node workspaces (ac-data-edge + shared)
 # ──────────────────────────────────────────────
-echo -e "${YELLOW}Setting up ac-data...${NC}"
-cd /home/jose/assetto-infra/ac-data
+echo -e "${YELLOW}Setting up npm workspaces...${NC}"
+cd /home/jose/assetto-infra
 npm install
-npm run build
-cd ..
+npm run build:edge
 
 # ──────────────────────────────────────────────
 # 6. Environment Files

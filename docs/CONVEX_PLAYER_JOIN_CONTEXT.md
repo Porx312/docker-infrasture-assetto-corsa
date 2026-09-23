@@ -107,7 +107,7 @@ Remove legacy `CONVEX_HUD_PLAYER_QUERY` if still present in `.env.local`.
 
 ## ac-data usage
 
-[`playerJoinContext.ts`](../ac-data/src/services/hud/playerJoinContext.ts):
+[`playerJoinContext.ts`](../packages/ac-data-edge/src/services/hud/playerJoinContext.ts):
 
 - `markUserInvalidated` / `clearUserInvalidated` from `user.isInvalidated` or `reason`
 - `markUserNotRegistered` / `clearUserNotRegistered` when top-level `reason === user_not_found`

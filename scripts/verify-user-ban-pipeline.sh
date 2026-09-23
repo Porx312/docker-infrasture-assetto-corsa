@@ -27,8 +27,8 @@ echo "=== User ban pipeline: ${STEAM_ID} ==="
 echo ""
 
 echo "1) Convex getPlayerJoinContext (ban + HUD)"
-if [[ ! -f "${ROOT}/ac-data/dist/services/hud/hudConvex.js" ]]; then
-  echo "   ac-data dist missing — run: cd ac-data && npm run build"
+if [[ ! -f "${ROOT}/packages/ac-data-edge/dist/services/hud/hudConvex.js" ]]; then
+  echo "   ac-data-edge dist missing — run: npm run build:edge"
 else
   if "${ROOT}/scripts/verify-convex-player-join.sh" "${STEAM_ID}" 2>&1; then
     echo "   OK: unified join query succeeded"

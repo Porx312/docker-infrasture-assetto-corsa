@@ -16,6 +16,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 ENV_MODE="${1:-dev}"
+AC_DATA_TARGET="${2:-edge}"
 
 echo -e "${GREEN}=== Assetto Corsa Server Infrastructure ===${NC}"
 echo -e "${BLUE}Mode: ${ENV_MODE}${NC}"
@@ -103,22 +104,50 @@ else
     fi
 fi
 
-# Start ac-data (Node.js on host)
-echo -e "${YELLOW}Starting ac-data (Node.js)...${NC}"
-if is_running "tsx.*src/index"; then
-    echo -e "${GREEN}ac-data is already running${NC}"
-else
-    cd ac-data
-    if [ ! -d "node_modules" ]; then
-        echo -e "${YELLOW}Installing dependencies...${NC}"
-        npm install 2>&1 | tail -5
+# Node workspaces (edge / backend)
+if [ ! -d "$ROOT_DIR/node_modules" ]; then
+    echo -e "${YELLOW}Installing npm workspaces...${NC}"
+    (cd "$ROOT_DIR" && npm install 2>&1 | tail -5)
+fi
+
+start_ac_data_edge() {
+    echo -e "${YELLOW}Starting ac-data-edge...${NC}"
+    if pgrep -f "packages/ac-data-edge.*tsx.*index" >/dev/null 2>&1 || pgrep -f "ac-data-edge/dist/index" >/dev/null 2>&1; then
+        echo -e "${GREEN}ac-data-edge is already running${NC}"
+        return
     fi
     nohup env ASSETTO_ENV="$ASSETTO_ENV" ASSETTO_ENV_FILE="$ASSETTO_ENV_FILE" \
-        ./node_modules/.bin/tsx src/index.ts > ../ac-data.log 2>&1 &
-    AC_PID=$!
-    echo -e "${GREEN}ac-data started (PID: $AC_PID)${NC}"
-    cd ..
-fi
+        npm run dev -w @projectd/ac-data-edge > "$ROOT_DIR/ac-data.log" 2>&1 &
+    echo -e "${GREEN}ac-data-edge started (log: ac-data.log)${NC}"
+}
+
+start_ac_data_backend() {
+    echo -e "${YELLOW}Starting ac-data-backend...${NC}"
+    if pgrep -f "packages/ac-data-backend.*tsx.*index" >/dev/null 2>&1; then
+        echo -e "${GREEN}ac-data-backend is already running${NC}"
+        return
+    fi
+    nohup env ASSETTO_ENV="$ASSETTO_ENV" ASSETTO_ENV_FILE="$ASSETTO_ENV_FILE" \
+        npm run dev -w @projectd/ac-data-backend > "$ROOT_DIR/ac-data-backend.log" 2>&1 &
+    echo -e "${GREEN}ac-data-backend started (log: ac-data-backend.log)${NC}"
+}
+
+case "$AC_DATA_TARGET" in
+    edge|"")
+        start_ac_data_edge
+        ;;
+    backend)
+        start_ac_data_backend
+        ;;
+    all)
+        start_ac_data_edge
+        start_ac_data_backend
+        ;;
+    *)
+        echo -e "${RED}Unknown ac-data target: $AC_DATA_TARGET (use edge|backend|all)${NC}"
+        exit 1
+        ;;
+esac
 
 # Start Content Manager details proxies (sidecar HTTP for /api/details)
 echo -e "${YELLOW}Starting CM details proxies...${NC}"
@@ -129,7 +158,8 @@ echo -e "${GREEN}=== All services started ===${NC}"
 echo ""
 echo "Services:"
 echo "  - telemetry-data: $(pgrep -f 'python3 main.py' > /dev/null 2>&1 && echo 'running (host)' || echo 'stopped')"
-echo "  - ac-data: $(is_running 'tsx.*src/index' && echo 'running' || echo 'stopped')"
+echo "  - ac-data-edge: $(pgrep -f 'ac-data-edge' >/dev/null 2>&1 && echo 'running' || echo 'stopped')"
+echo "  - ac-data-backend: $(pgrep -f 'ac-data-backend' >/dev/null 2>&1 && echo 'running' || echo 'stopped')"
 echo "  - Redis: $([ "$ENV_MODE" = "dev" ] && (is_running 'redis-server' && echo 'running (local)' || echo 'stopped') || echo 'Cloud (external)')"
 echo ""
 echo "Logs:"

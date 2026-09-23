@@ -1,5 +1,7 @@
 # VPS SECURITY AUDIT — Fase 1 (solo diagnóstico)
 
+> **Nota:** Referencias a `ac-data/` y Caddy son históricas; el código actual está en `packages/ac-data-*`. TLS público del hub: Dokploy u otro proxy, no Caddy en el VPS de juego.
+
 **Alcance:** VPS en `/home/jose/assetto-infra` — inspección read-only (puertos, procesos, configs, logs, código). **Nada fue modificado, reiniciado, ni explotado de forma destructiva.**
 
 **Limitaciones:** Reglas iptables/nftables no legibles sin root; `.env.production` ausente en este host; historial git remoto no auditado; pruebas activas de IDOR/exploit no ejecutadas.

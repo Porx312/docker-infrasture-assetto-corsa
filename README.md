@@ -5,7 +5,7 @@ Automated infrastructure for managing Assetto Corsa dedicated servers with Redis
 ## Architecture
 
 ```
-Python (Host/Dev, Docker/Prod) ──writes──> Redis (Local) ──reads──> Node.js (Host) ──forwards──> Convex (Cloud)
+Python (Host/Dev, Docker/Prod) ──writes──> Redis (Local) ──reads──> ac-data-edge (Host) ──forwards──> Convex (hub or direct)
       │                                       │
       │                                       └── Spawns AC Servers (32-bit native)
       └── Reads AC server configs, sends events
@@ -16,9 +16,10 @@ Python (Host/Dev, Docker/Prod) ──writes──> Redis (Local) ──reads─�
 | Service | Language | Dev | Prod | Purpose |
 |---------|----------|-----|------|---------|
 | `telemetry-data` | Python | Host | Docker | Reads AC server configs, publishes events to Redis |
-| `ac-data` | Node.js | Host | Host | Manages AC server lifecycle, forwards to Convex |
+| `ac-data-edge` | Node.js | Host | Host | Spawns AC servers, Redis bridge, HUD WSS on VPS |
+| `ac-data-backend` | Node.js | — | Hub (Dokploy) | Admin, ingest, HUD gateway (not on game VPS) |
 
-**Important:** ac-data runs on HOST (not Docker) because it spawns native 32-bit AC server processes.
+**Important:** `ac-data-edge` runs on HOST (not Docker) because it spawns native 32-bit AC server processes.
 
 ## Prerequisites
 
@@ -61,7 +62,7 @@ pgrep -a acServer
 ./start.sh status   # Show running services
 
 # Logs
-tail -f ac-data.log         # ac-data logs
+tail -f ac-data.log         # ac-data-edge logs (legacy filename)
 tail -f telemetry-data.log   # telemetry logs (dev)
 redis-cli xlen ac:events     # Check Redis events
 ```
@@ -101,7 +102,7 @@ Each folder (`server`, `server-1`, `server-2`, …) should use the **Plugin** UD
 | `.env.local` | `./start.sh dev` — local Redis, telemetry on host |
 | `.env.production` | `./start.sh prod` — Redis in Docker, telemetry in Docker |
 
-`./start.sh` exports `ASSETTO_ENV` and `ASSETTO_ENV_FILE` so **ac-data** and **telemetry-data** use the same file for the chosen mode. See [`.env.example`](.env.example) for all variables.
+`./start.sh` exports `ASSETTO_ENV` and `ASSETTO_ENV_FILE` so **ac-data-edge** and **telemetry-data** use the same file for the chosen mode. See [`.env.example`](.env.example) for all variables.
 
 | Variable | Description |
 |----------|-------------|
@@ -122,7 +123,7 @@ https://acstuff.club/s/q:race/online/join?ip=YOUR_IP&httpPort=8083
 
 ## Troubleshooting
 
-### ac-data not spawning AC servers
+### ac-data-edge not spawning AC servers
 ```bash
 # Check if ports are available
 netstat -tlnp | grep -E "9600|9610|9620"
@@ -152,4 +153,4 @@ Required GitHub Secrets:
 
 1. **Content must be extracted (not .acd packages)** - Symlinks in `server/*/content/` must point to extracted folders
 2. **server_cfg.ini CARS/TRACK must be in [SERVER] section** - Not at end of file
-3. **ac-data keeps restarting servers** - Convex config version is changing on every poll; use stable version strings
+3. **Edge keeps restarting servers** - Convex config version is changing on every poll; use stable version strings
