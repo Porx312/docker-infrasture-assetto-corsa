@@ -9,16 +9,27 @@ import { listFleetEdges } from '@projectd/ac-data-shared/services/fleet/fleetReg
 import {
   assignArtifactToEdges,
   getArtifactById,
+  getPackageById,
+  listArtifactsForPackage,
   removeArtifactFromEdges,
   upsertFleetEdgeFromRegistry,
 } from './catalogRepo.js';
 import { getModPool } from './db.js';
-import { getArtifactDownloadUrl } from './objectStorage.js';
+import { deleteMasterArtifact, getArtifactDownloadUrl, localMasterArtifactExists } from './objectStorage.js';
+import { deleteModPreviewImageFile } from './modPreviewImages.js';
 import { tryAcquireModLock, releaseModLock, forceReleaseModLock } from './modRedisLocks.js';
 
 const MAX_ATTEMPTS = Number(process.env.MOD_SYNC_MAX_ATTEMPTS || 5);
 /** Requeue `running` jobs whose started_at is older than this (dead agent / crash). */
 const RUNNING_STALE_MS = Number(process.env.MOD_SYNC_RUNNING_STALE_MS || 600_000);
+
+function assertLocalMasterBlobPresent(storageKey: string, sha256: string): void {
+  if (!localMasterArtifactExists(storageKey)) {
+    throw new Error(
+      `artifact_blob_missing: master ZIP not on hub disk for sha256=${sha256.slice(0, 12)}… (MOD_UPLOAD_ROOT / wrong MOD_HUB_PUBLIC_URL host)`,
+    );
+  }
+}
 
 export async function syncFleetEdgesToDb(): Promise<void> {
   for (const edge of listFleetEdges()) {
@@ -26,11 +37,15 @@ export async function syncFleetEdgesToDb(): Promise<void> {
   }
 }
 
-async function enqueueJob(
+/**
+ * Idempotent enqueue: same edge + artifact + active (queued|running) job → reuse.
+ * Returns job id (existing or newly created).
+ */
+export async function enqueueJob(
   edgeId: string,
   artifactId: string,
   operation: SyncJobOperation,
-): Promise<string | null> {
+): Promise<string> {
   const pool = getModPool();
   const existing = await pool.query<{ id: string }>(
     `SELECT id FROM sync_jobs WHERE edge_id = $1 AND artifact_id = $2 AND state IN ('queued', 'running') LIMIT 1`,
@@ -56,6 +71,35 @@ async function enqueueJob(
   return jobId;
 }
 
+/**
+ * Assign artifact to one edge and enqueue install if not already active.
+ * Idempotent for concurrent ensure(A) calls.
+ */
+export async function ensureArtifactOnEdge(
+  artifactId: string,
+  edgeId: string,
+): Promise<{ jobId: string; created: boolean }> {
+  const art = await getArtifactById(artifactId);
+  if (!art) {
+    throw new Error('Artifact not found');
+  }
+  assertLocalMasterBlobPresent(art.storage_key, art.sha256);
+  await syncFleetEdgesToDb();
+  const normalizedEdge = edgeId.toLowerCase();
+  await assignArtifactToEdges(artifactId, art.package_id, [normalizedEdge]);
+
+  const pool = getModPool();
+  const existing = await pool.query<{ id: string }>(
+    `SELECT id FROM sync_jobs WHERE edge_id = $1 AND artifact_id = $2 AND state IN ('queued', 'running') LIMIT 1`,
+    [normalizedEdge, artifactId],
+  );
+  if (existing.rows[0]) {
+    return { jobId: existing.rows[0].id, created: false };
+  }
+  const jobId = await enqueueJob(normalizedEdge, artifactId, 'install');
+  return { jobId, created: true };
+}
+
 export async function distributeArtifact(
   artifactId: string,
   edgeIds: string[] | 'all',
@@ -64,6 +108,7 @@ export async function distributeArtifact(
   if (!art) {
     throw new Error('Artifact not found');
   }
+  assertLocalMasterBlobPresent(art.storage_key, art.sha256);
   await syncFleetEdgesToDb();
   const targets =
     edgeIds === 'all'
@@ -72,9 +117,13 @@ export async function distributeArtifact(
   await assignArtifactToEdges(artifactId, art.package_id, targets);
   let enqueued = 0;
   for (const edgeId of targets) {
-    const op: SyncJobOperation = 'install';
-    const jobId = await enqueueJob(edgeId, artifactId, op);
-    if (jobId) {
+    const before = await getModPool().query<{ id: string }>(
+      `SELECT id FROM sync_jobs WHERE edge_id = $1 AND artifact_id = $2 AND state IN ('queued', 'running') LIMIT 1`,
+      [edgeId, artifactId],
+    );
+    const hadActive = Boolean(before.rows[0]);
+    await enqueueJob(edgeId, artifactId, 'install');
+    if (!hadActive) {
       enqueued += 1;
     }
   }
@@ -84,8 +133,13 @@ export async function distributeArtifact(
 export async function resyncArtifactOnEdges(artifactId: string, edgeIds: string[]): Promise<number> {
   let enqueued = 0;
   for (const edgeId of edgeIds) {
-    const jobId = await enqueueJob(edgeId, artifactId, 'install');
-    if (jobId) {
+    const before = await getModPool().query<{ id: string }>(
+      `SELECT id FROM sync_jobs WHERE edge_id = $1 AND artifact_id = $2 AND state IN ('queued', 'running') LIMIT 1`,
+      [edgeId, artifactId],
+    );
+    const hadActive = Boolean(before.rows[0]);
+    await enqueueJob(edgeId, artifactId, 'install');
+    if (!hadActive) {
       enqueued += 1;
     }
   }
@@ -95,8 +149,13 @@ export async function resyncArtifactOnEdges(artifactId: string, edgeIds: string[
 export async function verifyArtifactOnEdges(artifactId: string, edgeIds: string[]): Promise<number> {
   let enqueued = 0;
   for (const edgeId of edgeIds) {
-    const jobId = await enqueueJob(edgeId, artifactId, 'verify');
-    if (jobId) {
+    const before = await getModPool().query<{ id: string }>(
+      `SELECT id FROM sync_jobs WHERE edge_id = $1 AND artifact_id = $2 AND state IN ('queued', 'running') LIMIT 1`,
+      [edgeId, artifactId],
+    );
+    const hadActive = Boolean(before.rows[0]);
+    await enqueueJob(edgeId, artifactId, 'verify');
+    if (!hadActive) {
       enqueued += 1;
     }
   }
@@ -114,6 +173,67 @@ export async function removePackageFromEdges(packageId: string, edgeIds: string[
       await enqueueJob(edgeId, row.id, 'remove');
     }
   }
+}
+
+/**
+ * Force-delete a catalog package from the hub (DB + master blob + preview).
+ * Missing/corrupt blobs do not fail the delete. Edge cache may remain until Remove/GC.
+ */
+export async function forceDeleteModPackage(packageId: string): Promise<{
+  packageId: string;
+  displayName: string;
+  artifactsRemoved: number;
+}> {
+  const pkg = await getPackageById(packageId);
+  if (!pkg) {
+    throw new Error('package_not_found');
+  }
+  const artifacts = await listArtifactsForPackage(packageId);
+  const artifactIds = artifacts.map((a) => a.id);
+  const pool = getModPool();
+
+  if (artifactIds.length > 0) {
+    await pool.query(
+      `UPDATE sync_jobs SET state = 'cancelled', finished_at = NOW()
+       WHERE artifact_id = ANY($1::uuid[])
+         AND state IN ('queued', 'running')
+         AND operation IN ('install', 'upgrade', 'verify')`,
+      [artifactIds],
+    );
+  }
+
+  try {
+    await syncFleetEdgesToDb();
+    const edgeIds = listFleetEdges().map((e) => e.id);
+    if (edgeIds.length > 0) {
+      await removePackageFromEdges(packageId, edgeIds);
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[mods] forceDelete: edge remove enqueue failed: ${message}`);
+  }
+
+  for (const art of artifacts) {
+    await deleteMasterArtifact(art.storage_key).catch(() => undefined);
+  }
+
+  if (pkg.preview_image_filename) {
+    await deleteModPreviewImageFile(pkg.preview_image_filename).catch(() => undefined);
+  }
+
+  await pool.query(`DELETE FROM mod_packages WHERE id = $1`, [packageId]);
+  // Split tables use the same UUID as mod_packages (migration 002); clean orphans.
+  if (pkg.kind === 'car') {
+    await pool.query(`DELETE FROM mod_car_packages WHERE id = $1`, [packageId]).catch(() => undefined);
+  } else if (pkg.kind === 'track') {
+    await pool.query(`DELETE FROM mod_track_packages WHERE id = $1`, [packageId]).catch(() => undefined);
+  }
+
+  return {
+    packageId,
+    displayName: pkg.display_name,
+    artifactsRemoved: artifacts.length,
+  };
 }
 
 /**
@@ -213,6 +333,7 @@ export async function acquireJobForEdge(edgeId: string, agentId: string): Promis
         sizeBytes: Number(art.size_bytes),
         acContentSlug: art.package.ac_content_slug,
         manifest: art.manifest_json,
+        versionLabel: art.version_label,
       };
     }
 
@@ -384,6 +505,7 @@ export async function getDownloadUrlForArtifact(
   if (!art) {
     throw new Error('Artifact not found');
   }
+  assertLocalMasterBlobPresent(art.storage_key, art.sha256);
   const signed = await getArtifactDownloadUrl(art.storage_key, art.sha256, Number(art.size_bytes));
   return {
     ...signed,

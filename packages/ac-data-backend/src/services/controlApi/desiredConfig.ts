@@ -7,6 +7,8 @@ import {
 } from '@projectd/ac-data-shared/services/hud/workerConvexQueries.js';
 import { publishConfigSnapshotToHubRedis } from '../hubConfigSync.js';
 import { loadModsSnapshotForValidation } from './modsInventory.js';
+import { isModDbConfigured, getModPool } from '../mods/db.js';
+import type { ModKind } from '@projectd/ac-data-shared/mods/types.js';
 
 export type DesiredConfigBody = {
   instanceId: string;
@@ -75,6 +77,66 @@ export function validateConfigAgainstMods(
   return [...new Set(errors)];
 }
 
+/** True when edge_artifact_inventory shows READY + matching sha for the latest artifact of this AC slug. */
+async function isSlugReadyOnEdge(
+  edgeId: string,
+  acContentSlug: string,
+  kind: ModKind,
+): Promise<boolean> {
+  if (!isModDbConfigured()) {
+    return false;
+  }
+  const pool = getModPool();
+  const art = await pool.query<{ id: string; sha256: string }>(
+    `SELECT a.id, a.sha256 FROM mod_artifacts a
+     JOIN mod_packages p ON p.id = a.package_id
+     WHERE p.ac_content_slug = $1 AND p.kind = $2
+     ORDER BY a.created_at DESC LIMIT 1`,
+    [acContentSlug, kind],
+  );
+  const row = art.rows[0];
+  if (!row) {
+    return false;
+  }
+  const inv = await pool.query<{ status: string; installed_sha256: string | null }>(
+    `SELECT status, installed_sha256 FROM edge_artifact_inventory
+     WHERE edge_id = $1 AND artifact_id = $2`,
+    [edgeId, row.id],
+  );
+  const invRow = inv.rows[0];
+  return Boolean(
+    invRow?.status === 'READY' && invRow.installed_sha256 && invRow.installed_sha256 === row.sha256,
+  );
+}
+
+async function filterErrorsWithCentralInventory(
+  instanceId: string,
+  errors: string[],
+): Promise<string[]> {
+  const edge = resolveFleetEdgeByInstanceId(instanceId);
+  if (!edge || !isModDbConfigured() || errors.length === 0) {
+    return errors;
+  }
+  const edgeId = edge.id.toLowerCase();
+  const remaining: string[] = [];
+  for (const err of errors) {
+    const trackMatch = /^track_not_installed:(.+)$/.exec(err);
+    if (trackMatch) {
+      if (await isSlugReadyOnEdge(edgeId, trackMatch[1], 'track')) {
+        continue;
+      }
+    }
+    const carMatch = /^car_not_installed:(.+)$/.exec(err);
+    if (carMatch) {
+      if (await isSlugReadyOnEdge(edgeId, carMatch[1], 'car')) {
+        continue;
+      }
+    }
+    remaining.push(err);
+  }
+  return remaining;
+}
+
 export async function applyDesiredConfig(body: DesiredConfigBody): Promise<DesiredConfigResult> {
   const instanceId = body.instanceId.trim();
   if (!instanceId) {
@@ -101,23 +163,33 @@ export async function applyDesiredConfig(body: DesiredConfigBody): Promise<Desir
   }
 
   const inventory = await loadModsSnapshotForValidation(instanceId);
+  let errors: string[] = [];
   if (!inventory) {
-    return {
-      ok: false,
-      instanceId,
-      errors: ['mods_snapshot_missing'],
-      validatedServers: targetServers.length,
-    };
-  }
-
-  const errors = validateConfigAgainstMods(targetServers, inventory);
-  if (errors.length > 0) {
-    return {
-      ok: false,
-      instanceId,
-      errors,
-      validatedServers: targetServers.length,
-    };
+    // Fall back to central edge inventory (after ensure / before Redis scan catches up)
+    errors = validateConfigAgainstMods(targetServers, {
+      carModels: new Set(),
+      trackSlugs: new Set(),
+    });
+    errors = await filterErrorsWithCentralInventory(instanceId, errors);
+    if (errors.length > 0) {
+      return {
+        ok: false,
+        instanceId,
+        errors,
+        validatedServers: targetServers.length,
+      };
+    }
+  } else {
+    errors = validateConfigAgainstMods(targetServers, inventory);
+    errors = await filterErrorsWithCentralInventory(instanceId, errors);
+    if (errors.length > 0) {
+      return {
+        ok: false,
+        instanceId,
+        errors,
+        validatedServers: targetServers.length,
+      };
+    }
   }
 
   const filteredSnapshot: WorkerConfigSnapshotResult = {

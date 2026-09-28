@@ -31,7 +31,11 @@ export async function downloadWithResume(
 
   const res = await fetch(url, { headers });
   if (res.status !== 200 && res.status !== 206) {
-    throw new Error(`Download failed: HTTP ${res.status}`);
+    const hint =
+      res.status === 404 || res.status === 409
+        ? ' (hub missing blob or wrong MOD_HUB_PUBLIC_URL)'
+        : '';
+    throw new Error(`Download failed: HTTP ${res.status}${hint}`);
   }
 
   const writeFlags = start > 0 && res.status === 206 ? 'a' : 'w';

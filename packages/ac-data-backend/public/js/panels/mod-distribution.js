@@ -1,6 +1,12 @@
 import { apiGet, apiPost } from '../lib/api.js';
 import { escapeAttr, escapeHtml } from '../lib/dom.js';
+import { distNeedsPolling, renderModSyncStatusCell } from '../lib/modSyncStatus.js';
 import { showToast } from '../lib/toast.js';
+
+/** @type {ReturnType<typeof setInterval> | null} */
+let fleetDistPollTimer = null;
+/** @type {string | null} */
+let fleetDistPollArtifactId = null;
 
 function formatBytes(n) {
   const num = Number(n);
@@ -10,21 +16,12 @@ function formatBytes(n) {
   return `${num} B`;
 }
 
-function statusBadge(status) {
-  const raw = String(status || 'UNKNOWN');
-  const cls =
-    raw === 'READY'
-      ? 'badge-ok'
-      : raw === 'ERROR'
-        ? 'badge-danger'
-        : raw === 'SYNCING' || raw === 'PENDING'
-          ? 'badge-warn'
-          : 'badge-muted';
-  const hint =
-    raw === 'PENDING'
-      ? ' title="Waiting for mod agent — check EDGE_ID / MOD_AGENT_ENABLED / last_seen"'
-      : '';
-  return `<span class="badge ${cls}"${hint}>${raw}</span>`;
+function stopFleetDistPoll() {
+  if (fleetDistPollTimer != null) {
+    clearInterval(fleetDistPollTimer);
+    fleetDistPollTimer = null;
+  }
+  fleetDistPollArtifactId = null;
 }
 
 function formatLastSeen(iso) {
@@ -147,35 +144,64 @@ export async function loadModDistributionPanel(root) {
 
 export const loadFleetDeployPanel = loadModDistributionPanel;
 
-/** @param {HTMLElement} root @param {string | undefined} artifactId */
-async function openDistributionDetail(root, artifactId) {
+/**
+ * @param {HTMLElement} root
+ * @param {string | undefined} artifactId
+ * @param {{ preserveSelection?: boolean; quiet?: boolean }} [opts]
+ */
+async function openDistributionDetail(root, artifactId, opts = {}) {
   if (!artifactId) return;
   const detail = root.querySelector('#fleetDeployDetail');
   if (!detail) return;
-  detail.classList.remove('hidden');
-  detail.innerHTML = '<p class="panel-hint">Loading…</p>';
+
+  /** @type {Set<string> | null} */
+  let prevSelected = null;
+  if (opts.preserveSelection) {
+    prevSelected = new Set(
+      [...detail.querySelectorAll('.mod-edge-check:checked')].map(
+        (el) => /** @type {HTMLInputElement} */ (el).value,
+      ),
+    );
+  }
+
+  if (!opts.quiet) {
+    detail.classList.remove('hidden');
+    detail.innerHTML = '<p class="panel-hint">Loading…</p>';
+  }
+
   const { data } = await apiGet(`/mods/artifacts/${artifactId}/distribution`);
   if (!data.ok) {
+    stopFleetDistPoll();
     detail.innerHTML = `<p>${data.message || 'Failed'}</p>`;
     return;
   }
   const art = data.artifact;
   const rows = data.distribution || [];
+  detail.classList.remove('hidden');
   detail.innerHTML = `
     <div class="card">
-      <h3>${escapeHtml(art?.package?.display_name || 'Mod')} · v${escapeHtml(art?.version_label || '')}</h3>
-      <p class="panel-hint">${formatBytes(art?.size_bytes)} · SHA ${escapeHtml((art?.sha256 || '').slice(0, 16))}…</p>
+      <header class="panel-header">
+        <div>
+          <h3>${escapeHtml(art?.package?.display_name || 'Mod')} · v${escapeHtml(art?.version_label || '')}</h3>
+          <p class="panel-hint">${formatBytes(art?.size_bytes)} · SHA ${escapeHtml((art?.sha256 || '').slice(0, 16))}…${
+            distNeedsPolling(rows) ? ' · Updating live…' : ''
+          }</p>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" id="modDistClose">Close</button>
+      </header>
       <table class="mod-dist-table">
         <thead><tr><th></th><th>VPS</th><th>Status</th></tr></thead>
         <tbody>
           ${rows
-            .map(
-              (row) => `<tr>
-              <td><input type="checkbox" class="mod-edge-check" value="${escapeAttr(row.edge_id)}" checked /></td>
+            .map((row) => {
+              const checked =
+                !prevSelected || prevSelected.has(row.edge_id) ? ' checked' : '';
+              return `<tr>
+              <td><input type="checkbox" class="mod-edge-check" value="${escapeAttr(row.edge_id)}"${checked} /></td>
               <td>${escapeHtml(row.label)}</td>
-              <td>${statusBadge(row.status)} ${row.progress_pct ? Math.round(row.progress_pct) + '%' : ''}</td>
-            </tr>`,
-            )
+              <td>${renderModSyncStatusCell(row)}</td>
+            </tr>`;
+            })
             .join('')}
         </tbody>
       </table>
@@ -191,6 +217,12 @@ async function openDistributionDetail(root, artifactId) {
     [...detail.querySelectorAll('.mod-edge-check:checked')].map(
       (el) => /** @type {HTMLInputElement} */ (el).value,
     );
+
+  detail.querySelector('#modDistClose')?.addEventListener('click', () => {
+    stopFleetDistPoll();
+    detail.classList.add('hidden');
+    detail.innerHTML = '';
+  });
 
   detail.querySelector('#modSyncSelected')?.addEventListener('click', async () => {
     const edgeIds = selectedEdges();
@@ -211,6 +243,18 @@ async function openDistributionDetail(root, artifactId) {
     showToast(res.ok ? 'Remove scheduled' : res.message, res.ok ? 'success' : 'error');
     await openDistributionDetail(root, artifactId);
   });
+
+  if (distNeedsPolling(rows)) {
+    if (fleetDistPollArtifactId !== artifactId) {
+      stopFleetDistPoll();
+      fleetDistPollArtifactId = artifactId;
+      fleetDistPollTimer = setInterval(() => {
+        void openDistributionDetail(root, artifactId, { preserveSelection: true, quiet: true });
+      }, 2000);
+    }
+  } else {
+    stopFleetDistPoll();
+  }
 }
 
 export async function refreshServerModsReadiness(serverName, fleetEdgeId) {

@@ -2,12 +2,16 @@ import { Router } from 'express';
 import {
   allocateServerSlotHandler,
   applyServerSlotConfigHandler,
+  ensureInstanceModsHandler,
   getAgentPresenceHandler,
+  getCentralModBySlugHandler,
   getInstanceModsCarsHandler,
   getInstanceModsTracksHandler,
   getLiveSummaryHandler,
+  getModsAvailabilityHandler,
   getServerLiveHandler,
   getServerSlotHandler,
+  listCentralModsHandler,
   listServerSlotsHandler,
   postAgentHeartbeatHandler,
   postAgentModsHandler,
@@ -38,11 +42,27 @@ router.get('/live/summary', (req, res) => {
 router.post('/agents/:instanceId/mods', (req, res) => {
   void postAgentModsHandler(req, res);
 });
+
+// Central library (Postgres catalog) — register before /mods/:slug
+router.get('/mods/availability', (req, res) => {
+  void getModsAvailabilityHandler(req, res);
+});
+router.get('/mods', (req, res) => {
+  void listCentralModsHandler(req, res);
+});
+router.get('/mods/:slug', (req, res) => {
+  void getCentralModBySlugHandler(req, res);
+});
+
+// Legacy LOCAL CONTENT / INVENTORY (Redis disk scan) — kept for Host cutover
 router.get('/instances/:instanceId/mods/cars', (req, res) => {
   void getInstanceModsCarsHandler(req, res);
 });
 router.get('/instances/:instanceId/mods/tracks', (req, res) => {
   void getInstanceModsTracksHandler(req, res);
+});
+router.post('/instances/:instanceId/mods/ensure', (req, res) => {
+  void ensureInstanceModsHandler(req, res);
 });
 
 router.post('/internal/desired-config', (req, res) => {

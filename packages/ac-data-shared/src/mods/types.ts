@@ -41,6 +41,8 @@ export type ModAgentJobPayload = {
   sizeBytes: number;
   acContentSlug: string;
   manifest: ModManifest;
+  /** Optional version label from central library (for local inventory sidecar). */
+  versionLabel?: string;
 };
 
 export type InventoryReportItem = {

@@ -3,8 +3,14 @@ info:
   title: ProjectD Control API
   version: '1.0.0'
   description: |
-    Hub Control API (`ac-data-backend`) for installed mods inventory and live lobby rosters.
+    Hub Control API (`ac-data-backend`) for the central mod library, per-VPS local-cache
+    availability, legacy disk inventory, and live lobby rosters.
     Auth: `X-Worker-Secret` (same as Convex worker secret / CONVEX_WORKER_SECRET).
+
+    Central library: `GET /v1/mods`, `GET /v1/mods/{slug}`, `GET /v1/mods/availability`,
+    `POST /v1/instances/{instanceId}/mods/ensure`.
+    Legacy LOCAL CONTENT / INVENTORY: `GET /v1/instances/{instanceId}/mods/cars|tracks`
+    (Redis disk scan — keep during Host cutover; do not use as the global library).
 
     Live write path: edge processes join/leave/server_status into shared Redis HUD keys
     (`ac:hud:presence:*`, `ac:hud:presence:roster:{instanceId}:{lobby}`). There is NO
@@ -95,9 +101,112 @@ paths:
           description: Stored
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /v1/mods:
+    get:
+      summary: List central mod library (Postgres catalog)
+      description: |
+        Source of truth for mods/cars/tracks/versions/artifacts. Not VPS inventory.
+        Each package may include imageUrl (one cover image) or null.
+      operationId: listCentralMods
+      parameters:
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum: [car, track, weather, misc]
+      responses:
+        '200':
+          description: Catalog packages with versions
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          description: DATABASE_URL not configured
+  /v1/mods/availability:
+    get:
+      summary: Central library + local cache availability for a VPS
+      operationId: getModsAvailability
+      parameters:
+        - name: instanceId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: |
+            Each item has central=AVAILABLE and local=LOCAL|MISSING|DOWNLOADING|INSTALLING|ERROR.
+            Match by artifactId + sha256 (exact version).
+        '400':
+          description: instanceId required
+        '404':
+          description: fleet edge not found for instanceId
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/mods/{slug}:
+    get:
+      summary: Get one central mod package by slug (or ac_content_slug)
+      operationId: getCentralModBySlug
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Package + versions
+        '404':
+          description: Not found
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/instances/{instanceId}/mods/ensure:
+    post:
+      summary: Ensure artifacts are materialized on the VPS local cache
+      description: |
+        Idempotent. Reuses active sync_jobs for same edge+artifact.
+        Accepts artifactIds and/or cars/tracks refs (modId + optional version).
+      operationId: ensureInstanceMods
+      parameters:
+        - $ref: '#/components/parameters/instanceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                artifactIds:
+                  type: array
+                  items:
+                    type: string
+                cars:
+                  type: array
+                  items:
+                    type: object
+                    required: [modId]
+                    properties:
+                      modId:
+                        type: string
+                      version:
+                        type: string
+                tracks:
+                  type: array
+                  items:
+                    type: object
+                    required: [modId]
+                    properties:
+                      modId:
+                        type: string
+                      version:
+                        type: string
+      responses:
+        '200':
+          description: Per-artifact LOCAL|QUEUED|DOWNLOADING|INSTALLING|ERROR|NOT_FOUND
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /v1/instances/{instanceId}/mods/cars:
     get:
-      summary: List installed cars for Host picker
+      summary: Legacy LOCAL CONTENT — list scanned cars (inventory, not library)
       operationId: getInstanceModsCars
       parameters:
         - $ref: '#/components/parameters/instanceId'
@@ -108,7 +217,7 @@ paths:
           $ref: '#/components/responses/Unauthorized'
   /v1/instances/{instanceId}/mods/tracks:
     get:
-      summary: List installed tracks for Host picker
+      summary: Legacy LOCAL CONTENT — list scanned tracks (inventory, not library)
       operationId: getInstanceModsTracks
       parameters:
         - $ref: '#/components/parameters/instanceId'
@@ -432,6 +541,15 @@ components:
                 type: array
                 items:
                   type: string
+              version:
+                type: string
+                description: Optional — only when edge observed it (e.g. .acmod.json)
+              artifactId:
+                type: string
+              sha256:
+                type: string
+              kind:
+                type: string
         tracks:
           type: array
           items:
@@ -443,6 +561,14 @@ components:
                 type: array
                 items:
                   type: string
+              version:
+                type: string
+              artifactId:
+                type: string
+              sha256:
+                type: string
+              kind:
+                type: string
     DesiredConfigBody:
       type: object
       required: [instanceId]

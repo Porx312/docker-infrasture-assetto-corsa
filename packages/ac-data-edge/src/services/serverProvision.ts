@@ -60,12 +60,22 @@ function copyDirRecursive(src: string, dest: string): void {
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
+    // Template often has content/cars|tracks|weather as symlinks to shared dirs.
+    // Dirent.isDirectory() is false for symlinks; copyFileSync would follow and throw EISDIR.
+    if (entry.isSymbolicLink()) {
+      const target = fs.readlinkSync(srcPath);
+      fs.symlinkSync(target, destPath);
+    } else if (entry.isDirectory()) {
       copyDirRecursive(srcPath, destPath);
     } else {
       fs.copyFileSync(srcPath, destPath);
     }
   }
+}
+
+/** Exported for unit tests. */
+export function copyDirRecursiveForTest(src: string, dest: string): void {
+  copyDirRecursive(src, dest);
 }
 
 function patchIniField(content: string, field: string, value: string): string {

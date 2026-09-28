@@ -4,17 +4,25 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { getHubWorkerBaseUrl } from '@projectd/ac-data-shared/services/hubWorkerUrl.js';
 
-import { contentPoolPath } from './modAgent/materialize.js';
+import { contentPoolPath, readAcModSidecar } from './modAgent/materialize.js';
 
 export type ScannedCarMod = {
   carModel: string;
   displayName?: string;
   skins: string[];
+  version?: string;
+  artifactId?: string;
+  sha256?: string;
+  kind?: string;
 };
 
 export type ScannedTrackMod = {
   trackSlug: string;
   configs: string[];
+  version?: string;
+  artifactId?: string;
+  sha256?: string;
+  kind?: string;
 };
 
 export type ModInventoryScanResult = {
@@ -67,10 +75,15 @@ async function scanCars(carsDir: string): Promise<ScannedCarMod[]> {
     const skinsDir = path.join(carPath, 'skins');
     const skins = await listDirNames(skinsDir);
     const displayName = await readOptionalUiName(carPath);
+    const sidecar = await readAcModSidecar(carPath);
     cars.push({
       carModel,
       ...(displayName ? { displayName } : {}),
       skins,
+      ...(sidecar?.version ? { version: sidecar.version } : {}),
+      ...(sidecar?.artifactId ? { artifactId: sidecar.artifactId } : {}),
+      ...(sidecar?.sha256 ? { sha256: sidecar.sha256 } : {}),
+      ...(sidecar?.kind ? { kind: sidecar.kind } : { kind: 'car' }),
     });
   }
   return cars;
@@ -87,24 +100,22 @@ async function scanTracks(tracksDir: string): Promise<ScannedTrackMod[]> {
       if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'ui') {
         continue;
       }
-      const layoutIni = path.join(trackPath, entry.name, 'models.ini');
-      const hasLayout =
-        fs.existsSync(layoutIni) ||
-        fs.existsSync(path.join(trackPath, entry.name, 'data'));
-      if (hasLayout || entry.name !== 'data') {
-        // Prefer real layout folders (usually contain models.ini / surfaces.ini)
-        const looksLikeLayout =
-          fs.existsSync(path.join(trackPath, entry.name, 'models.ini')) ||
-          fs.existsSync(path.join(trackPath, entry.name, 'surfaces.ini')) ||
-          fs.existsSync(path.join(trackPath, entry.name, 'data', 'surfaces.ini'));
-        if (looksLikeLayout) {
-          configs.push(entry.name);
-        }
+      const looksLikeLayout =
+        fs.existsSync(path.join(trackPath, entry.name, 'models.ini')) ||
+        fs.existsSync(path.join(trackPath, entry.name, 'surfaces.ini')) ||
+        fs.existsSync(path.join(trackPath, entry.name, 'data', 'surfaces.ini'));
+      if (looksLikeLayout) {
+        configs.push(entry.name);
       }
     }
+    const sidecar = await readAcModSidecar(trackPath);
     tracks.push({
       trackSlug,
       configs: [...new Set(configs)].sort((a, b) => a.localeCompare(b)),
+      ...(sidecar?.version ? { version: sidecar.version } : {}),
+      ...(sidecar?.artifactId ? { artifactId: sidecar.artifactId } : {}),
+      ...(sidecar?.sha256 ? { sha256: sidecar.sha256 } : {}),
+      ...(sidecar?.kind ? { kind: sidecar.kind } : { kind: 'track' }),
     });
   }
   return tracks;

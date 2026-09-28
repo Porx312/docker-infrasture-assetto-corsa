@@ -8,10 +8,13 @@ import {
   getDistributionMatrix,
   listFleetEdgesDb,
   setFleetEdgeEnabled,
+  getPackageById,
+  setPackagePreviewImageFilename,
 } from '../services/mods/catalogRepo.js';
 import { beginModUpload, finalizeModUpload, modStagingDir } from '../services/mods/uploadPipeline.js';
 import {
   distributeArtifact,
+  forceDeleteModPackage,
   resyncArtifactOnEdges,
   verifyArtifactOnEdges,
   removePackageFromEdges,
@@ -27,6 +30,12 @@ import {
 } from '../services/mods/serverModRequirements.js';
 import { readFleetEdgeIdFromRequest } from '../services/fleet/fleetAdminBridge.js';
 import { ensureFleetEdgeRegistered } from '../services/mods/fleetEdgeDb.js';
+import {
+  deleteModPreviewImageFile,
+  isModPreviewUploadConfigured,
+  modPreviewPublicUrl,
+  storeModPreviewImageFromTemp,
+} from '../services/mods/modPreviewImages.js';
 
 function modDbUnavailable(res: Response): void {
   res.status(503).json({ ok: false, message: 'Mod repository requires DATABASE_URL' });
@@ -39,7 +48,15 @@ export async function listModsHandler(_req: Request, res: Response): Promise<voi
   }
   await syncFleetEdgesToDb();
   const packages = await listPackagesWithLatestArtifact();
-  res.json({ ok: true, packages });
+  res.json({
+    ok: true,
+    packages: packages.map((pkg) => ({
+      ...pkg,
+      imageUrl: pkg.preview_image_filename
+        ? modPreviewPublicUrl(pkg.preview_image_filename)
+        : null,
+    })),
+  });
 }
 
 export async function listModArtifactsHandler(req: Request, res: Response): Promise<void> {
@@ -109,7 +126,12 @@ export async function modDistributeHandler(req: Request, res: Response): Promise
     res.json({ ok: true, ...result });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    res.status(400).json({ ok: false, message });
+    const blobMissing = message.startsWith('artifact_blob_missing');
+    res.status(blobMissing ? 409 : 400).json({
+      ok: false,
+      error: blobMissing ? 'artifact_blob_missing' : undefined,
+      message,
+    });
   }
 }
 
@@ -160,6 +182,34 @@ export async function modRemoveFromEdgesHandler(req: Request, res: Response): Pr
   const edgeIds = req.body.edgeIds as string[];
   await removePackageFromEdges(art.package_id, edgeIds);
   res.json({ ok: true });
+}
+
+export async function modDeletePackageHandler(req: Request, res: Response): Promise<void> {
+  if (!isModDbConfigured()) {
+    modDbUnavailable(res);
+    return;
+  }
+  const packageId = String(req.params.packageId || '').trim();
+  if (!packageId) {
+    res.status(400).json({ ok: false, message: 'packageId required' });
+    return;
+  }
+  try {
+    const result = await forceDeleteModPackage(packageId);
+    res.json({
+      ok: true,
+      ...result,
+      message:
+        'Deleted from hub catalog. VPS cache may remain until Remove from edges / GC.',
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === 'package_not_found') {
+      res.status(404).json({ ok: false, error: 'package_not_found', message });
+      return;
+    }
+    res.status(400).json({ ok: false, message });
+  }
 }
 
 export async function listModEdgesHandler(_req: Request, res: Response): Promise<void> {
@@ -276,6 +326,85 @@ export async function serverModSyncMissingHandler(req: Request, res: Response): 
     const edgeId = await ensureFleetEdgeRegistered(rawEdge);
     const enqueued = await syncMissingModsForServer(serverName, edgeId);
     res.json({ ok: true, enqueued });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(400).json({ ok: false, message });
+  }
+}
+
+/** One cover image per package — replace semantics. */
+export async function modPreviewImageUploadHandler(req: Request, res: Response): Promise<void> {
+  if (!isModDbConfigured()) {
+    modDbUnavailable(res);
+    return;
+  }
+  if (!isModPreviewUploadConfigured()) {
+    res.status(503).json({
+      ok: false,
+      message:
+        'HUD_PUBLIC_BASE_URL (or PUBLIC_API_BASE_URL / MOD_HUB_PUBLIC_URL) required for mod preview uploads',
+    });
+    return;
+  }
+  const packageId = String(req.params.packageId || '').trim();
+  if (!packageId) {
+    res.status(400).json({ ok: false, message: 'packageId required' });
+    return;
+  }
+  const pkg = await getPackageById(packageId);
+  if (!pkg) {
+    res.status(404).json({ ok: false, message: 'package_not_found' });
+    return;
+  }
+  const file = req.file;
+  if (!file) {
+    res.status(400).json({ ok: false, message: 'file required' });
+    return;
+  }
+  try {
+    const stored = await storeModPreviewImageFromTemp(
+      file.path,
+      file.originalname || 'image.jpg',
+      file.mimetype || 'image/jpeg',
+      packageId,
+    );
+    if (pkg.preview_image_filename && pkg.preview_image_filename !== stored.filename) {
+      await deleteModPreviewImageFile(pkg.preview_image_filename).catch(() => undefined);
+    }
+    await setPackagePreviewImageFilename(packageId, stored.filename);
+    res.json({ ok: true, url: stored.url, filename: stored.filename, imageUrl: stored.url });
+  } catch (err: unknown) {
+    try {
+      fs.unlinkSync(file.path);
+    } catch {
+      /* ignore */
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(400).json({ ok: false, message });
+  }
+}
+
+export async function modPreviewImageDeleteHandler(req: Request, res: Response): Promise<void> {
+  if (!isModDbConfigured()) {
+    modDbUnavailable(res);
+    return;
+  }
+  const packageId = String(req.params.packageId || '').trim();
+  if (!packageId) {
+    res.status(400).json({ ok: false, message: 'packageId required' });
+    return;
+  }
+  const pkg = await getPackageById(packageId);
+  if (!pkg) {
+    res.status(404).json({ ok: false, message: 'package_not_found' });
+    return;
+  }
+  try {
+    if (pkg.preview_image_filename) {
+      await deleteModPreviewImageFile(pkg.preview_image_filename).catch(() => undefined);
+    }
+    await setPackagePreviewImageFilename(packageId, null);
+    res.json({ ok: true, imageUrl: null });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(400).json({ ok: false, message });

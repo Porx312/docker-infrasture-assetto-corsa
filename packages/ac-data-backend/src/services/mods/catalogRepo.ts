@@ -9,6 +9,7 @@ export type ModPackageRow = {
   kind: ModKind;
   ac_content_slug: string;
   notes: string | null;
+  preview_image_filename: string | null;
   created_at: Date;
   updated_at: Date;
 };
@@ -200,6 +201,7 @@ export async function listPackagesWithLatestArtifact(): Promise<
       kind: row.kind,
       ac_content_slug: row.ac_content_slug,
       notes: row.notes,
+      preview_image_filename: row.preview_image_filename ?? null,
       created_at: row.created_at,
       updated_at: row.updated_at,
     };
@@ -227,7 +229,8 @@ export async function getArtifactById(artifactId: string): Promise<
 > {
   const pool = getModPool();
   const result = await pool.query(
-    `SELECT a.*, p.id AS pkg_id, p.slug, p.display_name, p.kind, p.ac_content_slug, p.notes, p.created_at AS pkg_created, p.updated_at AS pkg_updated
+    `SELECT a.*, p.id AS pkg_id, p.slug, p.display_name, p.kind, p.ac_content_slug, p.notes,
+            p.preview_image_filename, p.created_at AS pkg_created, p.updated_at AS pkg_updated
      FROM mod_artifacts a
      JOIN mod_packages p ON p.id = a.package_id
      WHERE a.id = $1`,
@@ -253,6 +256,7 @@ export async function getArtifactById(artifactId: string): Promise<
       kind: row.kind as ModKind,
       ac_content_slug: String(row.ac_content_slug),
       notes: (row.notes as string | null) ?? null,
+      preview_image_filename: (row.preview_image_filename as string | null) ?? null,
       created_at: row.pkg_created as Date,
       updated_at: row.pkg_updated as Date,
     },
@@ -307,6 +311,9 @@ export async function getDistributionMatrix(artifactId: string): Promise<
     label: string;
     status: EdgeArtifactStatus;
     progress_pct: number;
+    phase: string | null;
+    jobState: string | null;
+    lastSeenAt: string | null;
     installed_sha256: string | null;
     error_message: string | null;
   }>
@@ -334,9 +341,26 @@ export async function getDistributionMatrix(artifactId: string): Promise<
   );
   const assignByEdge = new Map(assign.rows.map((r) => [r.edge_id, r.desired_state]));
 
+  const jobs = await pool.query<{
+    edge_id: string;
+    state: string;
+    phase: string | null;
+    progress_pct: number;
+  }>(
+    `SELECT DISTINCT ON (edge_id) edge_id, state, phase, progress_pct
+     FROM sync_jobs
+     WHERE artifact_id = $1 AND state IN ('queued', 'running', 'failed')
+     ORDER BY edge_id,
+       CASE state WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,
+       created_at DESC`,
+    [artifactId],
+  );
+  const jobByEdge = new Map(jobs.rows.map((r) => [r.edge_id, r]));
+
   return edges.map((edge) => {
     const row = invByEdge.get(edge.id);
     const desired = assignByEdge.get(edge.id);
+    const job = jobByEdge.get(edge.id);
     let status: EdgeArtifactStatus = 'NOT_INSTALLED';
     if (desired === 'present') {
       if (row) {
@@ -348,11 +372,18 @@ export async function getDistributionMatrix(artifactId: string): Promise<
         status = 'PENDING';
       }
     }
+    const progress =
+      job?.state === 'running' || job?.state === 'queued'
+        ? Number(job.progress_pct ?? 0)
+        : Number(row?.progress_pct ?? 0);
     return {
       edge_id: edge.id,
       label: edge.label,
       status,
-      progress_pct: row?.progress_pct ?? 0,
+      progress_pct: progress,
+      phase: job?.phase ?? null,
+      jobState: job?.state ?? null,
+      lastSeenAt: edge.last_seen_at ? new Date(edge.last_seen_at).toISOString() : null,
       installed_sha256: row?.installed_sha256 ?? null,
       error_message: row?.error_message ?? null,
     };
@@ -367,4 +398,25 @@ export async function listArtifactsForPackage(packageId: string): Promise<ModArt
     [packageId],
   );
   return result.rows;
+}
+
+export async function getPackageById(packageId: string): Promise<ModPackageRow | null> {
+  const pool = getModPool();
+  const result = await pool.query<ModPackageRow>(
+    `SELECT id, slug, display_name, kind, ac_content_slug, notes, preview_image_filename, created_at, updated_at
+     FROM mod_packages WHERE id = $1`,
+    [packageId],
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function setPackagePreviewImageFilename(
+  packageId: string,
+  filename: string | null,
+): Promise<void> {
+  const pool = getModPool();
+  await pool.query(
+    `UPDATE mod_packages SET preview_image_filename = $2, updated_at = NOW() WHERE id = $1`,
+    [packageId, filename],
+  );
 }

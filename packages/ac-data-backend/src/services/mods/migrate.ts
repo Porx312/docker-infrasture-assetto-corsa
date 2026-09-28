@@ -15,6 +15,7 @@ export async function runModMigrationsIfConfigured(): Promise<void> {
     '001_mod_repository.sql',
     '002_mod_car_track_split.sql',
     '003_server_slots.sql',
+    '004_mod_package_preview.sql',
   ];
   for (const file of files) {
     const sqlPath = path.join(migrationsDir, file);

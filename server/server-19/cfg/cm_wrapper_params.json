@@ -1,8 +1,0 @@
-{
-  "description": "[img=xd]ProjectD[/img]\n\n",
-  "port": 18100,
-  "verboseLog": false,
-  "downloadSpeedLimit": 0,
-  "downloadPasswordOnly": false,
-  "publishPasswordChecksum": true
-}

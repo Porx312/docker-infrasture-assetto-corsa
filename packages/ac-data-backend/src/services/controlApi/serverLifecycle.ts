@@ -7,11 +7,115 @@ import {
   patchServerSlot,
   type ServerSlotRow,
 } from './serverSlots.js';
+import {
+  ensureModsOnInstance,
+  resolveConfigModTargets,
+  waitUntilModsLocal,
+} from '../mods/centralModLibrary.js';
+import { isModDbConfigured } from '../mods/db.js';
 
 const PROXY_TIMEOUT_MS = Number(process.env.FLEET_ADMIN_PROXY_TIMEOUT_MS || 120_000);
 
 function workerSecret(): string {
   return (process.env.CONVEX_WORKER_SECRET || '').trim();
+}
+
+type ConfigServerShape = {
+  track?: string;
+  cars?: string;
+  entries?: Array<{ model?: string }>;
+  serverId?: string;
+  serverName?: string;
+  isActive?: boolean;
+};
+
+function extractModConfigFromSlot(slot: ServerSlotRow): ConfigServerShape | null {
+  const cfg = slot.appliedConfig;
+  if (!cfg || typeof cfg !== 'object') {
+    return null;
+  }
+  const root = cfg as Record<string, unknown>;
+  if (typeof root.track === 'string' || Array.isArray(root.entries) || typeof root.cars === 'string') {
+    return {
+      track: typeof root.track === 'string' ? root.track : undefined,
+      cars: typeof root.cars === 'string' ? root.cars : undefined,
+      entries: Array.isArray(root.entries) ? (root.entries as Array<{ model?: string }>) : undefined,
+    };
+  }
+  const servers = Array.isArray(root.servers) ? (root.servers as ConfigServerShape[]) : [];
+  const match =
+    servers.find(
+      (s) =>
+        s.serverId === slot.lobbyName ||
+        s.serverName === slot.lobbyName ||
+        s.serverId === slot.folderSlug,
+    ) ?? servers.find((s) => s.isActive !== false) ??
+    servers[0];
+  return match ?? null;
+}
+
+/**
+ * Ensure required central-library artifacts are LOCAL on the VPS before AC start.
+ * Returns errors if ensure fails or wait times out — caller must not start AC.
+ */
+export async function ensureSlotModsReady(slot: ServerSlotRow): Promise<{
+  ok: boolean;
+  errors?: string[];
+  items?: unknown[];
+}> {
+  if (!isModDbConfigured()) {
+    return { ok: true };
+  }
+  const modConfig = extractModConfigFromSlot(slot);
+  if (!modConfig) {
+    return { ok: true };
+  }
+  const targets = await resolveConfigModTargets(modConfig);
+  const hasTargets =
+    (targets.cars?.length ?? 0) > 0 ||
+    (targets.tracks?.length ?? 0) > 0 ||
+    (targets.artifactIds?.length ?? 0) > 0;
+  if (!hasTargets) {
+    return { ok: true };
+  }
+
+  try {
+    const ensured = await ensureModsOnInstance(slot.instanceId, targets);
+    const pending = ensured.items.filter((i) => i.status !== 'LOCAL');
+    if (pending.length === 0) {
+      return { ok: true, items: ensured.items };
+    }
+    if (pending.some((i) => i.status === 'ERROR' || i.status === 'NOT_FOUND')) {
+      return {
+        ok: false,
+        errors: [
+          'MODS_NOT_READY',
+          ...pending.map((i) => `${i.status}:${i.slug || i.artifactId}`),
+        ],
+        items: ensured.items,
+      };
+    }
+    const artifactIds = ensured.items
+      .filter((i) => i.status !== 'NOT_FOUND')
+      .map((i) => i.artifactId);
+    const waited = await waitUntilModsLocal(slot.instanceId, artifactIds);
+    if (!waited.ready) {
+      return {
+        ok: false,
+        errors: [
+          'MODS_NOT_READY',
+          ...waited.items
+            .filter((i) => i.status !== 'LOCAL')
+            .map((i) => `${i.status}:${i.slug || i.artifactId}`),
+        ],
+        items: waited.items,
+      };
+    }
+    return { ok: true, items: waited.items };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, errors: ['MODS_ENSURE_FAILED', message] };
+  }
 }
 
 async function postEdgeAdmin(
@@ -61,6 +165,21 @@ export async function applySlotConfig(input: ApplySlotConfigInput): Promise<{
   const slot = await getServerSlotById(input.slotId);
   if (!slot) {
     return { ok: false, errors: ['slot_not_found'] };
+  }
+
+  // Prefetch required mods into local cache before push / AC start
+  const previewSlot: ServerSlotRow = {
+    ...slot,
+    appliedConfig: (input.config as unknown as Record<string, unknown>) ?? slot.appliedConfig,
+  };
+  const modsGate = await ensureSlotModsReady(previewSlot);
+  if (!modsGate.ok) {
+    await patchServerSlot(slot.id, { status: 'error' });
+    return {
+      ok: false,
+      slot,
+      errors: modsGate.errors,
+    };
   }
 
   const result = await applyDesiredConfig({
@@ -128,6 +247,20 @@ export async function runSlotLifecycle(
       slot,
       errors: ['fleet_edge_not_found'],
     };
+  }
+
+  if (action === 'start' || action === 'restart') {
+    const modsGate = await ensureSlotModsReady(slot);
+    if (!modsGate.ok) {
+      await patchServerSlot(slot.id, { status: 'error' });
+      return {
+        ok: false,
+        slot,
+        edge: edge.id,
+        errors: modsGate.errors,
+        upstream: { mods: modsGate.items },
+      };
+    }
   }
 
   const name = encodeURIComponent(slot.folderSlug);

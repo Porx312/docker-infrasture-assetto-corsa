@@ -69,7 +69,12 @@ export async function modAgentDownloadUrlHandler(req: Request, res: Response): P
     res.json({ ok: true, ...signed });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    res.status(404).json({ ok: false, message });
+    const blobMissing = message.startsWith('artifact_blob_missing');
+    res.status(blobMissing ? 409 : 404).json({
+      ok: false,
+      error: blobMissing ? 'artifact_blob_missing' : 'not_found',
+      message,
+    });
   }
 }
 

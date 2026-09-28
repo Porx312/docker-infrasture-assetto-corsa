@@ -21,10 +21,15 @@ import { attachHudGatewayWs } from './services/hud/hudGateway.js';
 import { loadHudDynamicRegistryFromRedis } from './services/hud/hudDynamicRegistry.js';
 import { resolveEnvFilePath } from './config/loadEnv.js';
 import { getPublicBrandingImageHandler } from './controller/brandingImagesController.js';
+import { getPublicModPreviewImageHandler } from './controller/modPreviewImagesController.js';
 import {
   ensureBrandingImagesDir,
   resolveBrandingImagesPath,
 } from './services/brandingImages.js';
+import {
+  ensureModPreviewImagesDir,
+  resolveModPreviewImagesPath,
+} from './services/mods/modPreviewImages.js';
 
 assertSecurityConfiguration();
 
@@ -62,6 +67,9 @@ app.get('/api/health', getPublicHealthHandler);
 app.get('/branding/images/:filename', (req, res) => {
   void getPublicBrandingImageHandler(req, res);
 });
+app.get('/mods/images/:filename', (req, res) => {
+  void getPublicModPreviewImageHandler(req, res);
+});
 app.use('/api', modAgentRoutes);
 app.use('/v1', controlApiRoutes);
 app.use('/client', ...clientLauncherMiddleware, clientSyncRoutes);
@@ -90,6 +98,14 @@ server.listen(PORT, BIND_HOST, () => {
     .catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
       console.warn(`[branding-images] mkdir failed (${resolveBrandingImagesPath()}): ${message}`);
+    });
+  void ensureModPreviewImagesDir()
+    .then((dir) => {
+      console.log(`[mod-previews] serving ${dir} at /mods/images/:filename`);
+    })
+    .catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[mod-previews] mkdir failed (${resolveModPreviewImagesPath()}): ${message}`);
     });
   void runModMigrationsIfConfigured().catch((err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);

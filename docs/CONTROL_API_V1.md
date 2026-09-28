@@ -120,15 +120,66 @@ Default remains `true` until ProjectD Host reads live from Control API.
 
 ---
 
-## Mods inventory (layer A — Host picker)
+## Central mod library (Host picker — preferred)
 
-Distinct from **Mod distribution** (Postgres + ZIP sync = layer B / ops).
+Source of truth: Hub Postgres `mod_packages` + `mod_artifacts` + object storage.
+Local cache on each VPS is separate; availability merges central + edge inventory + sync jobs.
+
+| Method | Path | Who |
+|--------|------|-----|
+| `GET` | `/v1/mods` | Host BFF — catalog (`?kind=car|track`) |
+| `GET` | `/v1/mods/:slug` | Host BFF — one package + all versions |
+| `GET` | `/v1/mods/availability?instanceId=` | Host BFF — `central: AVAILABLE` + `local: LOCAL|MISSING|DOWNLOADING|INSTALLING|ERROR` |
+| `POST` | `/v1/instances/:instanceId/mods/ensure` | Host BFF — idempotent materialize |
+
+Ensure body (either form):
+
+```json
+{ "artifactIds": ["uuid…"] }
+```
+
+```json
+{
+  "cars": [{ "modId": "bmw_m3_e30", "version": "1.4" }],
+  "tracks": [{ "modId": "otarumi_touge", "version": "1.2" }]
+}
+```
+
+`modId` may be package UUID, package `slug`, or `ac_content_slug`. Omit `version` → latest artifact (legacy presets). Same edge + artifact + active job → **reuse** job (no duplicate downloads).
+
+Catalog item shape:
+
+```json
+{
+  "id": "…",
+  "slug": "otarumi_touge",
+  "kind": "track",
+  "name": "Otarumi Touge",
+  "acContentSlug": "otarumi_touge",
+  "imageUrl": "https://hub.example.com/mods/images/….jpg",
+  "versions": [
+    { "version": "1.2", "artifactId": "…", "sha256": "…", "size": 234567 }
+  ]
+}
+```
+
+Host must **not** build the library from per-VPS inventory alone. Combine `GET /v1/mods` + `GET /v1/mods/availability`.
+
+Slot start/restart on the hub runs ensure + wait (`MOD_ENSURE_WAIT_MS`) before proxying AC start. Edge `startGate` remains a second check.
+
+See [MOD_DISTRIBUTION.md](./MOD_DISTRIBUTION.md).
+
+---
+
+## Mods inventory (legacy LOCAL CONTENT — cutover)
+
+**Deprecated for Host library UI.** Still valid as observed disk inventory (Redis). Distinct from the central library.
 
 | Method | Path | Who |
 |--------|------|-----|
 | `POST` | `/v1/agents/:instanceId/mods` | Edge scan → hub Redis |
-| `GET` | `/v1/instances/:instanceId/mods/cars` | Host BFF |
-| `GET` | `/v1/instances/:instanceId/mods/tracks` | Host BFF |
+| `GET` | `/v1/instances/:instanceId/mods/cars` | Legacy Host BFF |
+| `GET` | `/v1/instances/:instanceId/mods/tracks` | Legacy Host BFF |
 
 Redis keys:
 
@@ -141,16 +192,19 @@ POST body:
 ```json
 {
   "etag": "optional-hash",
-  "cars": [{ "carModel": "ks_toyota_gt86", "displayName": "…", "skins": ["0_default"] }],
-  "tracks": [{ "trackSlug": "ks_nordschleife", "configs": ["", "tour"] }]
+  "cars": [{ "carModel": "ks_toyota_gt86", "displayName": "…", "skins": ["0_default"], "version": "optional", "artifactId": "optional", "sha256": "optional" }],
+  "tracks": [{ "trackSlug": "ks_nordschleife", "configs": ["", "layout"], "version": "optional", "artifactId": "optional", "sha256": "optional" }]
 }
 ```
+
+Optional enrich fields are only present when the edge knows them (e.g. `.acmod.json` sidecar). Do not invent versions.
 
 Edge: periodic scan of `CONTENT_PATH/cars|tracks` (env `MOD_INVENTORY_SCAN_MS`, default 15 min; also on boot).
 
 ---
 
 ## Desired config (phase 3)
+
 
 | Method | Path | Who |
 |--------|------|-----|
@@ -250,8 +304,10 @@ CONVEX_WORKER_SECRET=…            # Next /api/control BFF only — never NEXT_
 
 ## Success criteria
 
-1. Host shows cars/tracks for an `instanceId` without editing Convex catalogs.
-2. Live roster via hub GET is &lt; ~10s stale; no `live_players` query for Host.
-3. Laps / battles / HUD WSS still work.
-4. Multiple `AC_INSTANCE_ID` values report to one Control API.
-5. Host can allocate idle slot by region, apply config, start/stop via Control API.
+1. Host shows the **central** car/track library via `/v1/mods`, with per-VPS badges from `/v1/mods/availability`.
+2. Legacy inventory GETs still work during cutover; Host must not treat them as the global library.
+3. Live roster via hub GET is &lt; ~10s stale; no `live_players` query for Host.
+4. Laps / battles / HUD WSS still work.
+5. Multiple `AC_INSTANCE_ID` values report to one Control API.
+6. Host can allocate idle slot by region, ensure mods LOCAL, apply config, start/stop via Control API.
+7. AC never downloads from Hub/S3 during a race — only local `CONTENT_PATH`.

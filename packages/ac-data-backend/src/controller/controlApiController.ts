@@ -27,7 +27,24 @@ import {
   upsertServerSlot,
   type ServerSlotStatus,
 } from '../services/controlApi/serverSlots.js';
+import {
+  ensureModsOnInstance,
+  getCentralModBySlug,
+  getModsAvailability,
+  listCentralMods,
+  type EnsureRequest,
+} from '../services/mods/centralModLibrary.js';
+import { isModDbConfigured } from '../services/mods/db.js';
+import type { ModKind } from '@projectd/ac-data-shared/mods/types.js';
 import type { WorkerConfigSnapshotResult } from '@projectd/ac-data-shared/services/hud/workerConvexQueries.js';
+
+function requireModDb(res: Response): boolean {
+  if (!isModDbConfigured()) {
+    res.status(503).json({ ok: false, error: 'database_unavailable' });
+    return false;
+  }
+  return true;
+}
 
 function requireServerSlotsDb(res: Response): boolean {
   if (!isServerSlotsDbConfigured()) {
@@ -285,6 +302,88 @@ export async function getInstanceModsTracksHandler(req: Request, res: Response):
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(503).json({ ok: false, error: message });
+  }
+}
+
+/** Central library catalog — Hub Postgres (not VPS inventory). */
+export async function listCentralModsHandler(req: Request, res: Response): Promise<void> {
+  if (!requireWorker(req, res) || !requireModDb(res)) {
+    return;
+  }
+  const kindRaw = typeof req.query.kind === 'string' ? req.query.kind.trim() : '';
+  const kind = (['car', 'track', 'weather', 'misc'] as ModKind[]).includes(kindRaw as ModKind)
+    ? (kindRaw as ModKind)
+    : undefined;
+  try {
+    const mods = await listCentralMods(kind);
+    res.json({ ok: true, mods });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(503).json({ ok: false, error: message });
+  }
+}
+
+export async function getCentralModBySlugHandler(req: Request, res: Response): Promise<void> {
+  if (!requireWorker(req, res) || !requireModDb(res)) {
+    return;
+  }
+  const slug = typeof req.params.slug === 'string' ? req.params.slug.trim() : '';
+  if (!slug) {
+    res.status(400).json({ ok: false, error: 'slug_required' });
+    return;
+  }
+  try {
+    const mod = await getCentralModBySlug(slug);
+    if (!mod) {
+      res.status(404).json({ ok: false, error: 'not_found', slug });
+      return;
+    }
+    res.json({ ok: true, mod });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(503).json({ ok: false, error: message });
+  }
+}
+
+export async function getModsAvailabilityHandler(req: Request, res: Response): Promise<void> {
+  if (!requireWorker(req, res) || !requireModDb(res)) {
+    return;
+  }
+  const instanceId =
+    typeof req.query.instanceId === 'string' ? req.query.instanceId.trim() : '';
+  if (!instanceId) {
+    res.status(400).json({ ok: false, error: 'instanceId_required' });
+    return;
+  }
+  try {
+    const result = await getModsAvailability(instanceId);
+    res.json({ ok: true, ...result });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    const status = message === 'fleet_edge_not_found' ? 404 : 503;
+    res.status(status).json({ ok: false, error: message });
+  }
+}
+
+export async function ensureInstanceModsHandler(req: Request, res: Response): Promise<void> {
+  if (!requireWorker(req, res) || !requireModDb(res)) {
+    return;
+  }
+  const instanceId =
+    typeof req.params.instanceId === 'string' ? req.params.instanceId.trim() : '';
+  if (!instanceId) {
+    res.status(400).json({ ok: false, error: 'instanceId_required' });
+    return;
+  }
+  const body = (req.body ?? {}) as EnsureRequest;
+  try {
+    const result = await ensureModsOnInstance(instanceId, body);
+    res.json({ ok: true, ...result });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    const status =
+      message === 'fleet_edge_not_found' ? 404 : message === 'database_unavailable' ? 503 : 400;
+    res.status(status).json({ ok: false, error: message });
   }
 }
 

@@ -109,13 +109,30 @@ export async function getArtifactDownloadUrl(
   return { url, expiresInSec };
 }
 
+/** Absolute path for a local master blob (MOD_STORAGE_MODE=local). */
+export function localMasterArtifactPath(storageKey: string): string {
+  return path.join(localMasterRoot(), storageKey);
+}
+
+/** True when local master ZIP exists on disk. Always true for s3 mode (remote). */
+export function localMasterArtifactExists(storageKey: string): boolean {
+  if (storageMode() !== 'local') {
+    return true;
+  }
+  return fs.existsSync(localMasterArtifactPath(storageKey));
+}
+
 export async function streamLocalMasterArtifact(
   storageKey: string,
   res: import('express').Response,
 ): Promise<void> {
-  const filePath = path.join(localMasterRoot(), storageKey);
+  const filePath = localMasterArtifactPath(storageKey);
   if (!fs.existsSync(filePath)) {
-    res.status(404).json({ ok: false, error: 'not_found' });
+    res.status(404).json({
+      ok: false,
+      error: 'artifact_blob_missing',
+      message: 'Master ZIP missing on hub disk (check MOD_UPLOAD_ROOT / MOD_HUB_PUBLIC_URL)',
+    });
     return;
   }
   res.setHeader('Content-Type', 'application/zip');
