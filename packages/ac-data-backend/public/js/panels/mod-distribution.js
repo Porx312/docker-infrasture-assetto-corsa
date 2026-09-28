@@ -1,4 +1,5 @@
-import { apiGet, apiPost, apiFetch } from '../lib/api.js';
+import { apiGet, apiPost } from '../lib/api.js';
+import { escapeAttr, escapeHtml } from '../lib/dom.js';
 import { showToast } from '../lib/toast.js';
 
 function formatBytes(n) {
@@ -10,15 +11,76 @@ function formatBytes(n) {
 }
 
 function statusBadge(status) {
+  const raw = String(status || 'UNKNOWN');
   const cls =
-    status === 'READY'
+    raw === 'READY'
       ? 'badge-ok'
-      : status === 'ERROR'
+      : raw === 'ERROR'
         ? 'badge-danger'
-        : status === 'SYNCING'
+        : raw === 'SYNCING' || raw === 'PENDING'
           ? 'badge-warn'
           : 'badge-muted';
-  return `<span class="badge ${cls}">${status}</span>`;
+  const hint =
+    raw === 'PENDING'
+      ? ' title="Waiting for mod agent — check EDGE_ID / MOD_AGENT_ENABLED / last_seen"'
+      : '';
+  return `<span class="badge ${cls}"${hint}>${raw}</span>`;
+}
+
+function formatLastSeen(iso) {
+  if (!iso) return 'never';
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return 'never';
+  const agoSec = Math.round((Date.now() - t) / 1000);
+  if (agoSec < 60) return `${agoSec}s ago`;
+  if (agoSec < 3600) return `${Math.round(agoSec / 60)}m ago`;
+  if (agoSec < 86400) return `${Math.round(agoSec / 3600)}h ago`;
+  return new Date(iso).toLocaleString();
+}
+
+function edgeHealthClass(lastSeenAt) {
+  if (!lastSeenAt) return 'edge-stale';
+  const ageMs = Date.now() - new Date(lastSeenAt).getTime();
+  if (!Number.isFinite(ageMs) || ageMs > 120_000) return 'edge-stale';
+  return 'edge-ok';
+}
+
+/** @param {HTMLElement} root */
+async function loadModEdgesHealth(root) {
+  const el = root.querySelector('#fleetDeployEdgesHealth');
+  if (!el) return;
+  const { data } = await apiGet('/mods/edges');
+  if (!data.ok) {
+    el.innerHTML = `<p class="panel-hint">${data.message || 'Edges unavailable'}</p>`;
+    return;
+  }
+  const edges = data.edges || [];
+  if (!edges.length) {
+    el.innerHTML =
+      '<p class="panel-hint">No fleet edges in DB yet — set FLEET_EDGE_REGISTRY and open this tab (or wait for agent heartbeat).</p>';
+    return;
+  }
+  el.innerHTML = `
+    <h3>VPS edges (mod agent)</h3>
+    <p class="panel-hint">Deploy catalog mods from Cars/Tracks to these edges. PENDING stuck? Agent offline or wrong EDGE_ID.</p>
+    <table class="mod-dist-table">
+      <thead><tr><th>EDGE_ID</th><th>Label</th><th>Enabled</th><th>Last seen</th><th>Disk free</th></tr></thead>
+      <tbody>
+        ${edges
+          .map((e) => {
+            const stale = edgeHealthClass(e.last_seen_at);
+            return `<tr class="${stale}">
+              <td><code>${escapeHtml(e.id)}</code></td>
+              <td>${escapeHtml(e.label || e.id)}</td>
+              <td>${e.enabled === false ? 'no' : 'yes'}</td>
+              <td>${formatLastSeen(e.last_seen_at)}</td>
+              <td>${e.disk_free_bytes != null ? formatBytes(e.disk_free_bytes) : '—'}</td>
+            </tr>`;
+          })
+          .join('')}
+      </tbody>
+    </table>
+  `;
 }
 
 /** @param {HTMLElement} root */
@@ -27,75 +89,24 @@ export function mountModDistributionPanel(root) {
     <section class="panel-section">
       <header class="panel-header">
         <div>
-          <h2>Mod distribution</h2>
-          <p class="panel-hint">Upload to hub staging → SHA-256 → distribute to VPS edges</p>
+          <h2>Fleet deploy</h2>
+          <p class="panel-hint">Sync catalog mods to VPS edges. Upload cars/tracks from the Cars and Tracks tabs first.</p>
         </div>
       </header>
-      <div class="mod-dist-upload card">
-        <h3>Upload mod (ZIP)</h3>
-        <form id="modDistUploadForm" class="mod-dist-form">
-          <label>Display name <input class="input" name="displayName" required /></label>
-          <label>Version <input class="input" name="versionLabel" value="1.0" required /></label>
-          <label>Kind
-            <select class="input" name="kind">
-              <option value="car">car</option>
-              <option value="track">track</option>
-              <option value="weather">weather</option>
-              <option value="misc">misc</option>
-            </select>
-          </label>
-          <label>ZIP file <input type="file" name="file" accept=".zip" required /></label>
-          <label class="checkbox-row"><input type="checkbox" name="distributeAll" checked /> Distribute to all VPS after upload</label>
-          <button type="submit" class="btn btn-primary">Upload &amp; register</button>
-        </form>
-        <p id="modDistUploadStatus" class="panel-hint"></p>
-      </div>
-      <div id="modDistCatalog" class="mod-dist-catalog"></div>
-      <div id="modDistDetail" class="mod-dist-detail hidden"></div>
+      <div id="fleetDeployEdgesHealth" class="mod-dist-edges card"></div>
+      <div id="fleetDeployCatalog" class="mod-dist-catalog"></div>
+      <div id="fleetDeployDetail" class="mod-dist-detail hidden"></div>
     </section>
   `;
-
-  root.querySelector('#modDistUploadForm')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const form = /** @type {HTMLFormElement} */ (e.currentTarget);
-    const statusEl = root.querySelector('#modDistUploadStatus');
-    const fd = new FormData(form);
-    const file = fd.get('file');
-    if (!(file instanceof File)) return;
-    if (statusEl) statusEl.textContent = 'Uploading…';
-    const uploadFd = new FormData();
-    uploadFd.append('file', file);
-    const { res, data } = await apiFetch('/mods/upload', { method: 'POST', body: uploadFd });
-    if (!res.ok || !data.uploadId) {
-      showToast(data.message || 'Upload failed', 'error');
-      if (statusEl) statusEl.textContent = '';
-      return;
-    }
-    if (statusEl) statusEl.textContent = 'Finalizing (hash + storage)…';
-    const distributeAll = form.querySelector('input[name="distributeAll"]');
-    const distributeTo =
-      distributeAll instanceof HTMLInputElement && distributeAll.checked ? 'all' : 'none';
-    const { data: fin } = await apiPost(`/mods/upload/${data.uploadId}/finalize`, {
-      displayName: fd.get('displayName'),
-      versionLabel: fd.get('versionLabel'),
-      kind: fd.get('kind'),
-      distributeTo,
-    });
-    if (!fin.ok) {
-      showToast(fin.message || 'Finalize failed', 'error');
-      if (statusEl) statusEl.textContent = '';
-      return;
-    }
-    showToast(`Mod registered (${fin.enqueued || 0} sync jobs)`, 'success');
-    if (statusEl) statusEl.textContent = '';
-    form.reset();
-    await loadModDistributionPanel(root);
-  });
 }
+
+/** Alias used by dashboard after rename */
+export const mountFleetDeployPanel = mountModDistributionPanel;
 
 /** @param {HTMLElement} root */
 export async function loadModDistributionPanel(root) {
-  const catalog = root.querySelector('#modDistCatalog');
+  await loadModEdgesHealth(root);
+  const catalog = root.querySelector('#fleetDeployCatalog');
   if (!catalog) return;
   const { data } = await apiGet('/mods');
   if (!data.ok) {
@@ -104,32 +115,42 @@ export async function loadModDistributionPanel(root) {
   }
   const packages = data.packages || [];
   if (!packages.length) {
-    catalog.innerHTML = '<p class="panel-hint">No mods in catalog yet.</p>';
+    catalog.innerHTML =
+      '<p class="panel-hint">No mods in catalog — upload ZIPs from Cars or Tracks.</p>';
     return;
   }
-  catalog.innerHTML = packages
-    .map((pkg) => {
-      const art = pkg.latest_artifact;
-      const meta = art
-        ? `v${art.version_label} · ${formatBytes(art.size_bytes)} · ${art.sha256.slice(0, 12)}…`
-        : 'No artifact';
-      return `<article class="card mod-dist-card" data-artifact-id="${art?.id || ''}">
-        <h3>${pkg.display_name}</h3>
-        <p class="panel-hint">${pkg.kind} · ${pkg.ac_content_slug} · ${meta}</p>
-        <button type="button" class="btn btn-sm btn-ghost mod-dist-view" data-artifact-id="${art?.id || ''}">Distribution</button>
-      </article>`;
-    })
-    .join('');
+  catalog.innerHTML = `
+    <h3>Catalog packages</h3>
+    <div class="mod-dist-catalog-grid">
+      ${packages
+        .map((pkg) => {
+          const art = pkg.latest_artifact;
+          const meta = art
+            ? `v${escapeHtml(art.version_label)} · ${formatBytes(art.size_bytes)} · ${escapeHtml((art.sha256 || '').slice(0, 12))}…`
+            : 'No artifact';
+          return `<article class="card mod-dist-card" data-artifact-id="${escapeAttr(art?.id || '')}">
+            <h3>${escapeHtml(pkg.display_name)}</h3>
+            <p class="panel-hint">${escapeHtml(pkg.kind)} · ${escapeHtml(pkg.ac_content_slug)} · ${meta}</p>
+            <button type="button" class="btn btn-sm btn-primary fleet-deploy-view" data-artifact-id="${escapeAttr(art?.id || '')}" ${art?.id ? '' : 'disabled'}>
+              Deploy / verify
+            </button>
+          </article>`;
+        })
+        .join('')}
+    </div>
+  `;
 
-  catalog.querySelectorAll('.mod-dist-view').forEach((btn) => {
+  catalog.querySelectorAll('.fleet-deploy-view').forEach((btn) => {
     btn.addEventListener('click', () => openDistributionDetail(root, btn.dataset.artifactId));
   });
 }
 
+export const loadFleetDeployPanel = loadModDistributionPanel;
+
 /** @param {HTMLElement} root @param {string | undefined} artifactId */
 async function openDistributionDetail(root, artifactId) {
   if (!artifactId) return;
-  const detail = root.querySelector('#modDistDetail');
+  const detail = root.querySelector('#fleetDeployDetail');
   if (!detail) return;
   detail.classList.remove('hidden');
   detail.innerHTML = '<p class="panel-hint">Loading…</p>';
@@ -142,16 +163,16 @@ async function openDistributionDetail(root, artifactId) {
   const rows = data.distribution || [];
   detail.innerHTML = `
     <div class="card">
-      <h3>${art?.package?.display_name || 'Mod'} · v${art?.version_label || ''}</h3>
-      <p class="panel-hint">${formatBytes(art?.size_bytes)} · SHA ${art?.sha256?.slice(0, 16)}…</p>
+      <h3>${escapeHtml(art?.package?.display_name || 'Mod')} · v${escapeHtml(art?.version_label || '')}</h3>
+      <p class="panel-hint">${formatBytes(art?.size_bytes)} · SHA ${escapeHtml((art?.sha256 || '').slice(0, 16))}…</p>
       <table class="mod-dist-table">
         <thead><tr><th></th><th>VPS</th><th>Status</th></tr></thead>
         <tbody>
           ${rows
             .map(
               (row) => `<tr>
-              <td><input type="checkbox" class="mod-edge-check" value="${row.edge_id}" checked /></td>
-              <td>${row.label}</td>
+              <td><input type="checkbox" class="mod-edge-check" value="${escapeAttr(row.edge_id)}" checked /></td>
+              <td>${escapeHtml(row.label)}</td>
               <td>${statusBadge(row.status)} ${row.progress_pct ? Math.round(row.progress_pct) + '%' : ''}</td>
             </tr>`,
             )
@@ -167,7 +188,9 @@ async function openDistributionDetail(root, artifactId) {
   `;
 
   const selectedEdges = () =>
-    [...detail.querySelectorAll('.mod-edge-check:checked')].map((el) => /** @type {HTMLInputElement} */ (el).value);
+    [...detail.querySelectorAll('.mod-edge-check:checked')].map(
+      (el) => /** @type {HTMLInputElement} */ (el).value,
+    );
 
   detail.querySelector('#modSyncSelected')?.addEventListener('click', async () => {
     const edgeIds = selectedEdges();

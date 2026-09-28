@@ -2269,6 +2269,21 @@ body {
   max-width: 420px;
 }
 
+.mod-dist-type-fieldset {
+  border: 1px solid var(--border-subtle, #30363d);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  display: flex;
+  gap: 1.25rem;
+  margin: 0;
+}
+
+.mod-dist-type-legend {
+  padding: 0 0.35rem;
+  font-size: 0.8125rem;
+  color: var(--text-muted, #8b949e);
+}
+
 .mod-dist-table {
   width: 100%;
   margin: 1rem 0;
@@ -2292,3 +2307,113 @@ body {
 .server-mod-readiness-list li {
   padding: 0.25rem 0;
 }
+
+.mod-dist-edges {
+  margin-bottom: 1rem;
+}
+
+.mod-dist-edges tr.edge-stale td {
+  color: var(--warn, #d29922);
+}
+
+.mod-dist-edges tr.edge-ok td {
+  color: inherit;
+}
+
+.branding-url-with-upload {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.branding-url-with-upload .input {
+  flex: 1;
+}
+
+.loading-url-row {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+  margin-bottom: 0.35rem;
+}
+
+.loading-url-row .loading-url-input {
+  flex: 1;
+}
+
+.branding-file-input.hidden,
+.branding-upload-btn.hidden {
+  display: none !important;
+}
+
+.mod-dist-catalog-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  margin-top: 0.75rem;
+}
+
+.modal-loading-screens {
+  max-width: 920px;
+}
+
+.loading-screens-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.loading-screens-toolbar .panel-hint {
+  margin: 0;
+  flex: 1 1 12rem;
+}
+
+.loading-screens-gallery {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  margin-bottom: 1.25rem;
+}
+
+.loading-screen-card {
+  border: 1px solid var(--border-subtle, #30363d);
+  border-radius: 8px;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.loading-screen-thumb {
+  aspect-ratio: 16 / 9;
+  background: #161b22;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loading-screen-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.loading-screen-name {
+  margin: 0;
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.loading-screen-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+

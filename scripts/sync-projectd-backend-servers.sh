@@ -31,5 +31,12 @@ if [ -d "$ROOT/ProjectD-HUD" ]; then
     "$ROOT/ProjectD-HUD/" "$DEST/ProjectD-HUD/"
 fi
 
+echo "Refreshing ProjectD-Backend-Servers/package-lock.json (needed for Railway npm ci)"
+(
+  cd "$DEST"
+  npm install --package-lock-only
+)
+
 echo "Done. Hub clone updated from assetto-infra/packages (and ProjectD-HUD)."
-echo "Next: cd ProjectD-Backend-Servers && npm run build && npm run dev   # or commit + push"
+echo "Next: cd ProjectD-Backend-Servers && git add package-lock.json packages && git commit && git push"
+echo "      Then: npm run build && npm run dev   # local hub"

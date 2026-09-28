@@ -20,6 +20,7 @@ export type HubPlayerPresenceRecord = {
   trackConfig: string;
   carModel: string;
   updatedAt: number;
+  name?: string;
   instanceId?: string;
   folderSlug?: string;
 };

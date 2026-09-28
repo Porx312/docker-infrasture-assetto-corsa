@@ -21,6 +21,8 @@ import { resolveEnvFilePath } from './config/loadEnv.js';
 import { attachHudWs } from './services/hud/hudWs.js';
 import { isBackendIngestForwardConfigured } from '@projectd/ac-data-shared/services/edgeIngestForward.js';
 import { startModAgentLoop } from './services/modAgent/modAgentLoop.js';
+import { startModInventoryScanLoop } from './services/modInventoryScan.js';
+import { startControlApiAgentPresenceLoop } from './services/controlApiAgentPresence.js';
 import {
   isEdgeConfigSyncEnabled,
   isHubCentricEdgeMode,
@@ -129,6 +131,8 @@ server.listen(PORT, BIND_HOST, async () => {
   void startRedisConfigApplier();
   startServerPoolMonitor();
   startModAgentLoop();
+  startModInventoryScanLoop();
+  startControlApiAgentPresenceLoop();
   void publishHudRegistryToHubIfConfigured().catch((err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[hud-registry-sync] startup failed: ${message}`);

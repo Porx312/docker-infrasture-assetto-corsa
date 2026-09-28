@@ -16,6 +16,10 @@ import {
     uploadMultipleContent,
     getServerBrandingHandler,
     updateServerBrandingHandler,
+    uploadBrandingImageHandler,
+    getBrandingUploadStatusHandler,
+    listBrandingImagesHandler,
+    deleteBrandingImageHandler,
     getServerInstanceConfigHandler,
     updateServerInstanceConfigHandler,
     getServerRuntimeHandler,
@@ -125,6 +129,26 @@ router.get('/hud/releases/:filename/download', adminAuth, downloadHudReleaseAdmi
 
 router.get('/branding', adminAuth, getServerBrandingHandler);
 router.put('/branding', adminAuth, updateServerBrandingHandler);
+router.get('/branding/upload-status', adminAuth, getBrandingUploadStatusHandler);
+router.get('/branding/images', adminAuth, (req, res) => {
+  void listBrandingImagesHandler(req, res);
+});
+router.delete('/branding/images/:filename', adminAuth, (req, res) => {
+  void deleteBrandingImageHandler(req, res);
+});
+router.post(
+  '/branding/upload-image',
+  adminAuth,
+  handleMulterUpload(
+    multer({
+      storage,
+      limits: { fileSize: 12 * 1024 * 1024 },
+    }).single('file'),
+  ),
+  (req, res) => {
+    void uploadBrandingImageHandler(req, res);
+  },
+);
 router.post('/servers/provision', adminAuth, provisionServerAdminHandler);
 router.get('/servers/:name/config', adminAuth, getServerInstanceConfigHandler);
 router.put('/servers/:name/config', adminAuth, updateServerInstanceConfigHandler);

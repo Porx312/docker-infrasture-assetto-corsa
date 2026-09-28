@@ -58,14 +58,19 @@ export async function modUploadFinalizeHandler(req: Request, res: Response): Pro
     return;
   }
   const uploadId = String(req.params.uploadId || '');
+  const kindRaw = String(req.body.kind || '').trim().toLowerCase();
+  if (kindRaw !== 'car' && kindRaw !== 'track') {
+    res.status(400).json({ ok: false, message: 'kind must be car or track' });
+    return;
+  }
   try {
     const result = await finalizeModUpload({
       uploadId,
-      displayName: String(req.body.displayName || ''),
-      kind: req.body.kind,
-      versionLabel: String(req.body.versionLabel || '1.0'),
-      packageSlug: req.body.packageSlug,
-      acContentSlug: req.body.acContentSlug,
+      kind: kindRaw,
+      displayName: req.body.displayName ? String(req.body.displayName) : undefined,
+      versionLabel: req.body.versionLabel ? String(req.body.versionLabel) : undefined,
+      packageSlug: req.body.packageSlug ? String(req.body.packageSlug) : undefined,
+      acContentSlug: req.body.acContentSlug ? String(req.body.acContentSlug) : undefined,
       distributeTo: req.body.distributeTo ?? 'none',
     });
     res.json({ ok: true, ...result });

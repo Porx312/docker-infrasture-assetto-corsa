@@ -140,6 +140,18 @@ tail -f ac-data.log
 - Delete stale `server_pids.json`: `rm server_pids.json`
 - Or run `./stop.sh force` before starting
 
+## Control API (hub `/v1`)
+
+The hub (`ac-data-backend`) exposes a **Control API** for ProjectD Host: installed mods + live lobbies (Redis), plus desired-config webhooks from Convex. Edges report mods inventory and agent heartbeats.
+
+| Doc | Purpose |
+|-----|---------|
+| [docs/CONTROL_API_V1.md](docs/CONTROL_API_V1.md) | Canonical API spec |
+| [docs/control-api-vps-spec.md](docs/control-api-vps-spec.md) | Handoff alias (ProjectD naming) |
+| [docs/openapi/control-api-v1.yaml](docs/openapi/control-api-v1.yaml) | OpenAPI v1 |
+| [docs/CONTROL_API_HOST_CUTOVER.md](docs/CONTROL_API_HOST_CUTOVER.md) | Host BFF cutover checklist |
+| [docs/SERVER_PLATFORM.md](docs/SERVER_PLATFORM.md) | Allocate / start / stop server slots |
+
 ## CI/CD
 
 Push to `main` → GitHub Actions deploys telemetry-data (`docker-compose.prod.yml`, `.env.production` on VPS) via SSH and verifies the container is running.

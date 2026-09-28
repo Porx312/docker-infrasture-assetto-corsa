@@ -1,16 +1,21 @@
-import { apiGet, apiPost, apiPut } from '../lib/api.js';
+import { apiDelete, apiGet, apiPost, apiPut } from '../lib/api.js';
 import {
   bindBrandingPreview,
   brandingRefs,
   fillBranding,
+  getLoadingImageUrls,
+  isBrandingUploadAvailable,
   readBranding,
   renderBrandingFieldsHtml,
   seedLoadingUrlsList,
   setCmPreviewHtml,
+  setLoadingImageUrls,
+  uploadBrandingImageFile,
   validateLoadingImageUrls,
 } from '../lib/branding.js';
-import { closeModal, openModal } from '../lib/modal.js';
+import { closeModal, openModal, showConfirm } from '../lib/modal.js';
 import { showToast } from '../lib/toast.js';
+import { escapeAttr, escapeHtml } from '../lib/dom.js';
 import { filterRowsByFleetRegion, getFleetRegionFilter, isFleetMode } from '../lib/fleet.js';
 import {
   GLOBAL_BRANDING_REFS,
@@ -20,6 +25,10 @@ import {
   renderServersPanelHtml,
   serverTargetKey,
 } from '../ui/servers-templates.js';
+
+/** @type {import('../lib/branding.js').BrandingFormRefs | null} */
+let loadingScreensActiveRefs = null;
+let loadingScreensModalBound = false;
 
 /** @type {Array<{ name: string; displayName?: string | null; wrapperPort?: number | null; fleetEdgeId?: string; fleetLabel?: string }>} */
 let serverList = [];
@@ -153,6 +162,9 @@ export function initGlobalBrandingModal() {
 
   seedLoadingUrlsList(GLOBAL_BRANDING_REFS);
   bindBrandingPreview(GLOBAL_BRANDING_REFS);
+  document.getElementById(GLOBAL_BRANDING_REFS.loadingListManageBtn)?.addEventListener('click', () => {
+    openLoadingScreensModal(GLOBAL_BRANDING_REFS);
+  });
 
   document.getElementById('globalBrandingForm')?.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -707,6 +719,170 @@ export function closeServerProvisionModal() {
   closeModal('serverProvisionModal');
 }
 
+/**
+ * @param {import('../lib/branding.js').BrandingFormRefs} refs
+ */
+export function openLoadingScreensModal(refs) {
+  loadingScreensActiveRefs = refs;
+  initLoadingScreensModal();
+  void refreshLoadingScreensModal();
+  openModal('loadingScreensModal');
+}
+
+export function closeLoadingScreensModal() {
+  if (loadingScreensActiveRefs) {
+    // Ensure parent form preview/summary stay in sync
+    setLoadingImageUrls(loadingScreensActiveRefs, getLoadingImageUrls(loadingScreensActiveRefs));
+  }
+  loadingScreensActiveRefs = null;
+  closeModal('loadingScreensModal');
+}
+
+export function initLoadingScreensModal() {
+  if (loadingScreensModalBound) return;
+  loadingScreensModalBound = true;
+
+  document.getElementById('loadingScreensUploadBtn')?.addEventListener('click', () => {
+    document.getElementById('loadingScreensFileInput')?.click();
+  });
+
+  document.getElementById('loadingScreensFileInput')?.addEventListener('change', async (e) => {
+    const input = /** @type {HTMLInputElement} */ (e.target);
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file || !loadingScreensActiveRefs) return;
+    try {
+      const url = await uploadBrandingImageFile(file);
+      const urls = getLoadingImageUrls(loadingScreensActiveRefs);
+      if (!urls.includes(url)) urls.push(url);
+      setLoadingImageUrls(loadingScreensActiveRefs, urls);
+      showToast('Image uploaded');
+      await refreshLoadingScreensModal();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Upload failed', 'error');
+    }
+  });
+
+  document.getElementById('loadingScreensAddUrlBtn')?.addEventListener('click', async () => {
+    if (!loadingScreensActiveRefs) return;
+    const url = window.prompt('Loading screen image URL (https://…)');
+    if (!url?.trim()) return;
+    const next = url.trim();
+    const err = validateLoadingImageUrls([next]);
+    if (err) {
+      showToast(err, 'error');
+      return;
+    }
+    const urls = getLoadingImageUrls(loadingScreensActiveRefs);
+    if (!urls.includes(next)) urls.push(next);
+    setLoadingImageUrls(loadingScreensActiveRefs, urls);
+    await refreshLoadingScreensModal();
+  });
+
+  document.getElementById('loadingScreensAssigned')?.addEventListener('click', async (e) => {
+    const btn = e.target instanceof Element ? e.target.closest('button') : null;
+    if (!(btn instanceof HTMLButtonElement) || !loadingScreensActiveRefs) return;
+    const url = btn.dataset.url;
+    if (!url) return;
+    if (btn.dataset.action === 'remove-assigned') {
+      const urls = getLoadingImageUrls(loadingScreensActiveRefs).filter((u) => u !== url);
+      setLoadingImageUrls(loadingScreensActiveRefs, urls);
+      await refreshLoadingScreensModal();
+    }
+  });
+
+  document.getElementById('loadingScreensLibrary')?.addEventListener('click', async (e) => {
+    const btn = e.target instanceof Element ? e.target.closest('button') : null;
+    if (!(btn instanceof HTMLButtonElement) || !loadingScreensActiveRefs) return;
+    const url = btn.dataset.url;
+    const filename = btn.dataset.filename;
+    if (btn.dataset.action === 'assign' && url) {
+      const urls = getLoadingImageUrls(loadingScreensActiveRefs);
+      if (!urls.includes(url)) urls.push(url);
+      setLoadingImageUrls(loadingScreensActiveRefs, urls);
+      await refreshLoadingScreensModal();
+      return;
+    }
+    if (btn.dataset.action === 'delete-file' && filename) {
+      const confirmed = await showConfirm(
+        'Delete image file',
+        `Delete ${filename} from hub storage? This cannot be undone.`,
+        'Delete file',
+      );
+      if (!confirmed) return;
+      const { data } = await apiDelete(`/branding/images/${encodeURIComponent(filename)}`);
+      if (!data.ok) {
+        showToast(data.message || 'Delete failed', 'error');
+        return;
+      }
+      if (url) {
+        const urls = getLoadingImageUrls(loadingScreensActiveRefs).filter((u) => u !== url);
+        setLoadingImageUrls(loadingScreensActiveRefs, urls);
+      }
+      showToast('Image deleted');
+      await refreshLoadingScreensModal();
+    }
+  });
+}
+
+async function refreshLoadingScreensModal() {
+  const assignedEl = document.getElementById('loadingScreensAssigned');
+  const libraryEl = document.getElementById('loadingScreensLibrary');
+  const hintEl = document.getElementById('loadingScreensHint');
+  if (!assignedEl || !libraryEl || !loadingScreensActiveRefs) return;
+
+  const uploadOk = await isBrandingUploadAvailable();
+  document.getElementById('loadingScreensUploadBtn')?.classList.toggle('hidden', !uploadOk);
+  if (hintEl) {
+    hintEl.textContent = uploadOk
+      ? 'Assigned images rotate per player join.'
+      : 'Set HUD_PUBLIC_BASE_URL on hub to enable uploads; URLs still work.';
+  }
+
+  const assigned = getLoadingImageUrls(loadingScreensActiveRefs);
+  assignedEl.innerHTML = assigned.length
+    ? assigned
+        .map(
+          (url) => `
+      <article class="loading-screen-card">
+        <div class="loading-screen-thumb"><img src="${escapeAttr(url)}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'branding-preview-empty',textContent:'Failed'}))"></div>
+        <div class="loading-screen-actions">
+          <button type="button" class="btn btn-sm btn-danger" data-action="remove-assigned" data-url="${escapeAttr(url)}">Remove</button>
+        </div>
+      </article>`,
+        )
+        .join('')
+    : '<p class="panel-hint">No images assigned yet.</p>';
+
+  try {
+    const { data } = await apiGet('/branding/images');
+    const images = data.images || [];
+    if (!images.length) {
+      libraryEl.innerHTML = '<p class="panel-hint">Hub library empty — upload an image.</p>';
+      return;
+    }
+    const assignedSet = new Set(assigned);
+    libraryEl.innerHTML = images
+      .map((img) => {
+        const inUse = assignedSet.has(img.url);
+        return `
+      <article class="loading-screen-card">
+        <div class="loading-screen-thumb"><img src="${escapeAttr(img.url)}" alt="" loading="lazy"></div>
+        <p class="loading-screen-name" title="${escapeAttr(img.filename)}">${escapeHtml(img.filename)}</p>
+        <div class="loading-screen-actions">
+          <button type="button" class="btn btn-sm ${inUse ? 'btn-ghost' : 'btn-primary'}" data-action="assign" data-url="${escapeAttr(img.url)}" ${inUse ? 'disabled' : ''}>
+            ${inUse ? 'Assigned' : 'Use'}
+          </button>
+          <button type="button" class="btn btn-sm btn-danger" data-action="delete-file" data-filename="${escapeAttr(img.filename)}" data-url="${escapeAttr(img.url)}">Delete file</button>
+        </div>
+      </article>`;
+      })
+      .join('');
+  } catch {
+    libraryEl.innerHTML = '<p class="panel-hint">Could not load hub library.</p>';
+  }
+}
+
 async function submitServerProvision(e) {
   e.preventDefault();
   const btn = document.getElementById('serverProvisionSubmitBtn');
@@ -750,6 +926,9 @@ async function submitServerProvision(e) {
 export function initServerConfigModal() {
   seedLoadingUrlsList(SERVER_BRANDING_REFS);
   bindBrandingPreview(SERVER_BRANDING_REFS);
+  document.getElementById(SERVER_BRANDING_REFS.loadingListManageBtn)?.addEventListener('click', () => {
+    openLoadingScreensModal(SERVER_BRANDING_REFS);
+  });
   document.getElementById('serverConfigForm')?.addEventListener('submit', saveServerConfig);
   document.getElementById('serverLobbyForm')?.addEventListener('submit', (e) => {
     void saveServerLobby(e);

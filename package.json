@@ -15,6 +15,7 @@
     "package:hub": "./scripts/package-backend-hub.sh",
     "test:shared": "npm run test -w @projectd/ac-data-shared",
     "test:edge": "npm run test -w @projectd/ac-data-edge",
-    "test:backend": "npm run test -w @projectd/ac-data-backend"
+    "test:backend": "npm run test -w @projectd/ac-data-backend",
+    "smoke:fleet": "./scripts/smoke-vps-fleet.sh"
   }
 }

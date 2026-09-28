@@ -16,10 +16,13 @@ function hubApiBase(): string {
 
 async function hubFetch(path: string, init?: RequestInit): Promise<Response> {
   const url = `${hubApiBase()}${path}`;
-  const headers = {
+  const headers: Record<string, string> = {
     ...modAgentAuthHeaders(edgeId()),
     ...(init?.headers as Record<string, string> | undefined),
   };
+  if (init?.body && !headers['Content-Type'] && !headers['content-type']) {
+    headers['Content-Type'] = 'application/json';
+  }
   return fetch(url, { ...init, headers });
 }
 
@@ -61,10 +64,13 @@ export async function getArtifactDownloadUrl(artifactId: string): Promise<{
 }
 
 export async function reportJobProgress(jobId: string, progressPct: number, phase: string): Promise<void> {
-  await hubFetch(`/mod-agent/v1/jobs/${jobId}/progress`, {
+  const res = await hubFetch(`/mod-agent/v1/jobs/${jobId}/progress`, {
     method: 'POST',
     body: JSON.stringify({ progressPct, phase }),
   });
+  if (!res.ok) {
+    throw new Error(`progress failed: ${res.status}`);
+  }
 }
 
 export async function completeModJob(jobId: string, installedSha256: string): Promise<void> {
@@ -83,10 +89,13 @@ export async function failModJob(
   errorMessage: string,
   retriable: boolean,
 ): Promise<void> {
-  await hubFetch(`/mod-agent/v1/jobs/${jobId}/fail`, {
+  const res = await hubFetch(`/mod-agent/v1/jobs/${jobId}/fail`, {
     method: 'POST',
     body: JSON.stringify({ errorCode, errorMessage, retriable }),
   });
+  if (!res.ok) {
+    throw new Error(`fail job failed: ${res.status}`);
+  }
 }
 
 export async function refreshServerModsOnHub(input: {

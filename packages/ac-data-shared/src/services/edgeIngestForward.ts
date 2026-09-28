@@ -44,12 +44,14 @@ export async function forwardIngestBatchToBackend(
     error?: string;
   };
 
-  if (!response.ok) {
-    throw new Error(body.error || `backend ingest HTTP ${response.status}`);
-  }
-
+  // Hub returns 503 with partial ingestResult on mixed batch failures — keep it so
+  // the edge can XACK successes and PEL-retry only failed events.
   if (body.ingestResult && typeof body.ingestResult === 'object') {
     return body.ingestResult;
+  }
+
+  if (!response.ok) {
+    throw new Error(body.error || `backend ingest HTTP ${response.status}`);
   }
 
   return {

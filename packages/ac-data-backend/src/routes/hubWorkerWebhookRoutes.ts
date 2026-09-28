@@ -1,7 +1,10 @@
 import { Router, type Request, type Response } from 'express';
 
 import { postToEdgeWorker } from '@projectd/ac-data-shared/services/fleet/edgeWorkerForward.js';
-import { resolveFleetEdgeByInstanceId } from '@projectd/ac-data-shared/services/fleet/fleetRegistry.js';
+import {
+  isFleetModeEnabled,
+  resolveFleetEdgeByInstanceId,
+} from '@projectd/ac-data-shared/services/fleet/fleetRegistry.js';
 import {
   isWorkerRequestAuthorized,
   readInstanceIdFromWorkerRequest,
@@ -93,6 +96,12 @@ router.post('/worker/refresh-config', (req: Request, res: Response) => {
         return;
       }
       res.json({ ok: true, mode: 'edge_push', instanceId, edge: edge.id, ...(forward.body as object) });
+      return;
+    }
+
+    // Fleet registry configured but this instanceId is unknown — do not pretend hub_redis worked.
+    if (isFleetModeEnabled()) {
+      res.status(404).json({ ok: false, error: 'edge_not_found', instanceId });
       return;
     }
 

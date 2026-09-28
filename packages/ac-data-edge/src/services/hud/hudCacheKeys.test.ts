@@ -10,6 +10,7 @@ import {
   sessionRedisKey,
   presenceRedisKey,
   presenceRosterRedisKey,
+  parsePresenceRosterKeySuffix,
   ssePresenceRedisKey,
 } from './hudCacheKeys.js';
 
@@ -72,7 +73,22 @@ test('presence redis key prefixes', () => {
     'ac:hud:presence:roster:project_d',
   );
   assert.equal(
+    presenceRosterRedisKey('project_d', 'vps-eu-2'),
+    'ac:hud:presence:roster:vps-eu-2:project_d',
+  );
+  assert.equal(
     ssePresenceRedisKey('76561199000000001'),
     'ac:hud:sse:76561199000000001',
   );
+});
+
+test('parsePresenceRosterKeySuffix splits instance-scoped keys', () => {
+  assert.deepEqual(parsePresenceRosterKeySuffix('project_d'), {
+    instanceId: null,
+    serverId: 'project_d',
+  });
+  assert.deepEqual(parsePresenceRosterKeySuffix('vps-eu-2:project_d'), {
+    instanceId: 'vps-eu-2',
+    serverId: 'project_d',
+  });
 });

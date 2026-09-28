@@ -1,18 +1,18 @@
-/** @typedef {{ id: string; label: string; hint: string; kind: 'content' | 'servers' | 'activity' | 'hud' }} TabConfig */
+/** @typedef {{ id: string; label: string; hint: string; kind: 'content' | 'mod-catalog' | 'servers' | 'activity' | 'hud' | 'mods' }} TabConfig */
 
 /** @type {TabConfig[]} */
 export const TABS = [
   {
     id: 'cars',
     label: 'Cars',
-    hint: 'Supported: .kn5, .acd, .ini, .zip, folders',
-    kind: 'content',
+    hint: 'Upload car mod ZIP → hub catalog (deploy from Fleet deploy)',
+    kind: 'mod-catalog',
   },
   {
     id: 'tracks',
     label: 'Tracks',
-    hint: 'Supported: .kn5, .acd, .ini, .zip, folders',
-    kind: 'content',
+    hint: 'Upload track mod ZIP → hub catalog (deploy from Fleet deploy)',
+    kind: 'mod-catalog',
   },
   {
     id: 'weather',
@@ -27,9 +27,9 @@ export const TABS = [
     kind: 'hud',
   },
   {
-    id: 'mod-distribution',
-    label: 'Mod distribution',
-    hint: 'Catalog, SHA-256, sync to VPS',
+    id: 'fleet-deploy',
+    label: 'Fleet deploy',
+    hint: 'Sync catalog mods to VPS edges',
     kind: 'mods',
   },
   {
@@ -48,6 +48,9 @@ export const TABS = [
 
 /** @param {string} id */
 export function getTab(id) {
+  if (id === 'mod-distribution') {
+    return TABS.find((tab) => tab.id === 'fleet-deploy') ?? TABS[0];
+  }
   return TABS.find((tab) => tab.id === id) ?? TABS[0];
 }
 

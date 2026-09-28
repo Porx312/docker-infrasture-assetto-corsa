@@ -38,6 +38,12 @@ import {
 } from '../services/fleet/fleetAdminBridge.js';
 import { isFleetModeEnabled } from '@projectd/ac-data-shared/services/fleet/fleetRegistry.js';
 import { isHubOwnsContent } from '../services/fleet/hubFleetConfig.js';
+import {
+  deleteBrandingImageFile,
+  isBrandingImageUploadConfigured,
+  listBrandingImages,
+  storeBrandingImageFromTemp,
+} from '../services/brandingImages.js';
 import { syncContentToFleet } from '../services/fleet/contentFleetSync.js';
 
 export async function adminLogin(req: Request, res: Response): Promise<void> {
@@ -307,6 +313,103 @@ export async function getServerBrandingHandler(req: Request, res: Response): Pro
         const message = err instanceof Error ? err.message : 'Unknown error';
         res.status(500).json({ ok: false, message });
     }
+}
+
+const BRANDING_IMAGE_MIME = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+]);
+
+/** Upload loading/banner image to hub data/branding; returns public URL for CM. */
+export async function uploadBrandingImageHandler(req: Request, res: Response): Promise<void> {
+  if (!isBrandingImageUploadConfigured()) {
+    res.status(503).json({
+      ok: false,
+      message:
+        'Branding upload needs HUD_PUBLIC_BASE_URL (or PUBLIC_API_BASE_URL) so players can fetch images',
+    });
+    return;
+  }
+
+  const file = req.file;
+  if (!file?.path) {
+    res.status(400).json({ ok: false, message: 'file required (multipart field "file")' });
+    return;
+  }
+
+  const mime = (file.mimetype || '').toLowerCase();
+  if (mime && !BRANDING_IMAGE_MIME.has(mime)) {
+    try {
+      fs.unlinkSync(file.path);
+    } catch {
+      /* ignore */
+    }
+    res.status(400).json({ ok: false, message: 'Only JPEG, PNG, WebP, or GIF images are allowed' });
+    return;
+  }
+
+  try {
+    const stored = await storeBrandingImageFromTemp(
+      file.path,
+      file.originalname || 'image.jpg',
+      mime || 'image/jpeg',
+    );
+    res.json({
+      ok: true,
+      url: stored.url,
+      filename: stored.filename,
+    });
+  } catch (err: unknown) {
+    try {
+      fs.unlinkSync(file.path);
+    } catch {
+      /* ignore */
+    }
+    const message = err instanceof Error ? err.message : 'Upload failed';
+    res.status(502).json({ ok: false, message });
+  }
+}
+
+export function getBrandingUploadStatusHandler(_req: Request, res: Response): void {
+  res.json({
+    ok: true,
+    uploadConfigured: isBrandingImageUploadConfigured(),
+  });
+}
+
+export async function listBrandingImagesHandler(_req: Request, res: Response): Promise<void> {
+  try {
+    const images = await listBrandingImages();
+    res.json({
+      ok: true,
+      uploadConfigured: isBrandingImageUploadConfigured(),
+      images,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to list branding images';
+    res.status(500).json({ ok: false, message });
+  }
+}
+
+export async function deleteBrandingImageHandler(req: Request, res: Response): Promise<void> {
+  const filename = String(req.params.filename || '').trim();
+  if (!filename) {
+    res.status(400).json({ ok: false, message: 'filename required' });
+    return;
+  }
+  try {
+    const removed = await deleteBrandingImageFile(filename);
+    if (!removed) {
+      res.status(404).json({ ok: false, message: 'Image not found' });
+      return;
+    }
+    res.json({ ok: true, filename });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Delete failed';
+    res.status(400).json({ ok: false, message });
+  }
 }
 
 async function proxyOrLocalRuntimeUnavailable(req: Request, res: Response): Promise<boolean> {

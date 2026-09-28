@@ -21,6 +21,8 @@ import {
 
 const POLL_MS = Number(process.env.MOD_AGENT_POLL_MS || 5000);
 
+let tickInFlight = false;
+
 async function diskFreeBytes(): Promise<number | undefined> {
   try {
     const { statfs } = await import('node:fs/promises');
@@ -62,7 +64,10 @@ async function processJob(job: ModAgentJobPayload): Promise<void> {
     zipPath,
     job.sizeBytes,
     (pct) => {
-      void reportJobProgress(job.jobId, pct, 'download');
+      void reportJobProgress(job.jobId, pct, 'download').catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`[mod-agent] progress report failed: ${message}`);
+      });
     },
     job.sha256,
   );
@@ -75,16 +80,29 @@ async function processJob(job: ModAgentJobPayload): Promise<void> {
 }
 
 async function tick(): Promise<void> {
-  await agentHeartbeat(await diskFreeBytes());
-  const job = await acquireModJob(`agent-${process.pid}`);
-  if (!job) {
+  if (tickInFlight) {
     return;
   }
+  tickInFlight = true;
   try {
-    await processJob(job);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    await failModJob(job.jobId, 'agent_error', message, true);
+    await agentHeartbeat(await diskFreeBytes());
+    const job = await acquireModJob(`agent-${process.pid}`);
+    if (!job) {
+      return;
+    }
+    try {
+      await processJob(job);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      try {
+        await failModJob(job.jobId, 'agent_error', message, true);
+      } catch (failErr: unknown) {
+        const failMessage = failErr instanceof Error ? failErr.message : String(failErr);
+        console.error(`[mod-agent] failJob HTTP failed after error: ${failMessage}`);
+      }
+    }
+  } finally {
+    tickInFlight = false;
   }
 }
 

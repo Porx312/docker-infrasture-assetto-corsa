@@ -36,8 +36,37 @@ export function presenceRedisKey(steamId: string): string {
   return `${HUD_PRESENCE_PREFIX}${steamId}`;
 }
 
-export function presenceRosterRedisKey(normalizedServerName: string): string {
-  return `${HUD_PRESENCE_ROSTER_PREFIX}${normalizedServerName}`;
+/**
+ * Roster Redis key scoped by VPS instanceId to avoid lobby-name collisions across the fleet.
+ * Format: `ac:hud:presence:roster:{instanceId}:{normalizedServerName}`
+ * Legacy (no instanceId): `ac:hud:presence:roster:{normalizedServerName}`
+ */
+export function presenceRosterRedisKey(
+  normalizedServerName: string,
+  instanceId?: string | null,
+): string {
+  const server = normalizedServerName.trim();
+  const instance = (instanceId || '').trim();
+  if (instance) {
+    return `${HUD_PRESENCE_ROSTER_PREFIX}${instance}:${server}`;
+  }
+  return `${HUD_PRESENCE_ROSTER_PREFIX}${server}`;
+}
+
+/** Parse roster Redis key suffix after `ac:hud:presence:roster:`. */
+export function parsePresenceRosterKeySuffix(suffix: string): {
+  instanceId: string | null;
+  serverId: string;
+} {
+  const trimmed = suffix.trim();
+  const sep = trimmed.indexOf(':');
+  if (sep <= 0) {
+    return { instanceId: null, serverId: trimmed };
+  }
+  return {
+    instanceId: trimmed.slice(0, sep),
+    serverId: trimmed.slice(sep + 1),
+  };
 }
 
 export function playerRedisKey(cacheKey: string): string {

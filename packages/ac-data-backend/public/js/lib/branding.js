@@ -17,6 +17,8 @@ import { escapeAttr, renderImagePreview } from './dom.js';
  * @property {boolean} [loadingListMode]
  * @property {string|null} [loadingListContainer]
  * @property {string|null} [loadingListAddBtn]
+ * @property {string|null} [loadingListManageBtn]
+ * @property {string|null} [loadingListSummary]
  */
 
 /** @param {string} prefix e.g. "br" or "sc" @param {{ loadingListMode?: boolean }} [opts] */
@@ -38,6 +40,8 @@ export function brandingRefs(prefix, opts = {}) {
     loadingListMode,
     loadingListContainer: loadingListMode ? `${prefix}LoadingUrlsList` : null,
     loadingListAddBtn: loadingListMode ? `${prefix}LoadingUrlAdd` : null,
+    loadingListManageBtn: loadingListMode ? `${prefix}LoadingManageBtn` : null,
+    loadingListSummary: loadingListMode ? `${prefix}LoadingSummary` : null,
   };
 }
 
@@ -91,7 +95,7 @@ export function seedLoadingUrlsList(refs) {
  * @param {BrandingFormRefs} refs
  * @param {string[]} urls
  */
-function renderLoadingUrlsList(refs, urls) {
+export function renderLoadingUrlsList(refs, urls) {
   const containerId = refs.loadingListContainer;
   if (!containerId) return;
 
@@ -113,11 +117,26 @@ function renderLoadingUrlsList(refs, urls) {
         placeholder="https://..."
         aria-label="Loading screen URL ${index + 1}"
       >
-      <button type="button" class="btn btn-ghost loading-url-remove" data-loading-url-remove aria-label="Remove URL">✕</button>
     </div>
   `,
     )
     .join('');
+
+  updateLoadingScreensSummary(refs);
+}
+
+/** @param {BrandingFormRefs} refs */
+export function updateLoadingScreensSummary(refs) {
+  if (!refs.loadingListSummary) return;
+  const el = document.getElementById(refs.loadingListSummary);
+  if (!el) return;
+  const urls = readLoadingImageUrls(refs.loadingListContainer).filter(Boolean);
+  el.textContent =
+    urls.length === 0
+      ? 'No loading screens yet — open Manage to upload or pick images'
+      : urls.length === 1
+        ? '1 loading screen configured (random per CM join)'
+        : `${urls.length} loading screens configured (random per CM join)`;
 }
 
 /**
@@ -194,6 +213,7 @@ export function fillBranding(refs, data) {
     const legacy = String(data.loadingImageUrl ?? '').trim();
     const urls = fromArray.length > 0 ? fromArray : legacy ? [legacy] : [''];
     renderLoadingUrlsList(refs, urls);
+    void bindBrandingImageUploads(refs);
   }
 
   updateBrandingPreview(refs);
@@ -251,11 +271,11 @@ export function renderBrandingFieldsHtml(refs, opts = {}) {
     ? `
       <div class="form-group branding-full loading-urls-field">
         <div class="loading-urls-header">
-          <label>${loadingLabel} (rotates per join)</label>
-          <button type="button" class="btn btn-ghost btn-sm" id="${refs.loadingListAddBtn}">Add image</button>
+          <label>${loadingLabel}</label>
+          <button type="button" class="btn btn-ghost btn-sm" id="${refs.loadingListManageBtn}">Manage loading screens</button>
         </div>
-        <p class="loading-urls-note">Content Manager shows one image per connection; a random URL from this list is picked each time.</p>
-        <div class="loading-url-list" id="${refs.loadingListContainer}"></div>
+        <p class="loading-urls-note" id="${refs.loadingListSummary}">No loading screens yet</p>
+        <div class="loading-url-list hidden" id="${refs.loadingListContainer}" aria-hidden="true"></div>
       </div>
     `
     : `
@@ -281,7 +301,11 @@ export function renderBrandingFieldsHtml(refs, opts = {}) {
       </div>
       <div class="form-group">
         <label for="${refs.fields.bannerImageUrl}">${bannerLabel}</label>
-        <input class="input" type="url" id="${refs.fields.bannerImageUrl}" placeholder="https://...">
+        <div class="branding-url-with-upload">
+          <input class="input" type="url" id="${refs.fields.bannerImageUrl}" placeholder="https://...">
+          <button type="button" class="btn btn-ghost btn-sm branding-upload-btn" data-banner-upload>Upload</button>
+          <input type="file" class="hidden branding-file-input" data-banner-file accept="image/jpeg,image/png,image/webp,image/gif" />
+        </div>
       </div>
       ${loadingFieldHtml}
     </div>
@@ -303,6 +327,125 @@ export function renderBrandingFieldsHtml(refs, opts = {}) {
 }
 
 /**
+ * Upload image via hub → data/branding; returns public URL for CM.
+ * @param {File} file
+ * @returns {Promise<string>}
+ */
+export async function uploadBrandingImageFile(file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch('/admin/branding/upload-image', {
+    method: 'POST',
+    credentials: 'same-origin',
+    body: fd,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok || !data.url) {
+    throw new Error(data.message || `Upload failed (${res.status})`);
+  }
+  return String(data.url);
+}
+
+let brandingUploadAvailable = null;
+
+/** @returns {Promise<boolean>} */
+export async function isBrandingUploadAvailable() {
+  if (brandingUploadAvailable !== null) return brandingUploadAvailable;
+  try {
+    const res = await fetch('/admin/branding/upload-status', { credentials: 'same-origin' });
+    const data = await res.json();
+    brandingUploadAvailable = Boolean(data.ok && data.uploadConfigured);
+  } catch {
+    brandingUploadAvailable = false;
+  }
+  return brandingUploadAvailable;
+}
+
+/**
+ * Wire Upload buttons (banner + loading rows). Hidden when public hub URL is not set.
+ * @param {BrandingFormRefs} refs
+ * @param {() => void} [onUploaded]
+ */
+export async function bindBrandingImageUploads(refs, onUploaded) {
+  const enabled = await isBrandingUploadAvailable();
+  const root =
+    document.getElementById(refs.fields.bannerImageUrl)?.closest('form') ||
+    document.getElementById(refs.fields.bannerImageUrl)?.closest('.modal-server-body') ||
+    document;
+
+  root.querySelectorAll('[data-banner-upload], [data-loading-url-upload]').forEach((btn) => {
+    if (btn instanceof HTMLElement) {
+      btn.classList.toggle('hidden', !enabled);
+      btn.title = enabled
+        ? 'Upload to hub data/branding'
+        : 'Set HUD_PUBLIC_BASE_URL on hub to enable uploads';
+    }
+  });
+  if (!enabled) return;
+
+  const bannerBtn = root.querySelector('[data-banner-upload]');
+  const bannerFile = root.querySelector('[data-banner-file]');
+  if (bannerBtn instanceof HTMLElement && bannerFile instanceof HTMLInputElement) {
+    bannerBtn.onclick = () => bannerFile.click();
+    bannerFile.onchange = async () => {
+      const file = bannerFile.files?.[0];
+      bannerFile.value = '';
+      if (!file) return;
+      try {
+        bannerBtn.setAttribute('disabled', 'true');
+        const url = await uploadBrandingImageFile(file);
+        const input = document.getElementById(refs.fields.bannerImageUrl);
+        if (input instanceof HTMLInputElement) {
+          input.value = url;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        onUploaded?.();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Upload failed';
+        window.alert(message);
+      } finally {
+        bannerBtn.removeAttribute('disabled');
+      }
+    };
+  }
+
+  if (refs.loadingListMode && refs.loadingListContainer) {
+    const container = document.getElementById(refs.loadingListContainer);
+    container?.addEventListener('click', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || !target.matches('[data-loading-url-upload]')) return;
+      const row = target.closest('[data-loading-url-row]');
+      const fileInput = row?.querySelector('[data-loading-url-file]');
+      if (fileInput instanceof HTMLInputElement) fileInput.click();
+    });
+    container?.addEventListener('change', async (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement) || !target.matches('[data-loading-url-file]')) return;
+      const file = target.files?.[0];
+      target.value = '';
+      if (!file) return;
+      const row = target.closest('[data-loading-url-row]');
+      const urlInput = row?.querySelector('[data-loading-url-input]');
+      const uploadBtn = row?.querySelector('[data-loading-url-upload]');
+      try {
+        uploadBtn?.setAttribute('disabled', 'true');
+        const url = await uploadBrandingImageFile(file);
+        if (urlInput instanceof HTMLInputElement) {
+          urlInput.value = url;
+          urlInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        onUploaded?.();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Upload failed';
+        window.alert(message);
+      } finally {
+        uploadBtn?.removeAttribute('disabled');
+      }
+    });
+  }
+}
+
+/**
  * @param {BrandingFormRefs} refs
  * @param {() => void} [onInput]
  */
@@ -319,41 +462,28 @@ export function bindBrandingPreview(refs, onInput) {
     const container = document.getElementById(refs.loadingListContainer);
     container?.addEventListener('input', (event) => {
       if (event.target instanceof HTMLInputElement && event.target.matches('[data-loading-url-input]')) {
+        updateLoadingScreensSummary(refs);
         updateBrandingPreview(refs);
         onInput?.();
       }
     });
-
-    container?.addEventListener('click', (event) => {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-
-      if (target.matches('[data-loading-url-remove]')) {
-        const row = target.closest('[data-loading-url-row]');
-        const rows = container.querySelectorAll('[data-loading-url-row]');
-        if (row && rows.length > 1) {
-          row.remove();
-        } else if (row) {
-          const input = row.querySelector('[data-loading-url-input]');
-          if (input instanceof HTMLInputElement) input.value = '';
-        }
-        updateBrandingPreview(refs);
-        onInput?.();
-        return;
-      }
-    });
-
-    refs.loadingListAddBtn &&
-      document.getElementById(refs.loadingListAddBtn)?.addEventListener('click', () => {
-        const urls = readLoadingImageUrls(refs.loadingListContainer);
-        renderLoadingUrlsList(refs, [...urls, '']);
-        const containerEl = document.getElementById(refs.loadingListContainer);
-        const lastInput = containerEl?.querySelector('[data-loading-url-row]:last-child [data-loading-url-input]');
-        if (lastInput instanceof HTMLInputElement) lastInput.focus();
-        updateBrandingPreview(refs);
-        onInput?.();
-      });
   }
+
+  void bindBrandingImageUploads(refs, onInput);
+}
+
+/** @param {BrandingFormRefs} refs */
+export function getLoadingImageUrls(refs) {
+  return readLoadingImageUrls(refs.loadingListContainer).filter(Boolean);
+}
+
+/**
+ * @param {BrandingFormRefs} refs
+ * @param {string[]} urls
+ */
+export function setLoadingImageUrls(refs, urls) {
+  renderLoadingUrlsList(refs, urls.length ? urls : ['']);
+  updateBrandingPreview(refs);
 }
 
 /** @param {BrandingFormRefs} refs @param {string} html */

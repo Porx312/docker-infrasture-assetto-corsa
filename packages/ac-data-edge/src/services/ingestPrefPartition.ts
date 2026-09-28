@@ -5,6 +5,12 @@ import type { EventPayload } from './eventHandlers/types.js';
 export const INGEST_SKIP_EMPTY_SERVER_STATUS =
   (process.env.INGEST_SKIP_EMPTY_SERVER_STATUS ?? 'true').trim().toLowerCase() === 'true';
 
+/** When false, join/leave/server_status stay on Redis/HUD only (no Convex live_players). */
+export const LIVE_INGEST_CONVEX =
+  (process.env.LIVE_INGEST_CONVEX ?? 'true').trim().toLowerCase() !== 'false';
+
+const LIVE_PRESENCE_EVENTS = new Set(['player_join', 'player_leave', 'server_status']);
+
 export function isEmptyServerStatusPayload(payload: Record<string, unknown>): boolean {
   const data = payload.data;
   if (!data || typeof data !== 'object') {
@@ -22,15 +28,25 @@ export function shouldSkipServerStatusConvexIngest(
   return event === 'server_status' && skipEmpty && isEmptyServerStatusPayload(payload);
 }
 
+export function shouldSkipLivePresenceConvexIngest(
+  event: string,
+  liveIngestConvex = LIVE_INGEST_CONVEX,
+): boolean {
+  return !liveIngestConvex && LIVE_PRESENCE_EVENTS.has(event);
+}
+
 export async function partitionCoalescedByIngestPrefs(
   coalesced: PendingIngestMessage[],
   skipLapIngest: (payload: EventPayload) => Promise<boolean> = shouldSkipLapCompletedIngest,
   skipEmptyServerStatus = INGEST_SKIP_EMPTY_SERVER_STATUS,
+  liveIngestConvex = LIVE_INGEST_CONVEX,
 ): Promise<{ forward: PendingIngestMessage[]; localOnly: PendingIngestMessage[] }> {
   const forward: PendingIngestMessage[] = [];
   const localOnly: PendingIngestMessage[] = [];
   for (const item of coalesced) {
-    if (item.event === 'lap_completed' && (await skipLapIngest(item.payload as EventPayload))) {
+    if (shouldSkipLivePresenceConvexIngest(item.event, liveIngestConvex)) {
+      localOnly.push(item);
+    } else if (item.event === 'lap_completed' && (await skipLapIngest(item.payload as EventPayload))) {
       const lapData = (item.payload.data ?? {}) as Record<string, unknown>;
       const steamId = typeof lapData.steamId === 'string' ? lapData.steamId : '?';
       console.log(

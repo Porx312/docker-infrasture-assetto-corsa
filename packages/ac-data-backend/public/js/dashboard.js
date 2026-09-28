@@ -16,10 +16,17 @@ import {
   openContentDetail,
 } from './panels/content.js';
 import {
+  loadModCatalog,
+  mountModCatalogPanel,
+  openCatalogDistribution,
+} from './panels/mod-catalog.js';
+import {
   closeGlobalBrandingModal,
+  closeLoadingScreensModal,
   closeServerConfig,
   closeServerProvisionModal,
   initGlobalBrandingModal,
+  initLoadingScreensModal,
   initServerConfigModal,
   loadServersPanel,
   mountServersPanel,
@@ -44,9 +51,11 @@ const TAB_STORAGE_KEY = 'adminTab';
 /** @returns {string} */
 function resolveInitialTab() {
   const hash = location.hash.replace(/^#/, '').trim();
+  if (hash === 'mod-distribution') return 'fleet-deploy';
   if (hash && getTab(hash).id === hash) return hash;
   try {
     const stored = sessionStorage.getItem(TAB_STORAGE_KEY);
+    if (stored === 'mod-distribution') return 'fleet-deploy';
     if (stored && getTab(stored).id === stored) return stored;
   } catch {
     /* ignore */
@@ -84,6 +93,7 @@ function renderTabs() {
 /** @param {string} tabId */
 function switchTab(tabId) {
   if (!tabId) return;
+  if (tabId === 'mod-distribution') tabId = 'fleet-deploy';
   const prevKind = getTab(currentTab).kind;
   currentTab = tabId;
   persistTab(tabId);
@@ -108,13 +118,16 @@ function renderActivePanel() {
     mountHudReleasesPanel(container);
   } else if (tab.kind === 'mods') {
     mountModDistributionPanel(container);
+  } else if (tab.kind === 'mod-catalog') {
+    mountModCatalogPanel(tab.id, container);
   } else {
     mountContentPanel(tab.id, container);
   }
 }
 
 function loadActivePanel() {
-  const kind = getTab(currentTab).kind;
+  const tab = getTab(currentTab);
+  const kind = tab.kind;
   if (kind === 'servers') {
     loadServersPanel();
   } else if (kind === 'activity') {
@@ -124,6 +137,8 @@ function loadActivePanel() {
   } else if (kind === 'mods') {
     const container = document.getElementById('panelContainer');
     if (container) void loadModDistributionPanel(container);
+  } else if (kind === 'mod-catalog') {
+    void loadModCatalog(tab.id);
   } else {
     loadContent(currentTab);
   }
@@ -143,12 +158,16 @@ function bindGlobalHandlers() {
 
   initServerConfigModal();
   initGlobalBrandingModal();
+  initLoadingScreensModal();
   bindModal({ id: 'serverConfigModal' }, closeServerConfig);
   bindModal({ id: 'globalBrandingModal' }, closeGlobalBrandingModal);
+  bindModal({ id: 'loadingScreensModal' }, closeLoadingScreensModal);
   document.getElementById('serverConfigCloseBtn')?.addEventListener('click', closeServerConfig);
   document.getElementById('serverConfigCancelBtn')?.addEventListener('click', closeServerConfig);
   document.getElementById('globalBrandingCloseBtn')?.addEventListener('click', closeGlobalBrandingModal);
   document.getElementById('globalBrandingCancelBtn')?.addEventListener('click', closeGlobalBrandingModal);
+  document.getElementById('loadingScreensCloseBtn')?.addEventListener('click', closeLoadingScreensModal);
+  document.getElementById('loadingScreensDoneBtn')?.addEventListener('click', closeLoadingScreensModal);
   bindModal({ id: 'serverProvisionModal' }, closeServerProvisionModal);
   document.getElementById('serverProvisionCloseBtn')?.addEventListener('click', closeServerProvisionModal);
   document.getElementById('serverProvisionCancelBtn')?.addEventListener('click', closeServerProvisionModal);
@@ -160,6 +179,16 @@ function bindGlobalHandlers() {
       return;
     }
 
+    const catalogCard = e.target.closest('[data-open-catalog]');
+    if (catalogCard) {
+      void openCatalogDistribution(
+        catalogCard.dataset.openCatalog,
+        catalogCard.dataset.artifactId,
+        catalogCard.dataset.packageName,
+      );
+      return;
+    }
+
     const modCard = e.target.closest('[data-open-mod]');
     if (modCard) {
       openContentDetail(modCard.dataset.openMod, modCard.dataset.name);
@@ -168,6 +197,7 @@ function bindGlobalHandlers() {
 
   bindEscapeStack([
     { id: 'confirmModal', close: () => hideConfirm(false) },
+    { id: 'loadingScreensModal', close: closeLoadingScreensModal },
     { id: 'globalBrandingModal', close: closeGlobalBrandingModal },
     { id: 'serverProvisionModal', close: closeServerProvisionModal },
     { id: 'serverConfigModal', close: closeServerConfig },
@@ -176,6 +206,15 @@ function bindGlobalHandlers() {
 
   window.addEventListener('fleet-edge-changed', () => {
     loadActivePanel();
+  });
+
+  window.addEventListener('hashchange', () => {
+    const hash = location.hash.replace(/^#/, '').trim();
+    if (!hash) return;
+    const resolved = hash === 'mod-distribution' ? 'fleet-deploy' : hash;
+    if (getTab(resolved).id === resolved && resolved !== currentTab) {
+      switchTab(resolved);
+    }
   });
 }
 

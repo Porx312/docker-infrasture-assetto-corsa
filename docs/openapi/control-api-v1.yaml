@@ -1,0 +1,477 @@
+openapi: 3.0.3
+info:
+  title: ProjectD Control API
+  version: '1.0.0'
+  description: |
+    Hub Control API (`ac-data-backend`) for installed mods inventory and live lobby rosters.
+    Auth: `X-Worker-Secret` (same as Convex worker secret / CONVEX_WORKER_SECRET).
+
+    Live write path: edge processes join/leave/server_status into shared Redis HUD keys
+    (`ac:hud:presence:*`, `ac:hud:presence:roster:{instanceId}:{lobby}`). There is NO
+    `POST /v1/agents/{instanceId}/live` — this API only reads Redis for live GETs.
+    Mods write path: `POST /v1/agents/{instanceId}/mods` → Redis `instance:{id}:mods:*`.
+
+    Path param `serverId` on live endpoints is the normalized AC lobby name, not a Convex
+    `servers._id`. Prefer `?instanceId=` on multi-VPS.
+
+    Server slots (Postgres `server_slots`): `GET/POST /v1/servers`, `POST /v1/servers/allocate`,
+    apply-config / start / stop / restart by slot UUID. Requires DATABASE_URL.
+    See docs/SERVER_PLATFORM.md and docs/CONTROL_API_V1.md.
+servers:
+  - url: https://hub.example.com
+    description: Hub public base (CONTROL_API_URL / AC_DATA_BASE_URL)
+security:
+  - WorkerSecret: []
+paths:
+  /v1/agents/register:
+    post:
+      summary: Register edge agent for an instance
+      operationId: registerAgent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentRegisterBody'
+      responses:
+        '200':
+          description: Registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentPresenceResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/agents/heartbeat:
+    post:
+      summary: Heartbeat edge agent (refreshes Redis TTL)
+      operationId: heartbeatAgent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentHeartbeatBody'
+      responses:
+        '200':
+          description: Heartbeat accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentPresenceResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/agents/{instanceId}:
+    get:
+      summary: Debug — read last agent presence for instance
+      operationId: getAgentPresence
+      parameters:
+        - $ref: '#/components/parameters/instanceId'
+      responses:
+        '200':
+          description: Presence document
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentPresenceGetResponse'
+        '404':
+          description: No presence
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/agents/{instanceId}/mods:
+    post:
+      summary: Push disk mods inventory snapshot (cars + tracks)
+      operationId: postAgentMods
+      parameters:
+        - $ref: '#/components/parameters/instanceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModsInventorySnapshot'
+      responses:
+        '200':
+          description: Stored
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/instances/{instanceId}/mods/cars:
+    get:
+      summary: List installed cars for Host picker
+      operationId: getInstanceModsCars
+      parameters:
+        - $ref: '#/components/parameters/instanceId'
+      responses:
+        '200':
+          description: Cars inventory
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/instances/{instanceId}/mods/tracks:
+    get:
+      summary: List installed tracks for Host picker
+      operationId: getInstanceModsTracks
+      parameters:
+        - $ref: '#/components/parameters/instanceId'
+      responses:
+        '200':
+          description: Tracks inventory
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/servers:
+    get:
+      summary: List server slots (Postgres SoT)
+      description: |
+        Requires DATABASE_URL. Filter with `region`, `status` (idle|allocated|live|draining|error),
+        `instanceId`. Used by Host to pick available capacity.
+      operationId: listServerSlots
+      parameters:
+        - name: region
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [idle, allocated, live, draining, error]
+        - name: instanceId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Slot list
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          description: DATABASE_URL not configured
+    post:
+      summary: Upsert / bootstrap a server slot
+      operationId: upsertServerSlot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertServerSlotBody'
+      responses:
+        '200':
+          description: Upserted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/servers/allocate:
+    post:
+      summary: Allocate an idle slot in a region
+      operationId: allocateServerSlot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [region]
+              properties:
+                region:
+                  type: string
+                presetRef:
+                  type: string
+                  description: Optional Convex preset id
+      responses:
+        '200':
+          description: Allocated slot
+        '409':
+          description: No idle slot in region
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/servers/{slotId}:
+    get:
+      summary: Get one server slot by UUID
+      operationId: getServerSlot
+      parameters:
+        - name: slotId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Slot
+        '404':
+          description: Not found
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/servers/{slotId}/apply-config:
+    post:
+      summary: Validate mods and push config for a slot
+      operationId: applyServerSlotConfig
+      parameters:
+        - name: slotId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                config:
+                  type: object
+                configVersion:
+                  type: string
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Applied
+        '400':
+          description: Validation or push errors
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/servers/{slotId}/start:
+    post:
+      summary: Start AC process on edge for this slot
+      operationId: startServerSlot
+      parameters:
+        - name: slotId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Started
+        '400':
+          description: Edge failure
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/servers/{slotId}/stop:
+    post:
+      summary: Stop AC process on edge for this slot
+      operationId: stopServerSlot
+      parameters:
+        - name: slotId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Stopped
+        '400':
+          description: Edge failure
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/servers/{slotId}/restart:
+    post:
+      summary: Restart AC process on edge for this slot
+      operationId: restartServerSlot
+      parameters:
+        - name: slotId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Restarted
+        '400':
+          description: Edge failure
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/servers/{serverId}/live:
+    get:
+      summary: Live roster for one lobby (read-only Redis)
+      description: |
+        Reads shared Redis HUD roster keys written by the edge. Does not accept a live POST.
+        `serverId` = normalized lobby name (e.g. ProjectD), not Convex servers._id.
+        Empty when stale/missing: `{ ok: true, players: [], updatedAt: null }` (not 404).
+      operationId: getServerLive
+      parameters:
+        - name: serverId
+          in: path
+          required: true
+          description: Normalized AC lobby name (not Convex document id)
+          schema:
+            type: string
+        - name: instanceId
+          in: query
+          required: false
+          description: Edge AC_INSTANCE_ID — required for correct multi-VPS scoping
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Roster (may be empty)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/live/summary:
+    get:
+      summary: Player counts across lobbies (read-only Redis)
+      description: |
+        Aggregates active roster keys from shared Redis. Each `serverId` in the response
+        is a lobby name; ProjectD maps to Convex servers._id client-side.
+      operationId: getLiveSummary
+      responses:
+        '200':
+          description: Summary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/internal/desired-config:
+    post:
+      summary: Convex webhook — validate mods and push config to edge
+      operationId: postDesiredConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DesiredConfigBody'
+      responses:
+        '200':
+          description: Applied or validated
+        '400':
+          description: Validation errors (track/car not installed)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+components:
+  securitySchemes:
+    WorkerSecret:
+      type: apiKey
+      in: header
+      name: X-Worker-Secret
+  parameters:
+    instanceId:
+      name: instanceId
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    Unauthorized:
+      description: Missing or invalid X-Worker-Secret
+  schemas:
+    AgentServerSlot:
+      type: object
+      properties:
+        serverId:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+          enum: [idle, starting, live, draining, error]
+        playerCount:
+          type: number
+    AgentRegisterBody:
+      type: object
+      required: [instanceId]
+      properties:
+        instanceId:
+          type: string
+        region:
+          type: string
+        agentVersion:
+          type: string
+        servers:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentServerSlot'
+    AgentHeartbeatBody:
+      type: object
+      required: [instanceId]
+      properties:
+        instanceId:
+          type: string
+        servers:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentServerSlot'
+    AgentPresenceResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        instanceId:
+          type: string
+        expiresInSec:
+          type: number
+    AgentPresenceGetResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        instanceId:
+          type: string
+        presence:
+          type: object
+          additionalProperties: true
+    ModsInventorySnapshot:
+      type: object
+      properties:
+        etag:
+          type: string
+        scannedAt:
+          type: number
+        cars:
+          type: array
+          items:
+            type: object
+            properties:
+              carModel:
+                type: string
+              displayName:
+                type: string
+              skins:
+                type: array
+                items:
+                  type: string
+        tracks:
+          type: array
+          items:
+            type: object
+            properties:
+              trackSlug:
+                type: string
+              configs:
+                type: array
+                items:
+                  type: string
+    DesiredConfigBody:
+      type: object
+      required: [instanceId]
+      properties:
+        instanceId:
+          type: string
+        serverId:
+          type: string
+        configVersion:
+          type: string
+        reason:
+          type: string
+        config:
+          type: object
+          description: Optional full worker config snapshot; otherwise hub pulls from Convex
+    UpsertServerSlotBody:
+      type: object
+      required: [instanceId, region, lobbyName, folderSlug]
+      properties:
+        instanceId:
+          type: string
+        region:
+          type: string
+        lobbyName:
+          type: string
+          description: AC lobby display / live key name
+        folderSlug:
+          type: string
+          description: Edge server folder name (e.g. server-1)
+        status:
+          type: string
+          enum: [idle, allocated, live, draining, error]

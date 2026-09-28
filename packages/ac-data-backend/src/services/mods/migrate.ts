@@ -10,8 +10,19 @@ export async function runModMigrationsIfConfigured(): Promise<void> {
   }
   const pool = getModPool();
   const here = path.dirname(fileURLToPath(import.meta.url));
-  const sqlPath = path.join(here, '..', '..', '..', 'migrations', '001_mod_repository.sql');
-  const sql = fs.readFileSync(sqlPath, 'utf8');
-  await pool.query(sql);
-  console.log('[mod-db] migrations applied');
+  const migrationsDir = path.join(here, '..', '..', '..', 'migrations');
+  const files = [
+    '001_mod_repository.sql',
+    '002_mod_car_track_split.sql',
+    '003_server_slots.sql',
+  ];
+  for (const file of files) {
+    const sqlPath = path.join(migrationsDir, file);
+    if (!fs.existsSync(sqlPath)) {
+      continue;
+    }
+    const sql = fs.readFileSync(sqlPath, 'utf8');
+    await pool.query(sql);
+    console.log(`[mod-db] applied ${file}`);
+  }
 }

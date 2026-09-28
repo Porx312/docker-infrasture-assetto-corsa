@@ -210,15 +210,19 @@
                         </div>
                         <div class="form-group">
                             <label for="scBannerUrl">Banner image</label>
-                            <input class="input" type="url" id="scBannerUrl">
+                            <div class="branding-url-with-upload">
+                                <input class="input" type="url" id="scBannerUrl">
+                                <button type="button" class="btn btn-ghost btn-sm branding-upload-btn" data-banner-upload>Upload</button>
+                                <input type="file" class="hidden branding-file-input" data-banner-file accept="image/jpeg,image/png,image/webp,image/gif" />
+                            </div>
                         </div>
                         <div class="form-group branding-full loading-urls-field">
                             <div class="loading-urls-header">
-                                <label>Loading screen images (rotates per join)</label>
-                                <button type="button" class="btn btn-ghost btn-sm" id="scLoadingUrlAdd">Add image</button>
+                                <label>Loading screens</label>
+                                <button type="button" class="btn btn-ghost btn-sm" id="scLoadingManageBtn">Manage loading screens</button>
                             </div>
-                            <p class="loading-urls-note">One random URL from this list is shown each time a player connects via Content Manager.</p>
-                            <div class="loading-url-list" id="scLoadingUrlsList"></div>
+                            <p class="loading-urls-note" id="scLoadingSummary">No loading screens yet</p>
+                            <div class="loading-url-list hidden" id="scLoadingUrlsList" aria-hidden="true"></div>
                         </div>
                     </div>
                     <div class="branding-preview modal-server-preview">
@@ -240,6 +244,33 @@
             <footer class="modal-mod-footer">
                 <button type="button" class="btn" id="serverConfigCancelBtn">Close</button>
                 <button type="submit" form="serverConfigForm" class="btn btn-primary" id="serverConfigSaveBtn">Save branding</button>
+            </footer>
+        </div>
+    </div>
+
+    <div id="loadingScreensModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="loadingScreensTitle">
+        <div class="modal modal-server modal-loading-screens">
+            <header class="modal-mod-header">
+                <div>
+                    <h3 id="loadingScreensTitle">Loading screens</h3>
+                    <p class="modal-mod-meta">Upload, preview, and choose images shown randomly in Content Manager</p>
+                </div>
+                <button type="button" class="btn btn-ghost btn-icon" id="loadingScreensCloseBtn" aria-label="Close">✕</button>
+            </header>
+            <div class="modal-server-body">
+                <div class="loading-screens-toolbar">
+                    <button type="button" class="btn btn-primary btn-sm" id="loadingScreensUploadBtn">Upload image</button>
+                    <input type="file" class="hidden" id="loadingScreensFileInput" accept="image/jpeg,image/png,image/webp,image/gif" />
+                    <button type="button" class="btn btn-sm btn-ghost" id="loadingScreensAddUrlBtn">Add URL</button>
+                    <p class="panel-hint" id="loadingScreensHint">Assigned images rotate per player join.</p>
+                </div>
+                <p class="modal-mod-section">Assigned to this branding</p>
+                <div id="loadingScreensAssigned" class="loading-screens-gallery"></div>
+                <p class="modal-mod-section">Hub library (data/branding)</p>
+                <div id="loadingScreensLibrary" class="loading-screens-gallery"></div>
+            </div>
+            <footer class="modal-mod-footer">
+                <button type="button" class="btn btn-primary" id="loadingScreensDoneBtn">Done</button>
             </footer>
         </div>
     </div>

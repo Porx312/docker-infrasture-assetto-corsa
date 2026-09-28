@@ -14,9 +14,11 @@ import {
 } from './catalogRepo.js';
 import { getModPool } from './db.js';
 import { getArtifactDownloadUrl } from './objectStorage.js';
-import { tryAcquireModLock, releaseModLock } from './modRedisLocks.js';
+import { tryAcquireModLock, releaseModLock, forceReleaseModLock } from './modRedisLocks.js';
 
 const MAX_ATTEMPTS = Number(process.env.MOD_SYNC_MAX_ATTEMPTS || 5);
+/** Requeue `running` jobs whose started_at is older than this (dead agent / crash). */
+const RUNNING_STALE_MS = Number(process.env.MOD_SYNC_RUNNING_STALE_MS || 600_000);
 
 export async function syncFleetEdgesToDb(): Promise<void> {
   for (const edge of listFleetEdges()) {
@@ -114,7 +116,52 @@ export async function removePackageFromEdges(packageId: string, edgeIds: string[
   }
 }
 
+/**
+ * Requeue sync_jobs stuck in `running` longer than RUNNING_STALE_MS and drop their Redis locks.
+ * Call before acquire so a dead agent cannot block the edge queue forever.
+ */
+export async function reclaimStaleRunningJobs(edgeId: string): Promise<number> {
+  const pool = getModPool();
+  const staleBefore = new Date(Date.now() - RUNNING_STALE_MS);
+  const stale = await pool.query<{
+    id: string;
+    artifact_id: string;
+    locked_by: string | null;
+  }>(
+    `SELECT id, artifact_id, locked_by FROM sync_jobs
+     WHERE edge_id = $1 AND state = 'running'
+       AND started_at IS NOT NULL AND started_at < $2`,
+    [edgeId, staleBefore],
+  );
+  let reclaimed = 0;
+  for (const row of stale.rows) {
+    const art = await getArtifactById(row.artifact_id);
+    if (art) {
+      await forceReleaseModLock(edgeId, art.sha256);
+    }
+    await pool.query(
+      `UPDATE sync_jobs SET state = 'queued', locked_by = NULL, error_code = 'stale_reclaim',
+         error_message = 'Requeued after stale running timeout', finished_at = NULL
+       WHERE id = $1`,
+      [row.id],
+    );
+    await pool.query(
+      `UPDATE edge_artifact_inventory SET status = 'PENDING', updated_at = NOW()
+       WHERE edge_id = $1 AND artifact_id = $2`,
+      [edgeId, row.artifact_id],
+    );
+    await pool.query(
+      `INSERT INTO sync_job_events (job_id, level, message) VALUES ($1, 'warn', $2)`,
+      [row.id, `Reclaimed stale running job (older than ${RUNNING_STALE_MS}ms)`],
+    );
+    reclaimed += 1;
+  }
+  return reclaimed;
+}
+
 export async function acquireJobForEdge(edgeId: string, agentId: string): Promise<ModAgentJobPayload | null> {
+  await reclaimStaleRunningJobs(edgeId);
+
   const pool = getModPool();
   const client = await pool.connect();
   try {
@@ -127,51 +174,50 @@ export async function acquireJobForEdge(edgeId: string, agentId: string): Promis
       `SELECT id, artifact_id, operation FROM sync_jobs
        WHERE edge_id = $1 AND state = 'queued'
        ORDER BY created_at ASC
-       FOR UPDATE SKIP LOCKED
-       LIMIT 1`,
+       FOR UPDATE SKIP LOCKED`,
       [edgeId],
     );
-    const job = jobResult.rows[0];
-    if (!job) {
-      await client.query('COMMIT');
-      return null;
-    }
-    const art = await getArtifactById(job.artifact_id);
-    if (!art) {
+
+    for (const job of jobResult.rows) {
+      const art = await getArtifactById(job.artifact_id);
+      if (!art) {
+        await client.query(
+          `UPDATE sync_jobs SET state = 'failed', error_message = 'artifact missing', finished_at = NOW() WHERE id = $1`,
+          [job.id],
+        );
+        continue;
+      }
+      const locked = await tryAcquireModLock(edgeId, art.sha256, agentId);
+      if (!locked) {
+        // Lock held (another install of same blob or stuck lock) — try next queued job (no HOL).
+        continue;
+      }
       await client.query(
-        `UPDATE sync_jobs SET state = 'failed', error_message = 'artifact missing', finished_at = NOW() WHERE id = $1`,
-        [job.id],
+        `UPDATE sync_jobs SET state = 'running', locked_by = $2, attempt = attempt + 1, started_at = NOW(), progress_pct = 0, phase = 'download'
+         WHERE id = $1`,
+        [job.id, agentId],
+      );
+      await client.query(
+        `UPDATE edge_artifact_inventory SET status = 'SYNCING', progress_pct = 0, updated_at = NOW()
+         WHERE edge_id = $1 AND artifact_id = $2`,
+        [edgeId, job.artifact_id],
       );
       await client.query('COMMIT');
-      return null;
+      return {
+        jobId: job.id,
+        edgeId,
+        artifactId: job.artifact_id,
+        operation: job.operation,
+        sha256: art.sha256,
+        storageKey: art.storage_key,
+        sizeBytes: Number(art.size_bytes),
+        acContentSlug: art.package.ac_content_slug,
+        manifest: art.manifest_json,
+      };
     }
-    const locked = await tryAcquireModLock(edgeId, art.sha256, agentId);
-    if (!locked) {
-      await client.query('COMMIT');
-      return null;
-    }
-    await client.query(
-      `UPDATE sync_jobs SET state = 'running', locked_by = $2, attempt = attempt + 1, started_at = NOW(), progress_pct = 0, phase = 'download'
-       WHERE id = $1`,
-      [job.id, agentId],
-    );
-    await client.query(
-      `UPDATE edge_artifact_inventory SET status = 'SYNCING', progress_pct = 0, updated_at = NOW()
-       WHERE edge_id = $1 AND artifact_id = $2`,
-      [edgeId, job.artifact_id],
-    );
+
     await client.query('COMMIT');
-    return {
-      jobId: job.id,
-      edgeId,
-      artifactId: job.artifact_id,
-      operation: job.operation,
-      sha256: art.sha256,
-      storageKey: art.storage_key,
-      sizeBytes: Number(art.size_bytes),
-      acContentSlug: art.package.ac_content_slug,
-      manifest: art.manifest_json,
-    };
+    return null;
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -259,8 +305,12 @@ export async function failJob(
   retriable: boolean,
 ): Promise<void> {
   const pool = getModPool();
-  const job = await pool.query<{ artifact_id: string; attempt: number }>(
-    `SELECT artifact_id, attempt FROM sync_jobs WHERE id = $1 AND edge_id = $2`,
+  const job = await pool.query<{
+    artifact_id: string;
+    attempt: number;
+    locked_by: string | null;
+  }>(
+    `SELECT artifact_id, attempt, locked_by FROM sync_jobs WHERE id = $1 AND edge_id = $2`,
     [jobId, edgeId],
   );
   const row = job.rows[0];
@@ -268,6 +318,7 @@ export async function failJob(
     return;
   }
   const art = await getArtifactById(row.artifact_id);
+  const lockHolder = row.locked_by;
   const state = retriable && row.attempt < MAX_ATTEMPTS ? 'queued' : 'failed';
   await pool.query(
     `UPDATE sync_jobs SET state = $2, error_code = $3, error_message = $4, finished_at = CASE WHEN $2 = 'failed' THEN NOW() ELSE NULL END,
@@ -279,12 +330,12 @@ export async function failJob(
      WHERE edge_id = $1 AND artifact_id = $2`,
     [edgeId, row.artifact_id, errorCode, errorMessage],
   );
-  const lockHolder = await pool.query<{ locked_by: string | null }>(
-    `SELECT locked_by FROM sync_jobs WHERE id = $1`,
-    [jobId],
-  );
   if (art) {
-    await releaseModLock(edgeId, art.sha256, lockHolder.rows[0]?.locked_by ?? edgeId);
+    if (lockHolder) {
+      await releaseModLock(edgeId, art.sha256, lockHolder);
+    } else {
+      await forceReleaseModLock(edgeId, art.sha256);
+    }
   }
   await pool.query(
     `INSERT INTO sync_job_events (job_id, level, message, details) VALUES ($1, 'error', $2, $3::jsonb)`,

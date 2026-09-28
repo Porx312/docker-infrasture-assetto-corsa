@@ -21,7 +21,7 @@ import type {
   ResolvedPlayerPresence,
 } from './hudTypes.js';
 
-function parsePlayerRow(raw: unknown): { steamId: string; carModel: string } | null {
+function parsePlayerRow(raw: unknown): { steamId: string; carModel: string; name?: string } | null {
   if (!raw || typeof raw !== 'object') {
     return null;
   }
@@ -38,7 +38,20 @@ function parsePlayerRow(raw: unknown): { steamId: string; carModel: string } | n
     ((typeof row.car_id === 'string' ? row.car_id.trim() : '') ||
       (typeof row.carId === 'string' ? row.carId.trim() : '') ||
       (typeof row.carModel === 'string' ? row.carModel.trim() : ''));
-  return { steamId, carModel };
+  const nameRaw =
+    (typeof row.name === 'string' ? row.name : undefined) ??
+    (typeof row.driverName === 'string' ? row.driverName : undefined) ??
+    (typeof row.playerName === 'string' ? row.playerName : undefined);
+  const name = typeof nameRaw === 'string' && nameRaw.trim() ? nameRaw.trim() : undefined;
+  return { steamId, carModel, name };
+}
+
+function readPlayerNameFromEventData(data: Record<string, unknown>): string | undefined {
+  const nameRaw =
+    (typeof data.name === 'string' ? data.name : undefined) ??
+    (typeof data.driverName === 'string' ? data.driverName : undefined) ??
+    (typeof data.playerName === 'string' ? data.playerName : undefined);
+  return typeof nameRaw === 'string' && nameRaw.trim() ? nameRaw.trim() : undefined;
 }
 
 function parseEventData(payload: Record<string, unknown>): Record<string, unknown> {
@@ -65,19 +78,21 @@ function buildPresenceRecord(
   data: Record<string, unknown>,
   steamId: string,
   carModelOverride?: string,
-  routing?: { instanceId?: string; folderSlug?: string },
+  routing?: { instanceId?: string; folderSlug?: string; name?: string },
 ): PlayerPresenceRecord {
   const track = typeof data.trackName === 'string' ? data.trackName : '';
   const trackConfig = typeof data.trackConfig === 'string' ? data.trackConfig : '';
   const carModel = readCarModelFromEventData(data, carModelOverride);
   const normalizedServer = normalizeHudServerName(serverName);
   const folderSlug = routing?.folderSlug ?? resolveFolderSlug(serverName);
+  const name = routing?.name ?? readPlayerNameFromEventData(data);
   return {
     serverName: normalizedServer,
     track,
     trackConfig,
     carModel,
     updatedAt: Date.now(),
+    name,
     instanceId: routing?.instanceId,
     folderSlug,
   };
@@ -92,6 +107,7 @@ function mergeRoutingFields(
   }
   return {
     ...next,
+    name: next.name ?? prior.name,
     instanceId: next.instanceId ?? prior.instanceId,
     folderSlug: next.folderSlug ?? prior.folderSlug,
   };
@@ -130,6 +146,7 @@ function battleSsePresenceRecord(steamId: string): PlayerPresenceRecord | null {
     trackConfig: presence.trackConfig,
     carModel: presence.carModel,
     updatedAt: presence.updatedAt,
+    name: presence.name,
     instanceId: presence.instanceId,
     folderSlug: presence.folderSlug,
   };
@@ -149,6 +166,7 @@ export async function refreshPlayerPresence(presence: ResolvedPlayerPresence): P
     trackConfig: presence.trackConfig,
     carModel: presence.carModel,
     updatedAt: Date.now(),
+    name: presence.name,
     instanceId: presence.instanceId,
     folderSlug: presence.folderSlug,
   };
@@ -166,8 +184,9 @@ export async function readPlayerPresenceRecord(
 
 export async function readServerPresenceRoster(
   normalizedServerName: string,
+  instanceId?: string | null,
 ): Promise<string[]> {
-  return readRoster(normalizedServerName.trim());
+  return readRoster(normalizedServerName.trim(), instanceId);
 }
 
 async function readPresenceRecord(steamId: string): Promise<PlayerPresenceRecord | null> {
@@ -216,30 +235,53 @@ export function setHudPlayerPresenceTestHooks(hooks: HudPlayerPresenceTestHooks 
   presenceTestHooks = hooks;
 }
 
-async function readRoster(normalizedServerName: string): Promise<string[]> {
+async function readRoster(
+  normalizedServerName: string,
+  instanceId?: string | null,
+): Promise<string[]> {
   if (!isHudRedisConfigured()) {
     return [];
   }
-  const raw = await hudRedisGet(presenceRosterRedisKey(normalizedServerName));
-  if (!raw) {
-    return [];
+  const scopedKey = presenceRosterRedisKey(normalizedServerName, instanceId);
+  const raw = await hudRedisGet(scopedKey);
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      return Array.isArray(parsed)
+        ? parsed.filter((id): id is string => typeof id === 'string' && id.length > 0)
+        : [];
+    } catch {
+      return [];
+    }
   }
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed)
-      ? parsed.filter((id): id is string => typeof id === 'string' && id.length > 0)
-      : [];
-  } catch {
-    return [];
+  // Legacy unscoped key (pre instanceId scoping) — only when instanceId is set.
+  if (instanceId) {
+    const legacy = await hudRedisGet(presenceRosterRedisKey(normalizedServerName));
+    if (!legacy) {
+      return [];
+    }
+    try {
+      const parsed = JSON.parse(legacy) as unknown;
+      return Array.isArray(parsed)
+        ? parsed.filter((id): id is string => typeof id === 'string' && id.length > 0)
+        : [];
+    } catch {
+      return [];
+    }
   }
+  return [];
 }
 
-async function writeRoster(normalizedServerName: string, steamIds: string[]): Promise<void> {
+async function writeRoster(
+  normalizedServerName: string,
+  steamIds: string[],
+  instanceId?: string | null,
+): Promise<void> {
   if (!isHudRedisConfigured()) {
     return;
   }
   await hudRedisSet(
-    presenceRosterRedisKey(normalizedServerName),
+    presenceRosterRedisKey(normalizedServerName, instanceId),
     JSON.stringify(steamIds),
     HUD_PRESENCE_TTL_SEC,
   );
@@ -270,6 +312,7 @@ export function validateResolvedPresence(
     trackConfig: record.trackConfig,
     carModel: record.carModel,
     updatedAt: record.updatedAt,
+    name: record.name,
     instanceId: record.instanceId,
     serverType: managed.type,
     folderSlug: record.folderSlug ?? managed.folderSlug,
@@ -320,14 +363,22 @@ export async function noteHudServerStatus(payload: Record<string, unknown>): Pro
       buildPresenceRecord(serverName, data, player.steamId, player.carModel, {
         instanceId,
         folderSlug,
+        name: player.name,
       }),
     );
     await writePresence(player.steamId, record);
   }
 
-  const previousSteamIds = await readRoster(normalizedServer);
-  const mergedRoster = [...new Set([...previousSteamIds, ...nextSteamIds])];
-  await writeRoster(normalizedServer, mergedRoster);
+  // Replace roster from server_status (authoritative lobby snapshot).
+  const uniqueSteamIds = [...new Set(nextSteamIds)];
+  if (uniqueSteamIds.length === 0) {
+    await hudRedisDel(presenceRosterRedisKey(normalizedServer, instanceId));
+    if (instanceId) {
+      await hudRedisDel(presenceRosterRedisKey(normalizedServer));
+    }
+  } else {
+    await writeRoster(normalizedServer, uniqueSteamIds, instanceId);
+  }
 }
 
 export async function noteHudPlayerJoin(payload: Record<string, unknown>): Promise<void> {
@@ -367,16 +418,17 @@ export async function noteHudPlayerJoin(payload: Record<string, unknown>): Promi
   }
   const instanceId = resolveInstanceId(payload);
   const folderSlug = resolveFolderSlug(serverName);
+  const name = readPlayerNameFromEventData(data);
   const record = mergeRoutingFields(
     prior,
-    buildPresenceRecord(serverName, data, steamId, carModel, { instanceId, folderSlug }),
+    buildPresenceRecord(serverName, data, steamId, carModel, { instanceId, folderSlug, name }),
   );
   await writePresence(steamId, record, HUD_PRESENCE_JOIN_TTL_SEC);
 
-  const roster = await readRoster(normalizedServer);
+  const roster = await readRoster(normalizedServer, instanceId);
   if (!roster.includes(steamId)) {
     roster.push(steamId);
-    await writeRoster(normalizedServer, roster);
+    await writeRoster(normalizedServer, roster, instanceId);
   }
 }
 
@@ -402,12 +454,16 @@ export async function noteHudPlayerLeave(payload: Record<string, unknown>): Prom
 
   if (serverName) {
     const normalizedServer = normalizeHudServerName(serverName);
-    const roster = await readRoster(normalizedServer);
+    const instanceId = resolveInstanceId(payload) ?? current?.instanceId;
+    const roster = await readRoster(normalizedServer, instanceId);
     const next = roster.filter((id) => id !== steamId);
     if (next.length === 0) {
-      await hudRedisDel(presenceRosterRedisKey(normalizedServer));
+      await hudRedisDel(presenceRosterRedisKey(normalizedServer, instanceId));
+      if (instanceId) {
+        await hudRedisDel(presenceRosterRedisKey(normalizedServer));
+      }
     } else {
-      await writeRoster(normalizedServer, next);
+      await writeRoster(normalizedServer, next, instanceId);
     }
   }
 

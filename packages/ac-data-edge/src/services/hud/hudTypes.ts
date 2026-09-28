@@ -291,6 +291,8 @@ export type PlayerPresenceRecord = {
   trackConfig: string;
   carModel: string;
   updatedAt: number;
+  /** Display name from telemetry join / server_status when available. */
+  name?: string;
   /** VPS instance (AC_INSTANCE_ID / stream envelope). */
   instanceId?: string;
   /** Managed folder slug (server-N), stable per lobby on one edge. */

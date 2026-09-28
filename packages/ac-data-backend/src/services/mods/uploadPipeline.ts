@@ -9,7 +9,12 @@ import {
   updateUploadSession,
 } from './catalogRepo.js';
 import { sha256File, fileSizeBytes } from './hashUtil.js';
-import { buildManifestFromZip, defaultAcSlugFromManifest, slugify } from './manifestExtract.js';
+import {
+  assertManifestMatchesKind,
+  buildManifestFromZip,
+  defaultAcSlugFromManifest,
+  metadataFromZipFilename,
+} from './manifestExtract.js';
 import { putArtifactFromFile } from './objectStorage.js';
 import { distributeArtifact } from './orchestrator.js';
 import { resolveModUploadRoot } from './modPaths.js';
@@ -22,9 +27,9 @@ export async function beginModUpload(originalName: string, stagingPath: string):
 
 export type FinalizeModUploadInput = {
   uploadId: string;
-  displayName: string;
-  kind?: ModKind;
-  versionLabel: string;
+  kind: ModKind;
+  displayName?: string;
+  versionLabel?: string;
   packageSlug?: string;
   acContentSlug?: string;
   distributeTo?: string[] | 'all' | 'none';
@@ -43,12 +48,22 @@ export async function finalizeModUpload(input: FinalizeModUploadInput): Promise<
   const stagingPath = String(session.staging_path);
   await updateUploadSession(input.uploadId, { state: 'processing' });
 
+  const stagingStat = await fs.stat(stagingPath).catch(() => null);
+  if (!stagingStat || stagingStat.size < 22) {
+    throw new Error('Upload missing or too small. Drop the ZIP again or use Choose ZIP.');
+  }
+
   const sha256 = await sha256File(stagingPath);
   const sizeBytes = await fileSizeBytes(stagingPath);
-  const manifest = await buildManifestFromZip(stagingPath, input.kind);
-  const kind = input.kind ?? manifest.kind;
-  const displayName = input.displayName.trim();
-  const slug = input.packageSlug?.trim() || slugify(displayName);
+  const kind = input.kind;
+  const manifest = await buildManifestFromZip(stagingPath, kind);
+  assertManifestMatchesKind(manifest, kind);
+
+  const originalName = String(session.original_name || 'mod.zip');
+  const inferred = metadataFromZipFilename(originalName);
+  const displayName = (input.displayName?.trim() || inferred.displayName).trim();
+  const versionLabel = (input.versionLabel?.trim() || inferred.versionLabel).trim();
+  const slug = input.packageSlug?.trim() || inferred.packageSlug;
   const acContentSlug =
     input.acContentSlug?.trim() || defaultAcSlugFromManifest(manifest, slug.replace(/-/g, '_'));
 
@@ -58,7 +73,7 @@ export async function finalizeModUpload(input: FinalizeModUploadInput): Promise<
     displayName,
     kind,
     acContentSlug,
-    versionLabel: input.versionLabel.trim(),
+    versionLabel,
     sizeBytes,
     sha256,
     storageKey,

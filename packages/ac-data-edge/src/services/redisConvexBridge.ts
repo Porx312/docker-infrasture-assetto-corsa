@@ -159,6 +159,11 @@ async function flushIngestChunk(
   const droppedStatus = chunk.length - coalesced.length;
   const { forward, localOnly } = await partitionCoalescedByIngestPrefs(coalesced);
 
+  // Local-only events (e.g. LIVE_INGEST_CONVEX=false) still need Redis presence handlers.
+  for (const { payload, event } of localOnly) {
+    await handleEventBeforeIngest(event, payload);
+  }
+
   for (const { payload, event } of forward) {
     if (event === 'lap_completed') {
       const lapData = (payload.data ?? {}) as Record<string, unknown>;

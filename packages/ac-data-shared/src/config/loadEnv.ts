@@ -64,18 +64,45 @@ export function resolveEnvFilePath(): string {
   return path.join(REPO_ROOT, fileName);
 }
 
+/** True when deploy platforms inject env (Railway/Nixpacks/Dokploy) or production mode. */
+function allowMissingEnvFile(): boolean {
+  if (process.env.NODE_ENV === 'test' || process.env.SKIP_ASSETTO_ENV_LOAD === '1') {
+    return true;
+  }
+  const assettoEnv = (process.env.ASSETTO_ENV || '').trim().toLowerCase();
+  if (assettoEnv === 'prod' || assettoEnv === 'production') {
+    return true;
+  }
+  if ((process.env.NODE_ENV || '').trim().toLowerCase() === 'production') {
+    return true;
+  }
+  // Railway / Nixpacks / common PaaS markers — vars come from the dashboard, not a file.
+  if (
+    process.env.RAILWAY_ENVIRONMENT ||
+    process.env.RAILWAY_PROJECT_ID ||
+    process.env.NIXPACKS_METADATA ||
+    process.env.NIXPACKS_PATH
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /** Load repo env file once (idempotent). */
 export function loadEnv(): void {
   if (loaded) return;
 
   const envPath = resolveEnvFilePath();
   if (!fs.existsSync(envPath)) {
-    if (process.env.NODE_ENV === 'test' || process.env.SKIP_ASSETTO_ENV_LOAD === '1') {
+    if (allowMissingEnvFile()) {
       loaded = true;
+      if (process.env.ASSETTO_ENV_DEBUG === '1') {
+        console.info(`[loadEnv] no file at ${envPath}; using process.env only`);
+      }
       return;
     }
     throw new Error(
-      `Env file not found: ${envPath}. Copy .env.example to .env.local or .env.production, or set ASSETTO_ENV_FILE.`,
+      `Env file not found: ${envPath}. Copy .env.example to .env.local or .env.production, or set ASSETTO_ENV_FILE. On Railway/Dokploy set vars in the dashboard (no file needed).`,
     );
   }
 

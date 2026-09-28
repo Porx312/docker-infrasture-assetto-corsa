@@ -13,7 +13,8 @@ export const HUD_PLAYER_NOT_CONNECTED_TTL_SEC = Number(
 /** Short TTL for transient Convex errors (convex_unreachable is never cached). */
 export const HUD_TRANSIENT_ERROR_TTL_SEC = Number(process.env.HUD_TRANSIENT_ERROR_TTL_SEC || 10);
 /** Refreshed on server_status, player_join, and successful HUD reads. */
-export const HUD_PRESENCE_TTL_SEC = Number(process.env.HUD_PRESENCE_TTL_SEC || 180);
+/** Keep in sync with edge default (must exceed telemetry server_status heartbeat). */
+export const HUD_PRESENCE_TTL_SEC = Number(process.env.HUD_PRESENCE_TTL_SEC || 450);
 /** Longer TTL on join until player_leave explicitly clears presence. */
 export const HUD_PRESENCE_JOIN_TTL_SEC = Number(
   process.env.HUD_PRESENCE_JOIN_TTL_SEC || 600,

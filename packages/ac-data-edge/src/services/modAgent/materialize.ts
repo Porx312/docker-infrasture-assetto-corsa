@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { createWriteStream } from 'node:fs';
+import { pipeline } from 'node:stream/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import unzipper from 'unzipper';
@@ -46,12 +48,21 @@ export async function extractArtifactTree(sha256: string, zipPath: string): Prom
     return tree;
   }
   await fsp.mkdir(tree, { recursive: true });
-  await new Promise<void>((resolve, reject) => {
-    fs.createReadStream(zipPath)
-      .pipe(unzipper.Extract({ path: tree }))
-      .on('close', () => resolve())
-      .on('error', reject);
-  });
+  const archive = await unzipper.Open.file(zipPath);
+  const entries = (archive as { files?: Array<{ path: string; stream: () => NodeJS.ReadableStream }> }).files ?? [];
+  for (const entry of entries) {
+    const normalizedPath = entry.path.replace(/\\/g, '/');
+    if (!normalizedPath || normalizedPath.includes('..')) {
+      continue;
+    }
+    const targetPath = path.join(tree, normalizedPath);
+    if (normalizedPath.endsWith('/')) {
+      await fsp.mkdir(targetPath, { recursive: true });
+      continue;
+    }
+    await fsp.mkdir(path.dirname(targetPath), { recursive: true });
+    await pipeline(entry.stream(), createWriteStream(targetPath));
+  }
   return tree;
 }
 

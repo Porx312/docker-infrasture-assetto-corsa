@@ -166,10 +166,12 @@ Firewall checklist:
 
 - `POST {HUB}/hud/worker/refresh-user` — body: `steamId`, `instanceId`, `workerSecret`
 - `POST {HUB}/hud/worker/refresh-config` — body: `instanceId`, optional `configVersion`
+- `POST {HUB}/v1/internal/desired-config` — Control API: validate track/cars vs mods snapshot, then push config (see [CONTROL_API_V1.md](CONTROL_API_V1.md))
 
 **Legacy (single edge):** webhooks can still target the edge URL directly.
 
 - Laps: edge → `POST /worker/ingest-events` on hub when `BACKEND_INGEST_URL` is set.
+- Live roster / mods for Host: `GET {HUB}/v1/servers/:id/live`, `GET {HUB}/v1/instances/:id/mods/*` via Convex Action BFF.
 
 ## Dev: backend on PC, edge on VPS
 
@@ -185,5 +187,25 @@ Firewall checklist:
 
 ## Related
 
-- [VPS_FLEET_SETUP.md](VPS_FLEET_SETUP.md)
+- [CONTROL_API_V1.md](CONTROL_API_V1.md) — hub `/v1` live roster + mods inventory for ProjectD Host (no Convex live_players / manual mod catalogs)
+- [CONTROL_API_HOST_CUTOVER.md](CONTROL_API_HOST_CUTOVER.md) — ProjectD Actions BFF + `LIVE_INGEST_CONVEX=false`
+- [VPS_FLEET_SETUP.md](VPS_FLEET_SETUP.md) — production checklist, IDs, shared Redis, smoke tests
 - [AC_DATA.md](AC_DATA.md)
+
+## Package map (DX — do not merge)
+
+| Concern | Package / path |
+|---------|----------------|
+| Spawn AC, telemetry → Redis, HUD WSS, presence write, mod agent, mods scan | `packages/ac-data-edge` |
+| Convex ingest, Control API `/v1`, admin, mod catalog Postgres, HUD gateway | `packages/ac-data-backend` |
+| Worker auth, fleet registry, Convex query helpers, env load | `packages/ac-data-shared` |
+
+| Env “mode” | Effect |
+|------------|--------|
+| Edge `BACKEND_INGEST_URL` set | Hub-centric ingest/worker (no Convex SDK on edge) |
+| `REDIS_CONFIG_SYNC_ON_EDGE=false` | Config pushed from hub |
+| `MOD_AGENT_ENABLED=true` | ZIP sync from hub catalog |
+| `LIVE_INGEST_CONVEX=false` | Join/leave/status stay Redis-only |
+| Hub `FLEET_EDGE_REGISTRY` | Multi-VPS proxy + webhooks |
+
+**Decision:** keep two deployables + shared lib. Improve docs/DX; do not reunify into one app in this cycle.

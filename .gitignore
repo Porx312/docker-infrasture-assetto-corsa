@@ -1,33 +1,57 @@
 # Nested hub repo (own git remote; do not commit into assetto-infra)
 ProjectD-Backend-Servers/
 
-# Environment files (contain secrets)
+# Environment files (contain secrets) — keep *.env.example tracked
 .env
 .env.local
 .env.production
+.env.development
+.env.test
 .env.*.local
+.env.production.local
 
-# Logs
+# Logs & process ids
 *.log
-ac-data.log
-ac-data.pid
+*.pid
+*.pid.lock
 
-# Node modules
+# Node modules (any depth)
 node_modules/
-packages/*/node_modules/
+**/node_modules/
+
+# Python caches
 telemetry-data/__pycache__/
-telemetry-data/*.pyc
+**/__pycache__/
+*.pyc
 
 # AC Server content (too large, managed separately)
 assetto-install/
 
+# Mod repository blobs / staging (ZIP + extracted assets — never push to GitHub)
+data/
+data/ac-mods/
+**/ac-mods/
+**/mod-uploads/
+**/mod-staging/
+*.kn5
+*.bank
+*.ksanim
+*.7z
+*.rar
+
+# Prefer never committing archives (mod ZIPs exceed GitHub 100MB)
+*.zip
+# Exception: keep tiny HUD release placeholders only via .gitkeep rules below
+
 # Results and logs from servers
 **/results/
 **/logs/
+scripts/load-test-results/
 
-# IDE
+# IDE / local agent
 .vscode/
 .idea/
+.cursor/
 *.swp
 *.swo
 
@@ -36,11 +60,22 @@ assetto-install/
 Thumbs.db
 
 # Build artifacts
+dist/
+/dist/
 packages/*/dist/
+.turbo/
+coverage/
+.nyc_output/
 telemetry-data/.pytest_cache/
 
 # Docker volumes
 redis-data/
+
+# Secrets / keys
+*.pem
+*.key
+credentials.json
+service-account*.json
 
 # Runtime data
 **/server_pids.json
@@ -65,6 +100,13 @@ server/entry_list.ini
 server/server_cfg.ini
 server/presets/
 server/**/blacklist.txt
+server/content/
+**/content/cars/
+**/content/tracks/
+# AC dedicated binaries (large; install separately)
+**/acServer
+**/acServer.exe
+server/server-*/
 
 # Content Manager: descriptions, loading images, wrapper params (generated)
 server/shared/server-branding.json

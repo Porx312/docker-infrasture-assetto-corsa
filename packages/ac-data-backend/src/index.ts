@@ -14,11 +14,17 @@ import clientSyncRoutes from './routes/clientSyncRoutes.js';
 import { clientLauncherMiddleware } from './middleware/clientLauncherMiddleware.js';
 import hudRegistryRoutes from './routes/hudRegistryRoutes.js';
 import modAgentRoutes from './routes/modAgentRoutes.js';
+import controlApiRoutes from './routes/controlApiRoutes.js';
 import { runModMigrationsIfConfigured } from './services/mods/migrate.js';
 import { getPublicHealthHandler } from './controller/healthController.js';
 import { attachHudGatewayWs } from './services/hud/hudGateway.js';
 import { loadHudDynamicRegistryFromRedis } from './services/hud/hudDynamicRegistry.js';
 import { resolveEnvFilePath } from './config/loadEnv.js';
+import { getPublicBrandingImageHandler } from './controller/brandingImagesController.js';
+import {
+  ensureBrandingImagesDir,
+  resolveBrandingImagesPath,
+} from './services/brandingImages.js';
 
 assertSecurityConfiguration();
 
@@ -53,7 +59,11 @@ const ADMIN_VIEWS_PATH = process.env.ADMIN_VIEWS_PATH || path.join(acDataRoot, '
 const ADMIN_PUBLIC_PATH = process.env.ADMIN_PUBLIC_PATH || path.join(acDataRoot, '..', 'public');
 
 app.get('/api/health', getPublicHealthHandler);
+app.get('/branding/images/:filename', (req, res) => {
+  void getPublicBrandingImageHandler(req, res);
+});
 app.use('/api', modAgentRoutes);
+app.use('/v1', controlApiRoutes);
 app.use('/client', ...clientLauncherMiddleware, clientSyncRoutes);
 app.use('/worker', workerIngestRoutes);
 app.use('/worker', workerQueryRoutes);
@@ -73,6 +83,14 @@ const server = createServer(app);
 attachHudGatewayWs(server);
 
 server.listen(PORT, BIND_HOST, () => {
+  void ensureBrandingImagesDir()
+    .then((dir) => {
+      console.log(`[branding-images] serving ${dir} at /branding/images/:filename`);
+    })
+    .catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[branding-images] mkdir failed (${resolveBrandingImagesPath()}): ${message}`);
+    });
   void runModMigrationsIfConfigured().catch((err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[mod-db] migration failed:', message);
