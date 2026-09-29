@@ -21,15 +21,78 @@ function unauthorized(res: Response): void {
   res.status(401).json({ ok: false, error: 'unauthorized' });
 }
 
+function optionalFiniteNumber(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  return value;
+}
+
+function optionalNonNegInt(value: unknown): number | undefined {
+  const n = optionalFiniteNumber(value);
+  if (n === undefined || n < 0) return undefined;
+  return Math.round(n);
+}
+
+const PROCESS_KINDS = new Set(['acServer', 'cm-proxy', 'orphan']);
+
+function parseProcesses(value: unknown):
+  | Array<{
+      name: string;
+      kind: 'acServer' | 'cm-proxy' | 'orphan';
+      pid: number;
+      rssBytes: number;
+      cpuPct: number | null;
+      cmdline?: string;
+    }>
+  | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out: Array<{
+    name: string;
+    kind: 'acServer' | 'cm-proxy' | 'orphan';
+    pid: number;
+    rssBytes: number;
+    cpuPct: number | null;
+    cmdline?: string;
+  }> = [];
+  for (const raw of value.slice(0, 50)) {
+    if (!raw || typeof raw !== 'object') continue;
+    const item = raw as Record<string, unknown>;
+    const name = typeof item.name === 'string' ? item.name.slice(0, 120) : '';
+    const kind = typeof item.kind === 'string' && PROCESS_KINDS.has(item.kind) ? item.kind : null;
+    const pid = optionalNonNegInt(item.pid);
+    const rssBytes = optionalNonNegInt(item.rssBytes);
+    if (!name || !kind || pid === undefined || rssBytes === undefined) continue;
+    const cpuRaw = optionalFiniteNumber(item.cpuPct);
+    const cmdline = typeof item.cmdline === 'string' ? item.cmdline.slice(0, 120) : undefined;
+    out.push({
+      name,
+      kind: kind as 'acServer' | 'cm-proxy' | 'orphan',
+      pid,
+      rssBytes,
+      cpuPct: cpuRaw !== undefined ? Math.max(0, Math.round(cpuRaw * 10) / 10) : null,
+      ...(cmdline ? { cmdline } : {}),
+    });
+  }
+  return out;
+}
+
 export async function modAgentHeartbeatHandler(req: Request, res: Response): Promise<void> {
   if (!isModAgentRequestAuthorized(req) || !isModDbConfigured()) {
     unauthorized(res);
     return;
   }
   const edgeId = readEdgeIdFromRequest(req);
-  const diskFreeBytes =
-    typeof req.body.diskFreeBytes === 'number' ? req.body.diskFreeBytes : undefined;
-  await recordEdgeHeartbeat(edgeId, diskFreeBytes);
+  const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+  await recordEdgeHeartbeat(edgeId, {
+    diskFreeBytes: optionalFiniteNumber(body.diskFreeBytes),
+    diskTotalBytes: optionalFiniteNumber(body.diskTotalBytes),
+    cpuCount: optionalNonNegInt(body.cpuCount),
+    load1: optionalFiniteNumber(body.load1),
+    memTotalBytes: optionalFiniteNumber(body.memTotalBytes),
+    memFreeBytes: optionalFiniteNumber(body.memFreeBytes),
+    serversTotal: optionalNonNegInt(body.serversTotal),
+    serversRunning: optionalNonNegInt(body.serversRunning),
+    processes: parseProcesses(body.processes),
+  });
   res.json({ ok: true, edgeId });
 }
 

@@ -110,6 +110,7 @@ export async function buildManifestFromZip(zipPath: string, kindHint?: ModKind):
     kind,
     rootPaths,
     contentTypeFolder: contentFolderForKind(kind),
+    entryPaths: paths.map((p) => p.replace(/\\/g, '/')),
   };
 }
 

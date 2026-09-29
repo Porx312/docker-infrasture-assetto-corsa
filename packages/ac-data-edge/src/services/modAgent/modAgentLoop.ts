@@ -11,6 +11,7 @@ import {
   isModAgentEnabled,
   reportJobProgress,
 } from './hubModClient.js';
+import { collectHostMetrics } from './hostMetrics.js';
 import { downloadWithResume } from './downloadArtifact.js';
 import {
   materializeManifestToPool,
@@ -25,16 +26,6 @@ const POLL_MS = Number(process.env.MOD_AGENT_POLL_MS || 1500);
 const DRAIN_MAX = Math.max(1, Number(process.env.MOD_AGENT_DRAIN_MAX || 10));
 
 let tickInFlight = false;
-
-async function diskFreeBytes(): Promise<number | undefined> {
-  try {
-    const { statfs } = await import('node:fs/promises');
-    const stat = await statfs(process.env.AC_MOD_ROOT || '/var/lib/ac-mods');
-    return Number(stat.bfree * stat.bsize);
-  } catch {
-    return undefined;
-  }
-}
 
 async function processJob(job: ModAgentJobPayload): Promise<void> {
   const acSlug =
@@ -105,7 +96,7 @@ async function tick(): Promise<void> {
   }
   tickInFlight = true;
   try {
-    await agentHeartbeat(await diskFreeBytes());
+    await agentHeartbeat(await collectHostMetrics());
     // Drain queued jobs immediately instead of waiting POLL_MS between each mod.
     for (let i = 0; i < DRAIN_MAX; i += 1) {
       const job = await acquireModJob(`agent-${process.pid}`);

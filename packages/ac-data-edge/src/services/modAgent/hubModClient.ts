@@ -26,10 +26,10 @@ async function hubFetch(path: string, init?: RequestInit): Promise<Response> {
   return fetch(url, { ...init, headers });
 }
 
-export async function agentHeartbeat(diskFreeBytes?: number): Promise<void> {
+export async function agentHeartbeat(metrics: Record<string, unknown> = {}): Promise<void> {
   const res = await hubFetch('/mod-agent/v1/heartbeat', {
     method: 'POST',
-    body: JSON.stringify({ diskFreeBytes, agentVersion: '1' }),
+    body: JSON.stringify({ ...metrics, agentVersion: '1' }),
   });
   if (!res.ok) {
     throw new Error(`heartbeat failed: ${res.status}`);

@@ -58,11 +58,11 @@
     </div>
 
     <div id="globalBrandingModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="globalBrandingTitle">
-        <div class="modal modal-server">
+        <div class="modal modal-server modal-server-wide">
             <header class="modal-mod-header">
                 <div>
                     <h3 id="globalBrandingTitle">Apply branding to servers</h3>
-                    <p id="globalBrandingMeta" class="modal-mod-meta">Shared lobby / CM settings · pick which instances to update</p>
+                    <p id="globalBrandingMeta" class="modal-mod-meta">Shared lobby / CM settings · pick which instances to update. Loading screens are managed from the toolbar.</p>
                 </div>
                 <button type="button" class="btn btn-ghost btn-icon" id="globalBrandingCloseBtn" aria-label="Close">✕</button>
             </header>
@@ -249,11 +249,11 @@
     </div>
 
     <div id="loadingScreensModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="loadingScreensTitle">
-        <div class="modal modal-server modal-loading-screens">
+        <div class="modal modal-server modal-server-wide modal-loading-screens">
             <header class="modal-mod-header">
                 <div>
                     <h3 id="loadingScreensTitle">Loading screens</h3>
-                    <p class="modal-mod-meta">Upload, preview, and choose images shown randomly in Content Manager</p>
+                    <p class="modal-mod-meta">Select hub images for CM to rotate · upload new files anytime</p>
                 </div>
                 <button type="button" class="btn btn-ghost btn-icon" id="loadingScreensCloseBtn" aria-label="Close">✕</button>
             </header>
@@ -262,15 +262,16 @@
                     <button type="button" class="btn btn-primary btn-sm" id="loadingScreensUploadBtn">Upload image</button>
                     <input type="file" class="hidden" id="loadingScreensFileInput" accept="image/jpeg,image/png,image/webp,image/gif" />
                     <button type="button" class="btn btn-sm btn-ghost" id="loadingScreensAddUrlBtn">Add URL</button>
-                    <p class="panel-hint" id="loadingScreensHint">Assigned images rotate per player join.</p>
+                    <button type="button" class="btn btn-sm btn-primary" id="loadingScreensAddSelectedBtn" disabled>Add selected</button>
+                    <p class="panel-hint" id="loadingScreensHint">Tick images in the library, then Add selected.</p>
                 </div>
-                <p class="modal-mod-section">Assigned to this branding</p>
+                <p class="modal-mod-section">Selected for branding</p>
                 <div id="loadingScreensAssigned" class="loading-screens-gallery"></div>
-                <p class="modal-mod-section">Hub library (data/branding)</p>
+                <p class="modal-mod-section">Hub library — select to use</p>
                 <div id="loadingScreensLibrary" class="loading-screens-gallery"></div>
             </div>
             <footer class="modal-mod-footer">
-                <button type="button" class="btn btn-primary" id="loadingScreensDoneBtn">Done</button>
+                <button type="button" class="btn btn-primary" id="loadingScreensDoneBtn">Save selection</button>
             </footer>
         </div>
     </div>

@@ -16,6 +16,9 @@ export async function runModMigrationsIfConfigured(): Promise<void> {
     '002_mod_car_track_split.sql',
     '003_server_slots.sql',
     '004_mod_package_preview.sql',
+    '005_mod_package_category.sql',
+    '006_fleet_edge_capacity.sql',
+    '007_fleet_edge_processes.sql',
   ];
   for (const file of files) {
     const sqlPath = path.join(migrationsDir, file);

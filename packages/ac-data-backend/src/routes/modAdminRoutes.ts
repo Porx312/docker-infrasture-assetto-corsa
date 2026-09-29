@@ -15,6 +15,7 @@ import {
   modRemoveFromEdgesHandler,
   listModEdgesHandler,
   disableModEdgeHandler,
+  listFleetSyncIssuesHandler,
   modGcListHandler,
   modGcRunHandler,
   serverModReadinessHandler,
@@ -23,6 +24,7 @@ import {
   modPreviewImageUploadHandler,
   modPreviewImageDeleteHandler,
   modDeletePackageHandler,
+  modUpdatePackageHandler,
 } from '../controller/modController.js';
 import { ensureModStagingDir } from '../services/mods/modPaths.js';
 
@@ -62,10 +64,16 @@ const previewUpload = multer({
 
 router.get('/mods', adminAuth, listModsHandler);
 router.get('/mods/edges', adminAuth, listModEdgesHandler);
+router.get('/mods/fleet/sync-issues', adminAuth, (req, res) => {
+  void listFleetSyncIssuesHandler(req, res);
+});
 router.patch('/mods/edges/:edgeId', adminAuth, disableModEdgeHandler);
 router.post('/mods/upload', adminAuth, upload.single('file'), modUploadBeginHandler);
 router.post('/mods/upload/:uploadId/finalize', adminAuth, modUploadFinalizeHandler);
 router.get('/mods/packages/:packageId/artifacts', adminAuth, listModArtifactsHandler);
+router.patch('/mods/packages/:packageId', adminAuth, (req, res) => {
+  void modUpdatePackageHandler(req, res);
+});
 router.delete('/mods/packages/:packageId', adminAuth, (req, res) => {
   void modDeletePackageHandler(req, res);
 });

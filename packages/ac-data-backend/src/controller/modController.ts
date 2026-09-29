@@ -10,6 +10,9 @@ import {
   setFleetEdgeEnabled,
   getPackageById,
   setPackagePreviewImageFilename,
+  updatePackageMetadata,
+  listFleetSyncIssues,
+  estimateEdgeCapacity,
 } from '../services/mods/catalogRepo.js';
 import { beginModUpload, finalizeModUpload, modStagingDir } from '../services/mods/uploadPipeline.js';
 import {
@@ -219,7 +222,28 @@ export async function listModEdgesHandler(_req: Request, res: Response): Promise
   }
   await syncFleetEdgesToDb();
   const edges = await listFleetEdgesDb();
-  res.json({ ok: true, edges });
+  res.json({
+    ok: true,
+    edges: edges.map((edge) => ({
+      ...edge,
+      processes: Array.isArray(edge.processes_json) ? edge.processes_json : [],
+      capacity: estimateEdgeCapacity(edge),
+    })),
+  });
+}
+
+export async function listFleetSyncIssuesHandler(_req: Request, res: Response): Promise<void> {
+  if (!isModDbConfigured()) {
+    modDbUnavailable(res);
+    return;
+  }
+  try {
+    const issues = await listFleetSyncIssues();
+    res.json({ ok: true, issues });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ ok: false, message });
+  }
 }
 
 export async function disableModEdgeHandler(req: Request, res: Response): Promise<void> {
@@ -405,6 +429,56 @@ export async function modPreviewImageDeleteHandler(req: Request, res: Response):
     }
     await setPackagePreviewImageFilename(packageId, null);
     res.json({ ok: true, imageUrl: null });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(400).json({ ok: false, message });
+  }
+}
+
+export async function modUpdatePackageHandler(req: Request, res: Response): Promise<void> {
+  if (!isModDbConfigured()) {
+    modDbUnavailable(res);
+    return;
+  }
+  const packageId = String(req.params.packageId || '').trim();
+  if (!packageId) {
+    res.status(400).json({ ok: false, message: 'packageId required' });
+    return;
+  }
+
+  const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+
+  try {
+    const updated = await updatePackageMetadata(packageId, {
+      display_name: typeof body.display_name === 'string' ? body.display_name : undefined,
+      ac_content_slug:
+        typeof body.ac_content_slug === 'string' ? body.ac_content_slug : undefined,
+      notes:
+        body.notes === null
+          ? null
+          : typeof body.notes === 'string'
+            ? body.notes
+            : undefined,
+      category:
+        body.category === null
+          ? null
+          : typeof body.category === 'string'
+            ? body.category
+            : undefined,
+    });
+    if (!updated) {
+      res.status(404).json({ ok: false, message: 'package_not_found' });
+      return;
+    }
+    res.json({
+      ok: true,
+      package: {
+        ...updated,
+        imageUrl: updated.preview_image_filename
+          ? modPreviewPublicUrl(updated.preview_image_filename)
+          : null,
+      },
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(400).json({ ok: false, message });

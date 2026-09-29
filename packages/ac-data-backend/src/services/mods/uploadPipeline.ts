@@ -18,6 +18,7 @@ import {
 import { putArtifactFromFile } from './objectStorage.js';
 import { distributeArtifact } from './orchestrator.js';
 import { resolveModUploadRoot } from './modPaths.js';
+import { syncHostCatalogUpsert } from '../hostCatalog/index.js';
 
 export async function beginModUpload(originalName: string, stagingPath: string): Promise<string> {
   const uploadId = randomUUID();
@@ -88,6 +89,14 @@ export async function finalizeModUpload(input: FinalizeModUploadInput): Promise<
     const result = await distributeArtifact(artifactId, input.distributeTo);
     enqueued = result.enqueued;
   }
+
+  await syncHostCatalogUpsert({
+    kind,
+    displayName,
+    acContentSlug,
+    manifest,
+    zipPaths: manifest.entryPaths,
+  });
 
   return { packageId, artifactId, sha256, enqueued };
 }

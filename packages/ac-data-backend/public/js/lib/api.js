@@ -50,6 +50,15 @@ export function apiPut(path, body, fleetEdgeId) {
 
 /**
  * @param {string} path
+ * @param {unknown} body
+ * @param {string} [fleetEdgeId]
+ */
+export function apiPatch(path, body, fleetEdgeId) {
+  return apiFetch(path, { method: 'PATCH', body: JSON.stringify(body) }, fleetEdgeId);
+}
+
+/**
+ * @param {string} path
  * @param {unknown} [body]
  * @param {string} [fleetEdgeId]
  */

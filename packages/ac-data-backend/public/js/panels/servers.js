@@ -51,6 +51,9 @@ const SERVER_BRANDING_REFS = brandingRefs('sc', { loadingListMode: true });
  */
 export function mountServersPanel(container) {
   container.innerHTML = renderServersPanelHtml();
+  document.getElementById('openLoadingScreensBtn')?.addEventListener('click', () => {
+    void openToolbarLoadingScreens();
+  });
   document.getElementById('globalBrandingOpenBtn')?.addEventListener('click', () => {
     void openGlobalBrandingModal();
   });
@@ -156,16 +159,14 @@ export function initGlobalBrandingModal() {
       bannerLabel: 'Banner image (CM description)',
       loadingLabel: 'Loading screen images',
       loadingListMode: true,
+      hideLoadingManage: true,
       previewClass: 'modal-server-preview',
     });
   }
 
   seedLoadingUrlsList(GLOBAL_BRANDING_REFS);
   bindBrandingPreview(GLOBAL_BRANDING_REFS);
-  document.getElementById(GLOBAL_BRANDING_REFS.loadingListManageBtn)?.addEventListener('click', () => {
-    openLoadingScreensModal(GLOBAL_BRANDING_REFS);
-  });
-
+  // Loading screens are opened from the Servers toolbar, not from inside this modal.
   document.getElementById('globalBrandingForm')?.addEventListener('submit', (e) => {
     e.preventDefault();
     void saveGlobalBranding();
@@ -220,6 +221,27 @@ export async function openGlobalBrandingModal() {
 export function closeGlobalBrandingModal() {
   syncGlobalSelectionFromDom();
   closeModal('globalBrandingModal');
+}
+
+/**
+ * Open loading-screens picker from the Servers toolbar (global branding defaults).
+ */
+async function openToolbarLoadingScreens() {
+  initGlobalBrandingModal();
+  if (cachedGlobalBranding) {
+    fillBranding(GLOBAL_BRANDING_REFS, cachedGlobalBranding);
+  } else {
+    try {
+      const { data } = await apiGet('/branding');
+      if (data.ok && data.branding) {
+        cachedGlobalBranding = data.branding;
+        fillBranding(GLOBAL_BRANDING_REFS, data.branding);
+      }
+    } catch {
+      showToast('Could not load branding defaults', 'error');
+    }
+  }
+  openLoadingScreensModal(GLOBAL_BRANDING_REFS);
 }
 
 export async function loadServersPanel() {
@@ -731,8 +753,16 @@ export function openLoadingScreensModal(refs) {
 
 export function closeLoadingScreensModal() {
   if (loadingScreensActiveRefs) {
-    // Ensure parent form preview/summary stay in sync
-    setLoadingImageUrls(loadingScreensActiveRefs, getLoadingImageUrls(loadingScreensActiveRefs));
+    const urls = getLoadingImageUrls(loadingScreensActiveRefs);
+    setLoadingImageUrls(loadingScreensActiveRefs, urls);
+    if (loadingScreensActiveRefs === GLOBAL_BRANDING_REFS) {
+      const base = cachedGlobalBranding ?? readBranding(GLOBAL_BRANDING_REFS);
+      cachedGlobalBranding = {
+        ...base,
+        loadingImageUrls: urls,
+        loadingImageUrl: urls[0] ?? '',
+      };
+    }
   }
   loadingScreensActiveRefs = null;
   closeModal('loadingScreensModal');
@@ -779,6 +809,32 @@ export function initLoadingScreensModal() {
     await refreshLoadingScreensModal();
   });
 
+  document.getElementById('loadingScreensAddSelectedBtn')?.addEventListener('click', async () => {
+    if (!loadingScreensActiveRefs) return;
+    const libraryEl = document.getElementById('loadingScreensLibrary');
+    if (!libraryEl) return;
+    const selected = [
+      ...libraryEl.querySelectorAll('input[data-library-select]:checked'),
+    ]
+      .map((el) => (el instanceof HTMLInputElement ? el.value.trim() : ''))
+      .filter(Boolean);
+    if (!selected.length) {
+      showToast('Select at least one image in the library', 'error');
+      return;
+    }
+    const urls = getLoadingImageUrls(loadingScreensActiveRefs);
+    let added = 0;
+    for (const url of selected) {
+      if (!urls.includes(url)) {
+        urls.push(url);
+        added += 1;
+      }
+    }
+    setLoadingImageUrls(loadingScreensActiveRefs, urls);
+    showToast(added ? `Added ${added} loading screen(s)` : 'Already selected');
+    await refreshLoadingScreensModal();
+  });
+
   document.getElementById('loadingScreensAssigned')?.addEventListener('click', async (e) => {
     const btn = e.target instanceof Element ? e.target.closest('button') : null;
     if (!(btn instanceof HTMLButtonElement) || !loadingScreensActiveRefs) return;
@@ -791,9 +847,37 @@ export function initLoadingScreensModal() {
     }
   });
 
+  document.getElementById('loadingScreensLibrary')?.addEventListener('change', (e) => {
+    const input = e.target;
+    if (input instanceof HTMLInputElement && input.hasAttribute('data-library-select')) {
+      input.closest('.loading-screen-card')?.classList.toggle('is-selected', input.checked);
+    }
+    syncLibrarySelectionButton();
+  });
+
   document.getElementById('loadingScreensLibrary')?.addEventListener('click', async (e) => {
-    const btn = e.target instanceof Element ? e.target.closest('button') : null;
-    if (!(btn instanceof HTMLButtonElement) || !loadingScreensActiveRefs) return;
+    const target = e.target instanceof Element ? e.target : null;
+    if (!target || !loadingScreensActiveRefs) return;
+
+    const card = target.closest('.loading-screen-card[data-selectable]');
+    if (
+      card instanceof HTMLElement &&
+      card.dataset.selectable === 'true' &&
+      !target.closest('button') &&
+      !target.closest('input') &&
+      !target.closest('label')
+    ) {
+      const checkbox = card.querySelector('input[data-library-select]');
+      if (checkbox instanceof HTMLInputElement && !checkbox.disabled) {
+        checkbox.checked = !checkbox.checked;
+        card.classList.toggle('is-selected', checkbox.checked);
+        syncLibrarySelectionButton();
+      }
+      return;
+    }
+
+    const btn = target.closest('button');
+    if (!(btn instanceof HTMLButtonElement)) return;
     const url = btn.dataset.url;
     const filename = btn.dataset.filename;
     if (btn.dataset.action === 'assign' && url) {
@@ -825,6 +909,15 @@ export function initLoadingScreensModal() {
   });
 }
 
+function syncLibrarySelectionButton() {
+  const btn = document.getElementById('loadingScreensAddSelectedBtn');
+  const libraryEl = document.getElementById('loadingScreensLibrary');
+  if (!(btn instanceof HTMLButtonElement) || !libraryEl) return;
+  const count = libraryEl.querySelectorAll('input[data-library-select]:checked').length;
+  btn.disabled = count === 0;
+  btn.textContent = count > 0 ? `Add selected (${count})` : 'Add selected';
+}
+
 async function refreshLoadingScreensModal() {
   const assignedEl = document.getElementById('loadingScreensAssigned');
   const libraryEl = document.getElementById('loadingScreensLibrary');
@@ -835,8 +928,8 @@ async function refreshLoadingScreensModal() {
   document.getElementById('loadingScreensUploadBtn')?.classList.toggle('hidden', !uploadOk);
   if (hintEl) {
     hintEl.textContent = uploadOk
-      ? 'Assigned images rotate per player join.'
-      : 'Set HUD_PUBLIC_BASE_URL on hub to enable uploads; URLs still work.';
+      ? 'Tick library images, then Add selected. Assigned images rotate per CM join.'
+      : 'Set HUD_PUBLIC_BASE_URL on hub to enable uploads; pick URLs still works.';
   }
 
   const assigned = getLoadingImageUrls(loadingScreensActiveRefs);
@@ -852,13 +945,14 @@ async function refreshLoadingScreensModal() {
       </article>`,
         )
         .join('')
-    : '<p class="panel-hint">No images assigned yet.</p>';
+    : '<p class="panel-hint">No images selected yet.</p>';
 
   try {
     const { data } = await apiGet('/branding/images');
     const images = data.images || [];
     if (!images.length) {
       libraryEl.innerHTML = '<p class="panel-hint">Hub library empty — upload an image.</p>';
+      syncLibrarySelectionButton();
       return;
     }
     const assignedSet = new Set(assigned);
@@ -866,20 +960,28 @@ async function refreshLoadingScreensModal() {
       .map((img) => {
         const inUse = assignedSet.has(img.url);
         return `
-      <article class="loading-screen-card">
-        <div class="loading-screen-thumb"><img src="${escapeAttr(img.url)}" alt="" loading="lazy"></div>
+      <article class="loading-screen-card${inUse ? ' is-assigned' : ''}" data-selectable="${inUse ? 'false' : 'true'}">
+        <label class="loading-screen-select">
+          <input type="checkbox" data-library-select value="${escapeAttr(img.url)}" ${inUse ? 'disabled' : ''} />
+          <span class="loading-screen-select-mark" aria-hidden="true"></span>
+          <div class="loading-screen-thumb"><img src="${escapeAttr(img.url)}" alt="" loading="lazy"></div>
+        </label>
         <p class="loading-screen-name" title="${escapeAttr(img.filename)}">${escapeHtml(img.filename)}</p>
         <div class="loading-screen-actions">
-          <button type="button" class="btn btn-sm ${inUse ? 'btn-ghost' : 'btn-primary'}" data-action="assign" data-url="${escapeAttr(img.url)}" ${inUse ? 'disabled' : ''}>
-            ${inUse ? 'Assigned' : 'Use'}
-          </button>
+          ${
+            inUse
+              ? '<span class="loading-screen-badge">In use</span>'
+              : `<button type="button" class="btn btn-sm btn-primary" data-action="assign" data-url="${escapeAttr(img.url)}">Use</button>`
+          }
           <button type="button" class="btn btn-sm btn-danger" data-action="delete-file" data-filename="${escapeAttr(img.filename)}" data-url="${escapeAttr(img.url)}">Delete file</button>
         </div>
       </article>`;
       })
       .join('');
+    syncLibrarySelectionButton();
   } catch {
     libraryEl.innerHTML = '<p class="panel-hint">Could not load hub library.</p>';
+    syncLibrarySelectionButton();
   }
 }
 

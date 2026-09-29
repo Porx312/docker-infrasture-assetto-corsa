@@ -2,6 +2,8 @@ import { getHubWorkerBaseUrl } from '@projectd/ac-data-shared/services/hubWorker
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { listServerInstanceNames } from './serverBranding.js';
+import { getServerRuntime } from './serverRuntime.js';
 
 function workerSecret(): string {
   return (process.env.CONVEX_WORKER_SECRET || process.env.WORKER_INGEST_SECRET || '').trim();
@@ -26,6 +28,35 @@ function agentVersion(): string {
   } catch {
     return '0.0.0';
   }
+}
+
+/**
+ * Sole source of `servers[]` on register/heartbeat.
+ * Feeds hub agent presence → Convex Host catalog `servers` sync
+ * (`services/hostCatalog` on the hub). See docs/HOST_CATALOG_SYNC.md.
+ */
+export function listAgentPresenceServers(): Array<{
+  serverId: string;
+  name: string;
+  status: string;
+  playerCount: number;
+}> {
+  let names: string[] = [];
+  try {
+    names = listServerInstanceNames().filter((n) => n !== 'server-template');
+  } catch {
+    return [];
+  }
+  return names.map((name) => {
+    let status = 'idle';
+    try {
+      const runtime = getServerRuntime(name);
+      if (runtime.running) status = 'live';
+    } catch {
+      /* ignore */
+    }
+    return { serverId: name, name, status, playerCount: 0 };
+  });
 }
 
 async function postAgent(pathSuffix: string, body: Record<string, unknown>): Promise<void> {
@@ -65,7 +96,7 @@ async function sendRegister(): Promise<void> {
     instanceId: instanceId(),
     region: region() || undefined,
     agentVersion: agentVersion(),
-    servers: [],
+    servers: listAgentPresenceServers(),
   });
 }
 
@@ -74,7 +105,7 @@ async function sendHeartbeat(): Promise<void> {
     instanceId: instanceId(),
     region: region() || undefined,
     agentVersion: agentVersion(),
-    servers: [],
+    servers: listAgentPresenceServers(),
   });
 }
 

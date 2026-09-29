@@ -17,6 +17,8 @@ export type ModManifest = {
   kind: ModKind;
   rootPaths: string[];
   contentTypeFolder?: 'cars' | 'tracks' | 'weather';
+  /** All zip entry paths (for skins / track layouts). Optional for older rows. */
+  entryPaths?: string[];
 };
 
 export type DesiredArtifactRow = {

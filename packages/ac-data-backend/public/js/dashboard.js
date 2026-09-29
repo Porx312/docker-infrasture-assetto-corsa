@@ -185,6 +185,7 @@ function bindGlobalHandlers() {
         catalogCard.dataset.openCatalog,
         catalogCard.dataset.artifactId,
         catalogCard.dataset.packageName,
+        { packageId: catalogCard.dataset.packageId },
       );
       return;
     }

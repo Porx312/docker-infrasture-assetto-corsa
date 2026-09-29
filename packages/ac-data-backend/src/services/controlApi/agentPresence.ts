@@ -42,7 +42,7 @@ function normalizeServers(raw: unknown): AgentServerSlot[] {
 
 export async function storeAgentPresence(
   input: StoreAgentPresenceInput,
-): Promise<{ doc: AgentPresenceDoc; expiresInSec: number }> {
+): Promise<{ doc: AgentPresenceDoc; expiresInSec: number; previousServers: AgentServerSlot[] }> {
   if (!isHudRedisConfigured()) {
     throw new Error('redis_unavailable');
   }
@@ -54,25 +54,34 @@ export async function storeAgentPresence(
   const key = instanceAgentKey(instanceId);
   const now = Date.now();
   let registeredAt = now;
+  let prev: AgentPresenceDoc | null = null;
   if (input.isHeartbeat) {
-    const prev = await getAgentPresence(instanceId);
+    prev = await getAgentPresence(instanceId);
     if (prev?.registeredAt) {
       registeredAt = prev.registeredAt;
     }
+  } else {
+    prev = await getAgentPresence(instanceId);
+  }
+
+  let servers = normalizeServers(input.servers);
+  // Heartbeat with empty servers[] must not wipe a good previous list (edge glitch).
+  if (input.isHeartbeat && servers.length === 0 && prev?.servers?.length) {
+    servers = prev.servers;
   }
 
   const doc: AgentPresenceDoc = {
     instanceId,
     region: input.region?.trim() || undefined,
     agentVersion: input.agentVersion?.trim() || undefined,
-    servers: normalizeServers(input.servers),
+    servers,
     registeredAt,
     lastSeenAt: now,
   };
 
   const ttl = AGENT_PRESENCE_TTL_SEC;
   await hudRedisSet(key, JSON.stringify(doc), ttl);
-  return { doc, expiresInSec: ttl };
+  return { doc, expiresInSec: ttl, previousServers: prev?.servers ?? [] };
 }
 
 export async function getAgentPresence(instanceId: string): Promise<AgentPresenceDoc | null> {

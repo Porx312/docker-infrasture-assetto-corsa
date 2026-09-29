@@ -9,6 +9,8 @@ export type ModPackageRow = {
   kind: ModKind;
   ac_content_slug: string;
   notes: string | null;
+  /** Free-form catalog label (drift, pack, …). Null = uncategorized. */
+  category: string | null;
   preview_image_filename: string | null;
   created_at: Date;
   updated_at: Date;
@@ -25,6 +27,15 @@ export type ModArtifactRow = {
   created_at: Date;
 };
 
+export type EdgeProcessSample = {
+  name: string;
+  kind: 'acServer' | 'cm-proxy' | 'orphan';
+  pid: number;
+  rssBytes: number;
+  cpuPct: number | null;
+  cmdline?: string;
+};
+
 export type FleetEdgeRow = {
   id: string;
   label: string;
@@ -32,7 +43,86 @@ export type FleetEdgeRow = {
   enabled: boolean;
   last_seen_at: Date | null;
   disk_free_bytes: string | null;
+  cpu_count: number | null;
+  load1: number | null;
+  mem_total_bytes: string | null;
+  mem_free_bytes: string | null;
+  disk_total_bytes: string | null;
+  servers_total: number | null;
+  servers_running: number | null;
+  processes_json: EdgeProcessSample[] | null;
 };
+
+export type EdgeHeartbeatMetrics = {
+  diskFreeBytes?: number;
+  diskTotalBytes?: number;
+  cpuCount?: number;
+  load1?: number;
+  memTotalBytes?: number;
+  memFreeBytes?: number;
+  serversTotal?: number;
+  serversRunning?: number;
+  processes?: EdgeProcessSample[];
+};
+
+export type EdgeCapacityEstimate = {
+  serversExtraEstimate: number;
+  estByRam: number;
+  estByCpu: number;
+  ramMbPerServer: number;
+  loadPerServer: number;
+  headroomRamBytes: number;
+  headroomCpu: number;
+};
+
+function envPositiveNumber(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim();
+  const n = raw ? Number(raw) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+/** Estimate how many more AC servers fit on this edge (RAM + CPU headroom). */
+export function estimateEdgeCapacity(edge: {
+  cpu_count?: number | null;
+  load1?: number | null;
+  mem_total_bytes?: string | number | null;
+  mem_free_bytes?: string | number | null;
+}): EdgeCapacityEstimate | null {
+  const cpuCount = edge.cpu_count != null ? Number(edge.cpu_count) : NaN;
+  const load1 = edge.load1 != null ? Number(edge.load1) : NaN;
+  const memTotal = edge.mem_total_bytes != null ? Number(edge.mem_total_bytes) : NaN;
+  const memFree = edge.mem_free_bytes != null ? Number(edge.mem_free_bytes) : NaN;
+  if (
+    !Number.isFinite(cpuCount) ||
+    cpuCount <= 0 ||
+    !Number.isFinite(load1) ||
+    !Number.isFinite(memTotal) ||
+    memTotal <= 0 ||
+    !Number.isFinite(memFree)
+  ) {
+    return null;
+  }
+
+  const ramMbPerServer = envPositiveNumber('EDGE_CAPACITY_RAM_MB_PER_SERVER', 2048);
+  const loadPerServer = envPositiveNumber('EDGE_CAPACITY_LOAD_PER_SERVER', 1);
+  const ramPerServerBytes = ramMbPerServer * 1024 * 1024;
+
+  const headroomRamBytes = Math.max(0, memFree - 0.15 * memTotal);
+  const headroomCpu = Math.max(0, cpuCount - load1 - 1);
+  const estByRam = Math.floor(headroomRamBytes / ramPerServerBytes);
+  const estByCpu = Math.floor(headroomCpu / loadPerServer);
+  const serversExtraEstimate = Math.max(0, Math.min(estByRam, estByCpu));
+
+  return {
+    serversExtraEstimate,
+    estByRam,
+    estByCpu,
+    ramMbPerServer,
+    loadPerServer,
+    headroomRamBytes,
+    headroomCpu,
+  };
+}
 
 export async function upsertFleetEdgeFromRegistry(
   id: string,
@@ -51,7 +141,13 @@ export async function upsertFleetEdgeFromRegistry(
 export async function listFleetEdgesDb(): Promise<FleetEdgeRow[]> {
   const pool = getModPool();
   const result = await pool.query<FleetEdgeRow>(
-    `SELECT id, label, base_url, enabled, last_seen_at, disk_free_bytes::text FROM fleet_edges ORDER BY label`,
+    `SELECT id, label, base_url, enabled, last_seen_at,
+            disk_free_bytes::text, disk_total_bytes::text,
+            cpu_count, load1,
+            mem_total_bytes::text, mem_free_bytes::text,
+            servers_total, servers_running,
+            processes_json
+     FROM fleet_edges ORDER BY label`,
   );
   return result.rows;
 }
@@ -63,12 +159,37 @@ export async function setFleetEdgeEnabled(id: string, enabled: boolean): Promise
 
 export async function recordEdgeHeartbeat(
   edgeId: string,
-  diskFreeBytes?: number,
+  metrics: EdgeHeartbeatMetrics = {},
 ): Promise<void> {
   const pool = getModPool();
+  const processesJson =
+    metrics.processes !== undefined ? JSON.stringify(metrics.processes) : null;
   await pool.query(
-    `UPDATE fleet_edges SET last_seen_at = NOW(), disk_free_bytes = COALESCE($2, disk_free_bytes), updated_at = NOW() WHERE id = $1`,
-    [edgeId, diskFreeBytes ?? null],
+    `UPDATE fleet_edges SET
+       last_seen_at = NOW(),
+       disk_free_bytes = COALESCE($2, disk_free_bytes),
+       disk_total_bytes = COALESCE($3, disk_total_bytes),
+       cpu_count = COALESCE($4, cpu_count),
+       load1 = COALESCE($5, load1),
+       mem_total_bytes = COALESCE($6, mem_total_bytes),
+       mem_free_bytes = COALESCE($7, mem_free_bytes),
+       servers_total = COALESCE($8, servers_total),
+       servers_running = COALESCE($9, servers_running),
+       processes_json = COALESCE($10::jsonb, processes_json),
+       updated_at = NOW()
+     WHERE id = $1`,
+    [
+      edgeId,
+      metrics.diskFreeBytes ?? null,
+      metrics.diskTotalBytes ?? null,
+      metrics.cpuCount ?? null,
+      metrics.load1 ?? null,
+      metrics.memTotalBytes ?? null,
+      metrics.memFreeBytes ?? null,
+      metrics.serversTotal ?? null,
+      metrics.serversRunning ?? null,
+      processesJson,
+    ],
   );
 }
 
@@ -201,6 +322,7 @@ export async function listPackagesWithLatestArtifact(): Promise<
       kind: row.kind,
       ac_content_slug: row.ac_content_slug,
       notes: row.notes,
+      category: row.category ?? null,
       preview_image_filename: row.preview_image_filename ?? null,
       created_at: row.created_at,
       updated_at: row.updated_at,
@@ -230,7 +352,7 @@ export async function getArtifactById(artifactId: string): Promise<
   const pool = getModPool();
   const result = await pool.query(
     `SELECT a.*, p.id AS pkg_id, p.slug, p.display_name, p.kind, p.ac_content_slug, p.notes,
-            p.preview_image_filename, p.created_at AS pkg_created, p.updated_at AS pkg_updated
+            p.category, p.preview_image_filename, p.created_at AS pkg_created, p.updated_at AS pkg_updated
      FROM mod_artifacts a
      JOIN mod_packages p ON p.id = a.package_id
      WHERE a.id = $1`,
@@ -256,6 +378,7 @@ export async function getArtifactById(artifactId: string): Promise<
       kind: row.kind as ModKind,
       ac_content_slug: String(row.ac_content_slug),
       notes: (row.notes as string | null) ?? null,
+      category: (row.category as string | null) ?? null,
       preview_image_filename: (row.preview_image_filename as string | null) ?? null,
       created_at: row.pkg_created as Date,
       updated_at: row.pkg_updated as Date,
@@ -390,6 +513,76 @@ export async function getDistributionMatrix(artifactId: string): Promise<
   });
 }
 
+export type FleetSyncIssueRow = {
+  edge_id: string;
+  edge_label: string;
+  last_seen_at: string | null;
+  artifact_id: string;
+  package_id: string;
+  display_name: string;
+  kind: ModKind;
+  status: EdgeArtifactStatus;
+  progress_pct: number;
+  phase: string | null;
+  jobState: string | null;
+  error_message: string | null;
+};
+
+/** Cross-mod inventory / jobs that are not happily READY (for Fleet ops overview). */
+export async function listFleetSyncIssues(): Promise<FleetSyncIssueRow[]> {
+  const pool = getModPool();
+  const result = await pool.query<{
+    edge_id: string;
+    edge_label: string;
+    last_seen_at: Date | null;
+    artifact_id: string;
+    package_id: string;
+    display_name: string;
+    kind: ModKind;
+    status: EdgeArtifactStatus;
+    progress_pct: number;
+    phase: string | null;
+    job_state: string | null;
+    error_message: string | null;
+  }>(
+    `SELECT e.id AS edge_id, e.label AS edge_label, e.last_seen_at,
+            inv.artifact_id, inv.package_id, p.display_name, p.kind,
+            inv.status, inv.progress_pct, inv.error_message,
+            j.state AS job_state, j.phase
+     FROM edge_artifact_inventory inv
+     JOIN fleet_edges e ON e.id = inv.edge_id
+     JOIN mod_packages p ON p.id = inv.package_id
+     LEFT JOIN LATERAL (
+       SELECT state, phase
+       FROM sync_jobs sj
+       WHERE sj.artifact_id = inv.artifact_id AND sj.edge_id = inv.edge_id
+         AND sj.state IN ('queued', 'running', 'failed')
+       ORDER BY CASE sj.state WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,
+                sj.created_at DESC
+       LIMIT 1
+     ) j ON TRUE
+     WHERE inv.status IN ('PENDING', 'SYNCING', 'ERROR')
+        OR j.state IS NOT NULL
+     ORDER BY e.label, p.display_name
+     LIMIT 200`,
+  );
+
+  return result.rows.map((row) => ({
+    edge_id: row.edge_id,
+    edge_label: row.edge_label,
+    last_seen_at: row.last_seen_at ? new Date(row.last_seen_at).toISOString() : null,
+    artifact_id: row.artifact_id,
+    package_id: row.package_id,
+    display_name: row.display_name,
+    kind: row.kind,
+    status: row.status,
+    progress_pct: Number(row.progress_pct) || 0,
+    phase: row.phase,
+    jobState: row.job_state,
+    error_message: row.error_message,
+  }));
+}
+
 export async function listArtifactsForPackage(packageId: string): Promise<ModArtifactRow[]> {
   const pool = getModPool();
   const result = await pool.query<ModArtifactRow>(
@@ -403,7 +596,7 @@ export async function listArtifactsForPackage(packageId: string): Promise<ModArt
 export async function getPackageById(packageId: string): Promise<ModPackageRow | null> {
   const pool = getModPool();
   const result = await pool.query<ModPackageRow>(
-    `SELECT id, slug, display_name, kind, ac_content_slug, notes, preview_image_filename, created_at, updated_at
+    `SELECT id, slug, display_name, kind, ac_content_slug, notes, category, preview_image_filename, created_at, updated_at
      FROM mod_packages WHERE id = $1`,
     [packageId],
   );
@@ -419,4 +612,62 @@ export async function setPackagePreviewImageFilename(
     `UPDATE mod_packages SET preview_image_filename = $2, updated_at = NOW() WHERE id = $1`,
     [packageId, filename],
   );
+}
+
+export type PackageMetadataPatch = {
+  display_name?: string;
+  kind?: ModKind;
+  ac_content_slug?: string;
+  notes?: string | null;
+  /** Empty string clears category. */
+  category?: string | null;
+};
+
+/** Normalize free-form catalog labels (drift, pack, …). */
+export function normalizePackageCategory(raw: unknown): string | null {
+  if (raw === null) return null;
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!trimmed) return null;
+  if (trimmed.length > 48) {
+    return trimmed.slice(0, 48);
+  }
+  return trimmed;
+}
+
+export async function updatePackageMetadata(
+  packageId: string,
+  patch: PackageMetadataPatch,
+): Promise<ModPackageRow | null> {
+  const pool = getModPool();
+  const current = await getPackageById(packageId);
+  if (!current) return null;
+
+  const displayName =
+    typeof patch.display_name === 'string' && patch.display_name.trim()
+      ? patch.display_name.trim()
+      : current.display_name;
+  const kind = patch.kind ?? current.kind;
+  const acContentSlug =
+    typeof patch.ac_content_slug === 'string' && patch.ac_content_slug.trim()
+      ? patch.ac_content_slug.trim()
+      : current.ac_content_slug;
+  const notes =
+    patch.notes === undefined
+      ? current.notes
+      : patch.notes === null
+        ? null
+        : String(patch.notes);
+  const category =
+    patch.category === undefined
+      ? current.category
+      : normalizePackageCategory(patch.category);
+
+  await pool.query(
+    `UPDATE mod_packages
+     SET display_name = $2, kind = $3, ac_content_slug = $4, notes = $5, category = $6, updated_at = NOW()
+     WHERE id = $1`,
+    [packageId, displayName, kind, acContentSlug, notes, category],
+  );
+  return getPackageById(packageId);
 }

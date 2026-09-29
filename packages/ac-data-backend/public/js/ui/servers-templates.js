@@ -17,10 +17,11 @@ export function renderServersPanelHtml() {
         <span class="panel-count" id="serversCount"></span>
       </div>
       <div class="servers-panel-actions">
+        <button type="button" class="btn btn-ghost" id="openLoadingScreensBtn">Loading screens</button>
         <button type="button" class="btn btn-primary" id="globalBrandingOpenBtn">Apply branding to servers…</button>
         <button type="button" class="btn btn-sm" id="serverProvisionOpenBtn">Add instance…</button>
       </div>
-      <p class="panel-note">Bulk branding uses checkboxes. Per instance: Manage for lifecycle, lobby cfg, and CM branding.</p>
+      <p class="panel-note">Loading screens and bulk branding live in the toolbar. Per instance: Manage for lifecycle, lobby cfg, and CM branding.</p>
       <div class="server-table-section">
         <p class="modal-mod-section">Instances</p>
         <div id="serverTableWrap" class="admin-table-wrap"></div>

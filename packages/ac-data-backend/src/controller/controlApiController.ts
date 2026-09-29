@@ -27,6 +27,7 @@ import {
   upsertServerSlot,
   type ServerSlotStatus,
 } from '../services/controlApi/serverSlots.js';
+import { syncHostCatalogServersFromPresence } from '../services/hostCatalog/index.js';
 import {
   ensureModsOnInstance,
   getCentralModBySlug,
@@ -102,7 +103,7 @@ export async function postAgentRegisterHandler(req: Request, res: Response): Pro
   try {
     const servers = parseAgentServers(body.servers);
     const region = typeof body.region === 'string' ? body.region : undefined;
-    const { expiresInSec, doc } = await storeAgentPresence({
+    const { expiresInSec, doc, previousServers } = await storeAgentPresence({
       instanceId,
       region,
       agentVersion: typeof body.agentVersion === 'string' ? body.agentVersion : undefined,
@@ -121,6 +122,16 @@ export async function postAgentRegisterHandler(req: Request, res: Response): Pro
         );
       });
     }
+    void syncHostCatalogServersFromPresence({
+      instanceId: doc.instanceId,
+      previous: previousServers,
+      current: doc.servers,
+    }).catch((err: unknown) => {
+      console.warn(
+        '[control-api] syncHostCatalogServersFromPresence failed:',
+        err instanceof Error ? err.message : err,
+      );
+    });
     res.json({ ok: true, instanceId, expiresInSec });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -142,7 +153,7 @@ export async function postAgentHeartbeatHandler(req: Request, res: Response): Pr
   try {
     const servers = parseAgentServers(body.servers);
     const region = typeof body.region === 'string' ? body.region : undefined;
-    const { expiresInSec, doc } = await storeAgentPresence({
+    const { expiresInSec, doc, previousServers } = await storeAgentPresence({
       instanceId,
       region,
       agentVersion: typeof body.agentVersion === 'string' ? body.agentVersion : undefined,
@@ -161,6 +172,16 @@ export async function postAgentHeartbeatHandler(req: Request, res: Response): Pr
         );
       });
     }
+    void syncHostCatalogServersFromPresence({
+      instanceId: doc.instanceId,
+      previous: previousServers,
+      current: doc.servers,
+    }).catch((err: unknown) => {
+      console.warn(
+        '[control-api] syncHostCatalogServersFromPresence failed:',
+        err instanceof Error ? err.message : err,
+      );
+    });
     res.json({ ok: true, instanceId, expiresInSec });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

@@ -18,6 +18,7 @@ import { getModPool } from './db.js';
 import { deleteMasterArtifact, getArtifactDownloadUrl, localMasterArtifactExists } from './objectStorage.js';
 import { deleteModPreviewImageFile } from './modPreviewImages.js';
 import { tryAcquireModLock, releaseModLock, forceReleaseModLock } from './modRedisLocks.js';
+import { syncHostCatalogDelete } from '../hostCatalog/index.js';
 
 const MAX_ATTEMPTS = Number(process.env.MOD_SYNC_MAX_ATTEMPTS || 5);
 /** Requeue `running` jobs whose started_at is older than this (dead agent / crash). */
@@ -228,6 +229,12 @@ export async function forceDeleteModPackage(packageId: string): Promise<{
   } else if (pkg.kind === 'track') {
     await pool.query(`DELETE FROM mod_track_packages WHERE id = $1`, [packageId]).catch(() => undefined);
   }
+
+  await syncHostCatalogDelete({
+    kind: pkg.kind,
+    acContentSlug: pkg.ac_content_slug,
+    displayName: pkg.display_name,
+  });
 
   return {
     packageId,

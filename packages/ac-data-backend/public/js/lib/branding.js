@@ -131,9 +131,10 @@ export function updateLoadingScreensSummary(refs) {
   const el = document.getElementById(refs.loadingListSummary);
   if (!el) return;
   const urls = readLoadingImageUrls(refs.loadingListContainer).filter(Boolean);
+  const emptyHint = el.dataset.emptyHint || 'No loading screens yet — open Manage to upload or pick images';
   el.textContent =
     urls.length === 0
-      ? 'No loading screens yet — open Manage to upload or pick images'
+      ? emptyHint
       : urls.length === 1
         ? '1 loading screen configured (random per CM join)'
         : `${urls.length} loading screens configured (random per CM join)`;
@@ -255,6 +256,7 @@ export function updateBrandingPreview(refs) {
  *   loadingLabel?: string;
  *   previewClass?: string;
  *   loadingListMode?: boolean;
+ *   hideLoadingManage?: boolean;
  * }} [opts]
  */
 export function renderBrandingFieldsHtml(refs, opts = {}) {
@@ -265,16 +267,26 @@ export function renderBrandingFieldsHtml(refs, opts = {}) {
     loadingLabel = 'Loading screen',
     previewClass = '',
     loadingListMode = false,
+    hideLoadingManage = false,
   } = opts;
+
+  const manageBtnHtml =
+    loadingListMode && !hideLoadingManage && refs.loadingListManageBtn
+      ? `<button type="button" class="btn btn-ghost btn-sm" id="${refs.loadingListManageBtn}">Manage loading screens</button>`
+      : '';
+
+  const loadingEmptyHint = hideLoadingManage
+    ? 'No loading screens yet — use Loading screens in the toolbar'
+    : 'No loading screens yet — open Manage to upload or pick images';
 
   const loadingFieldHtml = loadingListMode
     ? `
       <div class="form-group branding-full loading-urls-field">
         <div class="loading-urls-header">
           <label>${loadingLabel}</label>
-          <button type="button" class="btn btn-ghost btn-sm" id="${refs.loadingListManageBtn}">Manage loading screens</button>
+          ${manageBtnHtml}
         </div>
-        <p class="loading-urls-note" id="${refs.loadingListSummary}">No loading screens yet</p>
+        <p class="loading-urls-note" id="${refs.loadingListSummary}" data-empty-hint="${escapeAttr(loadingEmptyHint)}">${loadingEmptyHint}</p>
         <div class="loading-url-list hidden" id="${refs.loadingListContainer}" aria-hidden="true"></div>
       </div>
     `
