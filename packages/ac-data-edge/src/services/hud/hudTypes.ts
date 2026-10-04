@@ -125,7 +125,7 @@ export type PlayerCacheParams = {
   lastLapMs?: number;
 };
 
-/** Same as PlayerCacheParams — Convex resolves session from live_players. */
+/** Same as PlayerCacheParams — Convex resolves session from Redis presence args (live_players fallback). */
 export type SessionQueryParams = PlayerCacheParams;
 
 export type WorkerSyncVersionResult = {

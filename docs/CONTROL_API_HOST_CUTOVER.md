@@ -82,7 +82,8 @@ Optional alias: `AC_DATA_BASE_URL` (= hub URL).
 
 ## Edge flag after cutover (`LIVE_INGEST_CONVEX`)
 
-**Only after** Host dashboards read live from Control API (no `live_players` dependency):
+**Only after** Host dashboards read live from Control API (no `live_players` dependency)
+**and** ProjectD `getPlayerJoinContext` / `buildHudSessionForSteamId` no longer require Convex `live_players` for the in-game HUD session:
 
 ```bash
 # on every edge
@@ -96,6 +97,18 @@ LIVE_INGEST_CONVEX=false
 
 Leave `LIVE_INGEST_CONVEX=true` until Host is switched — otherwise Convex dashboards go empty mid-migration.
 
+**HUD dependency:** with `LIVE_INGEST_CONVEX=false`, join/leave no longer fill `live_players`. If Convex HUD session still keys off that table, `/hud/snapshot` returns `player_not_connected` (HTTP 404) even when Redis presence exists — profile overlay breaks. Keep ingest **on** until ProjectD accepts optional `presence` on `getPlayerJoinContext` / `getHudSession` and edge sends Redis presence.
+
+**Web handoff (paste into ProjectD):** [`examples/PROJECTD_HUD_PRESENCE_NO_LIVE_PLAYERS.md`](./examples/PROJECTD_HUD_PRESENCE_NO_LIVE_PLAYERS.md).  
+**Contract detail:** [`CONVEX_PLAYER_JOIN_CONTEXT.md`](./CONVEX_PLAYER_JOIN_CONTEXT.md).
+
+### Cutover order (HUD + Host)
+
+1. ProjectD deploys Convex (`presence` + `live_players` fallback) — done when their docs match optional `presence`.
+2. assetto-infra edge/shared/hub pass Redis `presence` on join/session/version queries (shipped).
+3. Verify HUD snapshot with ingest still on (`./scripts/verify-convex-player-join.sh` + `/hud/snapshot`).
+4. Set `LIVE_INGEST_CONVEX=false` on all edges; re-verify HUD + Host live BFF.
+
 ---
 
 ## Verify (post-cutover)
@@ -103,6 +116,6 @@ Leave `LIVE_INGEST_CONVEX=true` until Host is switched — otherwise Convex dash
 1. Host picker shows **central** cars/tracks + per-VPS availability (not inventory-as-library).
 2. DevTools: only `/api/control/*` from the browser (no direct hub fetch).
 3. Ensure → LOCAL → start works; missing/ERROR blocks start.
-4. HUD WSS / laps / battles still work.
+4. HUD WSS / laps / battles still work **with** `LIVE_INGEST_CONVEX=false` (presence args path).
 5. Allocate + apply-config + start without treating Redis inventory as the only gate.
-6. After UI OK: `LIVE_INGEST_CONVEX=false` on all edges.
+6. After ProjectD presence contract + edge args OK: `LIVE_INGEST_CONVEX=false` on all edges.

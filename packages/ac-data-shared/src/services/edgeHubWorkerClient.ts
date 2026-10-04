@@ -1,4 +1,5 @@
 import { getHubWorkerBaseUrl, isHubWorkerMode } from './hubWorkerUrl.js';
+import type { HudWorkerPresenceArgs } from './hud/hudWorkerPresence.js';
 
 function workerSecret(): string {
   return (process.env.CONVEX_WORKER_SECRET || '').trim();
@@ -48,17 +49,34 @@ export async function hubFetchWorkerSyncVersion(instanceId: string): Promise<unk
   return postHubWorker('/worker/sync-version', { instanceId });
 }
 
-export async function hubFetchPlayerJoinContext(steamId: string): Promise<unknown> {
-  return postHubWorker('/worker/player-join-context', { steamId });
+export async function hubFetchPlayerJoinContext(
+  steamId: string,
+  presence?: HudWorkerPresenceArgs,
+): Promise<unknown> {
+  return postHubWorker('/worker/player-join-context', {
+    steamId,
+    ...(presence ? { presence } : {}),
+  });
 }
 
-export async function hubFetchHudSession(steamId: string): Promise<unknown> {
-  return postHubWorker('/worker/hud-session', { steamId });
+export async function hubFetchHudSession(
+  steamId: string,
+  presence?: HudWorkerPresenceArgs,
+): Promise<unknown> {
+  return postHubWorker('/worker/hud-session', {
+    steamId,
+    ...(presence ? { presence } : {}),
+  });
 }
 
-export async function hubFetchHudVersion(steamId: string, now?: number): Promise<unknown> {
+export async function hubFetchHudVersion(
+  steamId: string,
+  now?: number,
+  presence?: HudWorkerPresenceArgs,
+): Promise<unknown> {
   return postHubWorker('/worker/hud-version', {
     steamId,
     ...(now !== undefined ? { now } : {}),
+    ...(presence ? { presence } : {}),
   });
 }

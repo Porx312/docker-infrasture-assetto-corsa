@@ -5,6 +5,7 @@ import {
   readInstanceIdFromWorkerRequest,
   readSteamIdFromWorkerRequest,
 } from '@projectd/ac-data-shared/services/hud/hudWorkerAuth.js';
+import { readHudWorkerPresenceFromBody } from '@projectd/ac-data-shared/services/hud/hudWorkerPresence.js';
 import {
   isWorkerConvexQueryConfigured,
   queryHudSession,
@@ -58,7 +59,8 @@ router.post('/player-join-context', (req: Request, res: Response) => {
     res.status(400).json({ ok: false, error: 'steamId required' });
     return;
   }
-  void queryPlayerJoinContext(steamId)
+  const presence = readHudWorkerPresenceFromBody(req.body);
+  void queryPlayerJoinContext(steamId, presence)
     .then((result) => {
       res.json({ ok: true, result });
     })
@@ -82,7 +84,8 @@ router.post('/hud-session', (req: Request, res: Response) => {
     res.status(400).json({ ok: false, error: 'steamId required' });
     return;
   }
-  void queryHudSession(steamId)
+  const presence = readHudWorkerPresenceFromBody(req.body);
+  void queryHudSession(steamId, presence)
     .then((result) => {
       res.json({ ok: true, result });
     })
@@ -108,7 +111,8 @@ router.post('/hud-version', (req: Request, res: Response) => {
   }
   const body = req.body as { now?: unknown } | undefined;
   const now = typeof body?.now === 'number' && Number.isFinite(body.now) ? body.now : undefined;
-  void queryHudVersion(steamId, now)
+  const presence = readHudWorkerPresenceFromBody(req.body);
+  void queryHudVersion(steamId, now, presence)
     .then((result) => {
       res.json({ ok: true, result });
     })

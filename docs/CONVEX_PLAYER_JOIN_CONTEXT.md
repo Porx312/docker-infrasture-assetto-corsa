@@ -10,17 +10,27 @@ There is **no separate `getHudPlayer` query**. HUD profile data comes only from 
 
 | File | Role |
 |------|------|
+| `convex/lib/hudLiveSession.ts` | `resolveHudLiveSession` — connected context (`presence` args first, then `live_players` fallback) |
 | `convex/lib/hudSessionBundle.ts` | `buildHudSessionForSteamId`, validators, internal leaderboard |
 | `convex/lib/hudPlayerJoinContext.ts` | `buildPlayerJoinContext` — user → ban → session |
 | `convex/workerPlayers.ts` | `getPlayerJoinContext` export |
 | `convex/hud.ts` | Thin `getHudSession` + `getHudVersion` only |
 
+**Target (cut live ingest):** session context must not require Convex `live_players` when ac-data sends Redis `presence`. Full handoff for the web team: [`examples/PROJECTD_HUD_PRESENCE_NO_LIVE_PLAYERS.md`](./examples/PROJECTD_HUD_PRESENCE_NO_LIVE_PLAYERS.md).
+
 Handler order in `buildPlayerJoinContext`:
 
 1. Validate `workerSecret`
 2. Load user by `steamId` → if `users.isInvalidated === true`, return `user_invalidated` **immediately**
-3. Else build session via `buildHudSessionForSteamId` (same as `hud:getHudSession`)
+3. Else build session via `buildHudSessionForSteamId` / `resolveHudLiveSession` (same as `hud:getHudSession`)
 4. Return `{ user, session }` only — no `player` field
+
+### Connected resolution (`resolveHudLiveSession`)
+
+1. Ban / missing user — unchanged (before connected).
+2. If args include `presence.serverName` → treat as connected; build `session.context` from `presence`; **do not** require a `live_players` row.
+3. Else if a usable `live_players` row exists → current behavior (deploy fallback while ingest still on).
+4. Else → `session: { ok: false, reason: "player_not_connected" }`.
 
 Ban on session refresh (`getHudSession`): only via `session.profile.isInvalidated` when `session.ok === true`. Do not add `user_invalidated` to session error reasons for early exit on `getHudSession`.
 
@@ -41,12 +51,23 @@ Remove legacy `CONVEX_HUD_PLAYER_QUERY` if still present in `.env.local`.
 {
   workerSecret: string;
   steamId: string;
+  /** From edge Redis `ac:hud:presence:{steamId}` — preferred connected signal (no live_players). */
+  presence?: {
+    serverName: string;
+    instanceId?: string;
+    folderSlug?: string;
+    carModel?: string;
+    track?: string;
+    trackConfig?: string;
+  };
 }
 ```
 
+ac-data (edge) reads Redis `ac:hud:presence:{steamId}` and sends `presence` on `getPlayerJoinContext` / `getHudSession` / `getHudVersion` (direct Convex or via hub `/worker/*`). After ProjectD accepts `presence`, ops may set `LIVE_INGEST_CONVEX=false`.
+
 ## Returns
 
-### User invalidated (check this **before** `live_players`)
+### User invalidated (check this **before** connected / `live_players`)
 
 ```json
 {

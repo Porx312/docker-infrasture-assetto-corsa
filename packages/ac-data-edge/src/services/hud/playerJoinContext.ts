@@ -81,7 +81,7 @@ function scheduleJoinContextRetry(
     return;
   }
   console.log(
-    `[player-join] steamId=${steamId} scheduling join retry in ${delayMs}ms (live_players race)`,
+    `[player-join] steamId=${steamId} scheduling join retry in ${delayMs}ms (presence/session race)`,
   );
   joinRetryTimers.set(steamId, setTimeout(runRetry, delayMs));
 }

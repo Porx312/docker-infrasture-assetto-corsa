@@ -1,5 +1,12 @@
 import '../../config/loadEnv.js';
 import { ensureConvexClient, isConvexConfigured } from '../convexClient.js';
+import type { HudWorkerPresenceArgs } from './hudWorkerPresence.js';
+
+export type { HudWorkerPresenceArgs } from './hudWorkerPresence.js';
+export {
+  hudWorkerPresenceFromRecord,
+  readHudWorkerPresenceFromBody,
+} from './hudWorkerPresence.js';
 
 const CONVEX_WORKER_SECRET = (process.env.CONVEX_WORKER_SECRET || '').trim();
 const CONVEX_WORKER_SYNC_QUERY =
@@ -61,25 +68,44 @@ export async function queryWorkerSyncVersion(
   };
 }
 
-export async function queryPlayerJoinContext(steamId: string): Promise<unknown> {
+export async function queryPlayerJoinContext(
+  steamId: string,
+  presence?: HudWorkerPresenceArgs,
+): Promise<unknown> {
   if (!isWorkerConvexQueryConfigured()) {
     throw new Error('Convex worker env missing');
   }
   const { query } = ensureConvexClient();
-  return query(CONVEX_PLAYER_JOIN_QUERY, workerArgs({ steamId: steamId.trim() }));
+  return query(
+    CONVEX_PLAYER_JOIN_QUERY,
+    workerArgs({
+      steamId: steamId.trim(),
+      ...(presence ? { presence } : {}),
+    }),
+  );
 }
 
-export async function queryHudSession(steamId: string): Promise<unknown> {
+export async function queryHudSession(
+  steamId: string,
+  presence?: HudWorkerPresenceArgs,
+): Promise<unknown> {
   if (!isWorkerConvexQueryConfigured()) {
     throw new Error('Convex worker env missing');
   }
   const { query } = ensureConvexClient();
-  return query(CONVEX_HUD_SESSION_QUERY, workerArgs({ steamId: steamId.trim() }));
+  return query(
+    CONVEX_HUD_SESSION_QUERY,
+    workerArgs({
+      steamId: steamId.trim(),
+      ...(presence ? { presence } : {}),
+    }),
+  );
 }
 
 export async function queryHudVersion(
   steamId: string,
   now?: number,
+  presence?: HudWorkerPresenceArgs,
 ): Promise<unknown> {
   if (!isWorkerConvexQueryConfigured()) {
     throw new Error('Convex worker env missing');
@@ -88,6 +114,9 @@ export async function queryHudVersion(
   const args: Record<string, unknown> = { steamId: steamId.trim() };
   if (now !== undefined) {
     args.now = now;
+  }
+  if (presence) {
+    args.presence = presence;
   }
   return query(CONVEX_HUD_VERSION_QUERY, workerArgs(args));
 }
