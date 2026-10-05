@@ -59,6 +59,7 @@ Browser calls Convex (catalog/auth/start MVP) and **`/api/control/*`** for hub l
 |-----------|-----------|------|
 | Live roster | `GET /v1/servers/:lobbyName/live?instanceId=` | MVP |
 | Live summary | `GET /v1/live/summary` | MVP |
+| Share / join link | Same live responses → `joinUrl` (acstuff `ip` + `httpPort`) | MVP |
 | Mod catalog | `GET /v1/mods?kind=car\|track` | Phase 2 / ops |
 | Detail + versions | `GET /v1/mods/:slug` | Phase 2 / ops |
 | VPS badges | `GET /v1/mods/availability?instanceId=` | Phase 2 / ops |
@@ -272,6 +273,7 @@ export LOBBY=ProjectD
 # MVP — live
 curl -sS "$HUB/v1/live/summary" -H "X-Worker-Secret: $SECRET"
 curl -sS "$HUB/v1/servers/$LOBBY/live?instanceId=$INSTANCE" -H "X-Worker-Secret: $SECRET"
+# Expect nullable joinUrl like https://acstuff.club/s/q:race/online/join?ip=…&httpPort=…
 
 # Phase 2 / ops
 # curl -sS "$HUB/v1/mods" -H "X-Worker-Secret: $SECRET" | head -c 400

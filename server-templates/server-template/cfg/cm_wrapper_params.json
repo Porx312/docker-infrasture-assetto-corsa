@@ -1,0 +1,8 @@
+{
+  "description": "",
+  "port": 18081,
+  "verboseLog": false,
+  "downloadSpeedLimit": 0,
+  "downloadPasswordOnly": false,
+  "publishPasswordChecksum": true
+}

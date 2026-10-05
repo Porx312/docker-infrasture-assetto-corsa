@@ -40,6 +40,7 @@ sequenceDiagram
 | Config activa (pista, coches, password) | Convex → Redis desired-config → edge | Start/stop como antes, por `servers.name` + `vps_hosts.instanceId` |
 | ZIP en disco VPS | Hub `ensure` (ops) | Solo si falta content; no es el catálogo de Host |
 | Jugadores conectados | Hub Redis live API | BFF → `GET /v1/servers/:lobby/live?instanceId=` y/o `GET /v1/live/summary` |
+| Join / Share link | Hub live (`joinUrl`) | Mostrar botón Share con `joinUrl` (acstuff); `ip`/`httpPort` nullable si falta fleet `joinIp` |
 | Pool idle Postgres | Hub `server_slots` | **Aplazado** — no usar `allocate` en Host MVP |
 
 Workers Convex (ProjectD): `convex/worker/hostCatalogSync.ts`.  

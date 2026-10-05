@@ -25,6 +25,8 @@ export type ModArtifactRow = {
   storage_key: string;
   manifest_json: ModManifest;
   created_at: Date;
+  storage_origin?: 'hub' | 'edge';
+  source_edge_id?: string | null;
 };
 
 export type EdgeProcessSample = {
@@ -238,9 +240,13 @@ export async function createPackageAndArtifact(input: {
   sha256: string;
   storageKey: string;
   manifest: ModManifest;
+  storageOrigin?: 'hub' | 'edge';
+  sourceEdgeId?: string | null;
 }): Promise<{ packageId: string; artifactId: string }> {
   const pool = getModPool();
   const artifactId = randomUUID();
+  const storageOrigin = input.storageOrigin ?? 'hub';
+  const sourceEdgeId = input.sourceEdgeId?.trim() || null;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -264,9 +270,13 @@ export async function createPackageAndArtifact(input: {
       );
     }
     await client.query(
-      `INSERT INTO mod_artifacts (id, package_id, version_label, size_bytes, sha256, storage_key, manifest_json)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
-       ON CONFLICT (package_id, sha256) DO NOTHING`,
+      `INSERT INTO mod_artifacts (id, package_id, version_label, size_bytes, sha256, storage_key, manifest_json, storage_origin, source_edge_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
+       ON CONFLICT (package_id, sha256) DO UPDATE SET
+         storage_key = EXCLUDED.storage_key,
+         storage_origin = EXCLUDED.storage_origin,
+         source_edge_id = COALESCE(EXCLUDED.source_edge_id, mod_artifacts.source_edge_id),
+         manifest_json = EXCLUDED.manifest_json`,
       [
         artifactId,
         resolvedPackageId,
@@ -275,6 +285,8 @@ export async function createPackageAndArtifact(input: {
         input.sha256,
         input.storageKey,
         JSON.stringify(input.manifest),
+        storageOrigin,
+        sourceEdgeId,
       ],
     );
     const art = await client.query<{ id: string }>(
@@ -289,6 +301,37 @@ export async function createPackageAndArtifact(input: {
   } finally {
     client.release();
   }
+}
+
+/** Mark inventory READY after edge-local upload (no install job). */
+export async function markArtifactReadyOnEdge(input: {
+  edgeId: string;
+  artifactId: string;
+  packageId: string;
+  sha256: string;
+  bytesOnDisk?: number;
+}): Promise<void> {
+  const pool = getModPool();
+  const edgeId = input.edgeId.trim().toLowerCase();
+  await pool.query(
+    `INSERT INTO edge_artifact_assignments (edge_id, artifact_id, package_id, desired_state, assigned_at)
+     VALUES ($1, $2, $3, 'present', NOW())
+     ON CONFLICT (edge_id, package_id) DO UPDATE SET artifact_id = EXCLUDED.artifact_id, desired_state = 'present', assigned_at = NOW()`,
+    [edgeId, input.artifactId, input.packageId],
+  );
+  await pool.query(
+    `INSERT INTO edge_artifact_inventory (edge_id, artifact_id, package_id, status, installed_sha256, bytes_on_disk, progress_pct, updated_at)
+     VALUES ($1, $2, $3, 'READY', $4, $5, 100, NOW())
+     ON CONFLICT (edge_id, artifact_id) DO UPDATE SET
+       status = 'READY',
+       installed_sha256 = EXCLUDED.installed_sha256,
+       bytes_on_disk = EXCLUDED.bytes_on_disk,
+       progress_pct = 100,
+       error_code = NULL,
+       error_message = NULL,
+       updated_at = NOW()`,
+    [edgeId, input.artifactId, input.packageId, input.sha256, input.bytesOnDisk ?? null],
+  );
 }
 
 export async function listPackagesWithLatestArtifact(): Promise<
@@ -371,6 +414,8 @@ export async function getArtifactById(artifactId: string): Promise<
     storage_key: String(row.storage_key),
     manifest_json: row.manifest_json as ModManifest,
     created_at: row.created_at as Date,
+    storage_origin: (row.storage_origin as 'hub' | 'edge' | undefined) ?? 'hub',
+    source_edge_id: (row.source_edge_id as string | null | undefined) ?? null,
     package: {
       id: String(row.pkg_id),
       slug: String(row.slug),

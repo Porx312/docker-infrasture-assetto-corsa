@@ -85,7 +85,7 @@ ProjectD Host must map `servers._id` → lobby name (see ProjectD `EDGE_SERVER_I
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/v1/servers/:serverId/live` | Roster for one **lobby name**. Prefer `?instanceId=` or `instanceId:lobby`. Without instanceId the hub SCANs scoped keys `roster:*:{lobby}`. |
-| `GET` | `/v1/live/summary` | `{ servers: [{ serverId, instanceId, playerCount, updatedAt }] }` (`serverId` = lobby name) |
+| `GET` | `/v1/live/summary` | `{ servers: [{ serverId, instanceId, playerCount, updatedAt, ip, httpPort, joinUrl }] }` (`serverId` = lobby name) |
 
 Auth: `X-Worker-Secret`.
 
@@ -108,9 +108,14 @@ Response shape (`/live`):
       "updatedAt": 1710000000000
     }
   ],
-  "updatedAt": 1710000000000
+  "updatedAt": 1710000000000,
+  "ip": "13.140.160.131",
+  "httpPort": 8081,
+  "joinUrl": "https://acstuff.club/s/q:race/online/join?ip=13.140.160.131&httpPort=8081"
 }
 ```
+
+Join fields (`ip` / `httpPort` / `joinUrl`) are nullable. Resolved from `FLEET_EDGE_REGISTRY` (`joinIp` or public hostname of `baseUrl`) + edge branding `HTTP_PORT`. When `baseUrl` is private, set `joinIp` on the registry entry. Host can show a Share button with `joinUrl`.
 
 ### Convex ingest flag
 

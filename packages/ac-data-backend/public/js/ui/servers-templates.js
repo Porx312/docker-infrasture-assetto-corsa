@@ -86,7 +86,7 @@ export function formatServerStatusCell(runtime) {
 }
 
 /**
- * @param {Array<{ name: string; displayName?: string | null; wrapperPort?: number | null; fleetEdgeId?: string; fleetLabel?: string }>} servers
+ * @param {Array<{ name: string; displayName?: string | null; wrapperPort?: number | null; httpPort?: number | null; joinUrl?: string | null; fleetEdgeId?: string; fleetLabel?: string }>} servers
  * @param {boolean} showRegion
  * @param {Map<string, { running?: boolean; label?: string }>} [runtimeByKey]
  */
@@ -102,6 +102,10 @@ export function renderServerTableHtml(servers, showRegion = false, runtimeByKey 
         : '';
       const key = serverTargetKey(server.name, server.fleetEdgeId || '');
       const statusCell = formatServerStatusCell(runtimeByKey.get(key));
+      const joinUrl = typeof server.joinUrl === 'string' ? server.joinUrl.trim() : '';
+      const joinBtn = joinUrl
+        ? `<button type="button" class="btn btn-sm btn-ghost" data-copy-join-url="${escapeAttr(joinUrl)}" title="${escapeAttr(joinUrl)}">Copy join</button>`
+        : '';
       return `
     <tr>
       ${regionCell}
@@ -110,6 +114,7 @@ export function renderServerTableHtml(servers, showRegion = false, runtimeByKey 
       <td>${escapeHtml(server.displayName || server.name)}</td>
       <td>${server.wrapperPort != null ? escapeHtml(String(server.wrapperPort)) : '—'}</td>
       <td class="admin-table-actions">
+        ${joinBtn}
         <button type="button" class="btn btn-sm btn-ghost" data-server-config="${escapeAttr(server.name)}" data-fleet-edge-id="${escapeAttr(server.fleetEdgeId || '')}">Manage</button>
       </td>
     </tr>`;

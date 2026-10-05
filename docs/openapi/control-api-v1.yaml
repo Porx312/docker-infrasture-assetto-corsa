@@ -401,6 +401,7 @@ paths:
         Reads shared Redis HUD roster keys written by the edge. Does not accept a live POST.
         `serverId` = normalized lobby name (e.g. ProjectD), not Convex servers._id.
         Empty when stale/missing: `{ ok: true, players: [], updatedAt: null }` (not 404).
+        Also returns nullable `ip` / `httpPort` / `joinUrl` (acstuff.club) from fleet registry + branding.
       operationId: getServerLive
       parameters:
         - name: serverId
@@ -418,6 +419,10 @@ paths:
       responses:
         '200':
           description: Roster (may be empty)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LiveServerResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /v1/live/summary:
@@ -426,10 +431,15 @@ paths:
       description: |
         Aggregates active roster keys from shared Redis. Each `serverId` in the response
         is a lobby name; ProjectD maps to Convex servers._id client-side.
+        Each row includes nullable acstuff join fields (`ip`, `httpPort`, `joinUrl`).
       operationId: getLiveSummary
       responses:
         '200':
           description: Summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LiveSummaryResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /v1/internal/desired-config:
@@ -466,6 +476,67 @@ components:
     Unauthorized:
       description: Missing or invalid X-Worker-Secret
   schemas:
+    LiveJoinFields:
+      type: object
+      properties:
+        ip:
+          type: string
+          nullable: true
+          description: Public join host from FLEET_EDGE_REGISTRY joinIp or baseUrl hostname
+        httpPort:
+          type: integer
+          nullable: true
+          description: AC HTTP_PORT from edge branding
+        joinUrl:
+          type: string
+          nullable: true
+          description: acstuff.club one-click join URL
+    LiveServerResponse:
+      allOf:
+        - type: object
+          required: [ok, serverId, instanceId, players, updatedAt, ip, httpPort, joinUrl]
+          properties:
+            ok:
+              type: boolean
+              enum: [true]
+            serverId:
+              type: string
+            instanceId:
+              type: string
+              nullable: true
+            players:
+              type: array
+              items:
+                type: object
+            updatedAt:
+              type: number
+              nullable: true
+        - $ref: '#/components/schemas/LiveJoinFields'
+    LiveSummaryResponse:
+      type: object
+      required: [ok, servers]
+      properties:
+        ok:
+          type: boolean
+          enum: [true]
+        servers:
+          type: array
+          items:
+            allOf:
+              - type: object
+                required: [serverId, instanceId, playerCount, updatedAt, ip, httpPort, joinUrl]
+                properties:
+                  serverId:
+                    type: string
+                  instanceId:
+                    type: string
+                    nullable: true
+                  playerCount:
+                    type: integer
+                  updatedAt:
+                    type: number
+                    nullable: true
+              - $ref: '#/components/schemas/LiveJoinFields'
     AgentServerSlot:
       type: object
       properties:

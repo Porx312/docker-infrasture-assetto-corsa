@@ -173,6 +173,18 @@ function bindGlobalHandlers() {
   document.getElementById('serverProvisionCancelBtn')?.addEventListener('click', closeServerProvisionModal);
 
   document.getElementById('panelContainer')?.addEventListener('click', (e) => {
+    const copyJoinBtn = e.target.closest('[data-copy-join-url]');
+    if (copyJoinBtn instanceof HTMLElement) {
+      const url = copyJoinBtn.dataset.copyJoinUrl || '';
+      if (url) {
+        void navigator.clipboard.writeText(url).then(
+          () => showToast('Join link copied', 'success'),
+          () => showToast('Could not copy join link', 'error'),
+        );
+      }
+      return;
+    }
+
     const configBtn = e.target.closest('[data-server-config]');
     if (configBtn) {
       openServerConfig(configBtn.dataset.serverConfig, configBtn.dataset.fleetEdgeId || '');

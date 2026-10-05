@@ -11,11 +11,12 @@ import {
   applyInventoryReport,
 } from '../services/mods/orchestrator.js';
 import { recordEdgeHeartbeat } from '../services/mods/catalogRepo.js';
-import type { InventoryReportItem } from '@projectd/ac-data-shared/mods/types.js';
+import type { InventoryReportItem, ModKind, ModManifest } from '@projectd/ac-data-shared/mods/types.js';
 import {
   refreshServerModRequirements,
   getServerModReadiness,
 } from '../services/mods/serverModRequirements.js';
+import { registerEdgeLocalArtifact } from '../services/mods/edgeRegister.js';
 
 function unauthorized(res: Response): void {
   res.status(401).json({ ok: false, error: 'unauthorized' });
@@ -211,4 +212,53 @@ export async function modAgentInventoryReportHandler(req: Request, res: Response
   const items = (req.body.items || []) as InventoryReportItem[];
   await applyInventoryReport(edgeId, items);
   res.json({ ok: true });
+}
+
+export async function modAgentRegisterLocalHandler(req: Request, res: Response): Promise<void> {
+  if (!isModAgentRequestAuthorized(req) || !isModDbConfigured()) {
+    unauthorized(res);
+    return;
+  }
+  const edgeId = readEdgeIdFromRequest(req);
+  const body = req.body as {
+    slug?: string;
+    displayName?: string;
+    kind?: ModKind;
+    acContentSlug?: string;
+    versionLabel?: string;
+    sizeBytes?: number;
+    sha256?: string;
+    storageKey?: string;
+    manifest?: ModManifest;
+  };
+  if (
+    !body.slug ||
+    !body.displayName ||
+    !body.kind ||
+    !body.acContentSlug ||
+    !body.sha256 ||
+    typeof body.sizeBytes !== 'number' ||
+    !body.manifest
+  ) {
+    res.status(400).json({ ok: false, message: 'missing required fields' });
+    return;
+  }
+  try {
+    const result = await registerEdgeLocalArtifact({
+      edgeId,
+      slug: body.slug,
+      displayName: body.displayName,
+      kind: body.kind,
+      acContentSlug: body.acContentSlug,
+      versionLabel: body.versionLabel || 'edge',
+      sizeBytes: body.sizeBytes,
+      sha256: body.sha256,
+      storageKey: body.storageKey,
+      manifest: body.manifest,
+    });
+    res.json({ ok: true, ...result });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(400).json({ ok: false, message });
+  }
 }

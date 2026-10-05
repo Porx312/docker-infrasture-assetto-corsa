@@ -53,7 +53,8 @@ CONVEX_WORKER_SECRET=…          # shared with every edge
 REDIS_HOST=…                    # SHARED with edges
 REDIS_PORT=6379
 
-FLEET_EDGE_REGISTRY={"eu":{"label":"EU","baseUrl":"http://10.0.0.2:3000","instanceId":"vps-eu-2"}}
+FLEET_EDGE_REGISTRY={"eu":{"label":"EU","baseUrl":"http://10.0.0.2:3000","instanceId":"vps-eu-2","joinIp":"13.140.160.131"}}
+# joinIp = public IP for acstuff join links when baseUrl is a private/admin URL
 HUD_PUBLIC_BASE_URL=https://api.example.com
 
 # Loading / banner images (admin Upload → data/branding, public GET /branding/images/:file)

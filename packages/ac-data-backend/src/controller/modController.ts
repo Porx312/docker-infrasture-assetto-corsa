@@ -22,6 +22,7 @@ import {
   verifyArtifactOnEdges,
   removePackageFromEdges,
   syncFleetEdgesToDb,
+  copyArtifactFromEdge,
 } from '../services/mods/orchestrator.js';
 import { getArtifactById } from '../services/mods/catalogRepo.js';
 import { streamLocalMasterArtifact } from '../services/mods/objectStorage.js';
@@ -39,6 +40,17 @@ import {
   modPreviewPublicUrl,
   storeModPreviewImageFromTemp,
 } from '../services/mods/modPreviewImages.js';
+import {
+  getModsCars,
+  getModsTracks,
+} from '../services/controlApi/modsInventory.js';
+import {
+  listFleetEdges,
+  resolveFleetEdge,
+  resolveFleetEdgeByInstanceId,
+} from '@projectd/ac-data-shared/services/fleet/fleetRegistry.js';
+import fsp from 'node:fs/promises';
+import { Blob } from 'node:buffer';
 
 function modDbUnavailable(res: Response): void {
   res.status(503).json({ ok: false, message: 'Mod repository requires DATABASE_URL' });
@@ -479,6 +491,110 @@ export async function modUpdatePackageHandler(req: Request, res: Response): Prom
           : null,
       },
     });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(400).json({ ok: false, message });
+  }
+}
+
+export async function modEdgeInventoryHandler(req: Request, res: Response): Promise<void> {
+  const edgeId = String(req.params.edgeId || '').trim().toLowerCase();
+  if (!edgeId) {
+    res.status(400).json({ ok: false, message: 'edgeId required' });
+    return;
+  }
+  const edge = resolveFleetEdge(edgeId) ?? resolveFleetEdgeByInstanceId(edgeId);
+  const instanceId = edge?.instanceId || edgeId;
+  try {
+    const [cars, tracks] = await Promise.all([getModsCars(instanceId), getModsTracks(instanceId)]);
+    if (!cars || !tracks) {
+      res.status(503).json({ ok: false, message: 'redis_unavailable' });
+      return;
+    }
+    res.json({
+      ok: true,
+      edgeId: edge?.id || edgeId,
+      instanceId,
+      label: edge?.label || edgeId,
+      cars: cars.cars,
+      tracks: tracks.tracks,
+      carsMeta: cars.meta,
+      tracksMeta: tracks.meta,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(503).json({ ok: false, message });
+  }
+}
+
+/** Proxy ZIP to edge local-upload (hub does not keep master ZIP). */
+export async function modEdgeUploadHandler(req: Request, res: Response): Promise<void> {
+  const edgeId = String(req.params.edgeId || '').trim().toLowerCase();
+  const edge = resolveFleetEdge(edgeId);
+  if (!edge?.baseUrl) {
+    res.status(404).json({ ok: false, message: `Unknown fleet edge: ${edgeId}` });
+    return;
+  }
+  const file = (req as Request & { file?: Express.Multer.File }).file;
+  if (!file?.path) {
+    res.status(400).json({ ok: false, message: 'file required' });
+    return;
+  }
+  const secret = (process.env.CONVEX_WORKER_SECRET || '').trim();
+  if (!secret) {
+    res.status(503).json({ ok: false, message: 'CONVEX_WORKER_SECRET missing' });
+    return;
+  }
+  try {
+    const bytes = await fsp.readFile(file.path);
+    const form = new FormData();
+    form.append(
+      'file',
+      new Blob([new Uint8Array(bytes)], { type: 'application/zip' }),
+      file.originalname || 'mod.zip',
+    );
+    const kind = typeof req.body?.kind === 'string' ? req.body.kind : '';
+    const displayName = typeof req.body?.displayName === 'string' ? req.body.displayName : '';
+    if (kind) form.append('kind', kind);
+    if (displayName) form.append('displayName', displayName);
+
+    const url = new URL(
+      '/admin/mods/local-upload',
+      edge.baseUrl.endsWith('/') ? edge.baseUrl : `${edge.baseUrl}/`,
+    );
+    const upstream = await fetch(url, {
+      method: 'POST',
+      headers: { 'X-Worker-Secret': secret },
+      body: form,
+      signal: AbortSignal.timeout(Number(process.env.FLEET_ADMIN_PROXY_TIMEOUT_MS || 600_000)),
+    });
+    const data = (await upstream.json().catch(() => ({}))) as Record<string, unknown>;
+    res.status(upstream.status).json(data);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(502).json({ ok: false, message });
+  } finally {
+    await fsp.unlink(file.path).catch(() => undefined);
+  }
+}
+
+export async function modCopyFromEdgeHandler(req: Request, res: Response): Promise<void> {
+  if (!isModDbConfigured()) {
+    modDbUnavailable(res);
+    return;
+  }
+  const artifactId = String(req.params.artifactId || '');
+  const sourceEdgeId = String(req.body?.sourceEdgeId || '').trim();
+  const targetEdgeIds = Array.isArray(req.body?.targetEdgeIds)
+    ? (req.body.targetEdgeIds as unknown[]).map((id) => String(id))
+    : [];
+  if (!sourceEdgeId || !targetEdgeIds.length) {
+    res.status(400).json({ ok: false, message: 'sourceEdgeId and targetEdgeIds required' });
+    return;
+  }
+  try {
+    const result = await copyArtifactFromEdge(artifactId, sourceEdgeId, targetEdgeIds);
+    res.json({ ok: true, ...result });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(400).json({ ok: false, message });

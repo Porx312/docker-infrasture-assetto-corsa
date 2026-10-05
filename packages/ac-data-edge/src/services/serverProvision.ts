@@ -55,9 +55,15 @@ function nextServerFolderName(): string {
   return `server-${maxN + 1}`;
 }
 
+/** Runtime dirs that must not be cloned from a dirty source (often mode 0000). */
+const SKIP_COPY_DIR_NAMES = new Set(['results', 'logs']);
+
 function copyDirRecursive(src: string, dest: string): void {
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    if (SKIP_COPY_DIR_NAMES.has(entry.name)) {
+      continue;
+    }
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
     // Template often has content/cars|tracks|weather as symlinks to shared dirs.
@@ -115,6 +121,13 @@ export async function provisionServerInstance(options: {
 
   const sourceDir = templateSourceDir();
   copyDirRecursive(sourceDir, destDir);
+  // Fresh empty results (never clone locked/mode-0000 results from source).
+  fs.mkdirSync(path.join(destDir, 'results'), { recursive: true, mode: 0o775 });
+  try {
+    fs.chmodSync(path.join(destDir, 'results'), 0o775);
+  } catch {
+    /* best-effort */
+  }
 
   const cfgPath = path.join(destDir, 'cfg', 'server_cfg.ini');
   if (!fs.existsSync(cfgPath)) {

@@ -1,10 +1,19 @@
-import { resolveFleetEdge } from '@projectd/ac-data-shared/services/fleet/fleetRegistry.js';
+import {
+  listFleetEdges,
+  resolveFleetEdge,
+} from '@projectd/ac-data-shared/services/fleet/fleetRegistry.js';
 import { getModPool } from './db.js';
 import { upsertFleetEdgeFromRegistry } from './catalogRepo.js';
-import { syncFleetEdgesToDb } from './orchestrator.js';
 
 export function normalizeEdgeId(raw: string): string {
   return raw.trim().toLowerCase().replace(/\s+/g, '-');
+}
+
+/** Upsert all registry edges into fleet_edges (FK for sync jobs / inventory). */
+export async function syncFleetEdgesToDb(): Promise<void> {
+  for (const edge of listFleetEdges()) {
+    await upsertFleetEdgeFromRegistry(edge.id, edge.label, edge.baseUrl);
+  }
 }
 
 /** Ensures fleet_edges row exists (FK for server_mod_requirements, sync jobs, etc.). */

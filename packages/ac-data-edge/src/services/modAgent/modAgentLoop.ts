@@ -66,9 +66,14 @@ async function processJob(job: ModAgentJobPayload): Promise<void> {
     await fsp.mkdir(tmpDir, { recursive: true });
     zipPath = path.join(tmpDir, `${job.sha256}.zip`);
 
-    const signed = await getArtifactDownloadUrl(job.artifactId);
+    const secret = (process.env.CONVEX_WORKER_SECRET || '').trim();
+    const downloadHeaders = secret ? { 'X-Worker-Secret': secret } : undefined;
+    const url =
+      typeof job.downloadUrl === 'string' && job.downloadUrl.trim()
+        ? job.downloadUrl.trim()
+        : (await getArtifactDownloadUrl(job.artifactId)).url;
     await downloadWithResume(
-      signed.url,
+      url,
       zipPath,
       job.sizeBytes,
       (pct) => {
@@ -78,6 +83,7 @@ async function processJob(job: ModAgentJobPayload): Promise<void> {
         });
       },
       job.sha256,
+      downloadHeaders,
     );
     await ensureBlobCached(job.sha256, zipPath);
   }

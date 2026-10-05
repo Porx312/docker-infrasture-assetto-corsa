@@ -589,6 +589,7 @@ export async function openCatalogDistribution(type, artifactId, displayName, opt
 
       <section class="mod-dist-section">
         <p class="modal-mod-section">VPS distribution</p>
+        <p class="panel-hint">Sync copies from a READY VPS (peer pull) when the ZIP is edge-owned — hub does not store master blobs for those. Remove deletes content on the selected VPS only.</p>
         <table class="mod-dist-table">
           <thead><tr><th></th><th>VPS</th><th>Status</th></tr></thead>
           <tbody>
@@ -606,9 +607,9 @@ export async function openCatalogDistribution(type, artifactId, displayName, opt
           </tbody>
         </table>
         <div class="modal-actions mod-side-dist-actions">
-          <button type="button" class="btn btn-primary btn-sm" data-sync-edges="${escapeAttr(artifactId)}">Sync selected</button>
+          <button type="button" class="btn btn-primary btn-sm" data-sync-edges="${escapeAttr(artifactId)}">Sync / copy to selected</button>
           <button type="button" class="btn btn-ghost btn-sm" data-verify-edges="${escapeAttr(artifactId)}">Verify</button>
-          <button type="button" class="btn btn-danger btn-sm" data-remove-edges="${escapeAttr(artifactId)}">Remove</button>
+          <button type="button" class="btn btn-danger btn-sm" data-remove-edges="${escapeAttr(artifactId)}">Remove from VPS</button>
         </div>
       </section>
     </aside>
@@ -660,6 +661,16 @@ export async function openCatalogDistribution(type, artifactId, displayName, opt
 
   detail.querySelector('[data-remove-edges]')?.addEventListener('click', async () => {
     const edgeIds = selectedEdges();
+    if (!edgeIds.length) {
+      showToast('Select at least one VPS', 'error');
+      return;
+    }
+    const ok = await showConfirm(
+      'Remove from VPS?',
+      `Delete this mod from ${edgeIds.length} selected VPS (local pool + blob). Catalog metadata stays on the hub.`,
+      'Remove',
+    );
+    if (!ok) return;
     const { data: res } = await apiPost(`/mods/artifacts/${artifactId}/remove-from-edges`, { edgeIds });
     showToast(res.ok ? 'Remove scheduled' : res.message, res.ok ? 'success' : 'error');
     await openCatalogDistribution(type, artifactId, displayName, { packageId: resolvedPackageId });

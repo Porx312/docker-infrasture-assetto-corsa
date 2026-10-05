@@ -45,6 +45,11 @@ export type ModAgentJobPayload = {
   manifest: ModManifest;
   /** Optional version label from central library (for local inventory sidecar). */
   versionLabel?: string;
+  /**
+   * When set (peer / edge-only install), agent downloads from this URL instead of hub master.
+   * Auth: agent sends X-Worker-Secret.
+   */
+  downloadUrl?: string;
 };
 
 export type InventoryReportItem = {

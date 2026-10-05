@@ -10,6 +10,7 @@ import {
   isHudRedisConfigured,
 } from '../hud/hudRedis.js';
 import type { HubPlayerPresenceRecord } from '../hud/hudPlayerRouting.js';
+import { resolveServerJoinEndpoint } from './joinEndpoint.js';
 
 export type LivePlayerRow = {
   steamId: string;
@@ -22,20 +23,26 @@ export type LivePlayerRow = {
   updatedAt: number;
 };
 
+export type LiveJoinFields = {
+  ip: string | null;
+  httpPort: number | null;
+  joinUrl: string | null;
+};
+
 export type LiveServerResponse = {
   ok: true;
   serverId: string;
   instanceId: string | null;
   players: LivePlayerRow[];
   updatedAt: number | null;
-};
+} & LiveJoinFields;
 
 export type LiveSummaryServer = {
   serverId: string;
   instanceId: string | null;
   playerCount: number;
   updatedAt: number | null;
-};
+} & LiveJoinFields;
 
 const ROSTER_PREFIX = 'ac:hud:presence:roster:';
 
@@ -189,12 +196,24 @@ export async function getServerLiveRoster(
     });
   }
 
+  const folderSlug =
+    players.find((p) => typeof p.folderSlug === 'string' && p.folderSlug.trim())
+      ?.folderSlug ?? null;
+  const join = await resolveServerJoinEndpoint({
+    instanceId: resolvedInstanceId,
+    lobbyName: normalized,
+    folderSlug,
+  });
+
   return {
     ok: true,
     serverId: normalized,
     instanceId: resolvedInstanceId,
     players,
     updatedAt,
+    ip: join.ip,
+    httpPort: join.httpPort,
+    joinUrl: join.joinUrl,
   };
 }
 
@@ -224,17 +243,29 @@ export async function getLiveSummary(): Promise<{ ok: true; servers: LiveSummary
       }
       const { steamIds } = await readRosterSteamIds(serverId, instanceId);
       let updatedAt: number | null = null;
+      let folderSlug: string | null = null;
       for (const steamId of steamIds.slice(0, 5)) {
         const presence = await readPresence(steamId);
         if (presence && (updatedAt === null || presence.updatedAt > updatedAt)) {
           updatedAt = presence.updatedAt;
         }
+        if (!folderSlug && presence?.folderSlug?.trim()) {
+          folderSlug = presence.folderSlug.trim();
+        }
       }
+      const join = await resolveServerJoinEndpoint({
+        instanceId,
+        lobbyName: serverId,
+        folderSlug,
+      });
       servers.push({
         serverId,
         instanceId,
         playerCount: steamIds.length,
         updatedAt,
+        ip: join.ip,
+        httpPort: join.httpPort,
+        joinUrl: join.joinUrl,
       });
     }
   } while (cursor !== '0');

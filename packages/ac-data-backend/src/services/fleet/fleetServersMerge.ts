@@ -1,4 +1,8 @@
-import { listFleetEdges } from '@projectd/ac-data-shared/services/fleet/fleetRegistry.js';
+import { buildAcstuffJoinUrl } from '@projectd/ac-data-shared/services/acstuffJoinUrl.js';
+import {
+  listFleetEdges,
+  resolveFleetJoinIp,
+} from '@projectd/ac-data-shared/services/fleet/fleetRegistry.js';
 import { fetchEdgeJson } from './fleetEdgeAdminFetch.js';
 
 export type FleetServerRow = {
@@ -9,6 +13,8 @@ export type FleetServerRow = {
   displayName: string | null;
   wrapperPort: number | null;
   httpPort: number | null;
+  joinIp: string | null;
+  joinUrl: string | null;
 };
 
 export type FleetServersResult = {
@@ -43,7 +49,9 @@ export async function fetchMergedFleetServers(): Promise<FleetServersResult> {
       warnings.push(`${edge.label}: ${result.error ?? `HTTP ${result.status}`}`);
       continue;
     }
+    const joinIp = resolveFleetJoinIp(edge);
     for (const server of result.data.servers) {
+      const httpPort = server.httpPort ?? null;
       servers.push({
         fleetEdgeId: edge.id,
         fleetLabel: edge.label,
@@ -51,7 +59,9 @@ export async function fetchMergedFleetServers(): Promise<FleetServersResult> {
         name: server.name,
         displayName: server.displayName ?? null,
         wrapperPort: server.wrapperPort ?? null,
-        httpPort: server.httpPort ?? null,
+        httpPort,
+        joinIp,
+        joinUrl: buildAcstuffJoinUrl(joinIp, httpPort),
       });
     }
   }

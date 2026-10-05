@@ -11,6 +11,7 @@ export async function downloadWithResume(
   expectedSize: number,
   onProgress: (pct: number) => void,
   expectedSha256: string,
+  extraHeaders?: Record<string, string>,
 ): Promise<void> {
   const partPath = `${destPath}.part`;
   let start = 0;
@@ -21,7 +22,7 @@ export async function downloadWithResume(
     start = 0;
   }
 
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...(extraHeaders ?? {}) };
   if (start > 0 && start < expectedSize) {
     headers.Range = `bytes=${start}-`;
   } else if (start >= expectedSize) {
@@ -33,7 +34,7 @@ export async function downloadWithResume(
   if (res.status !== 200 && res.status !== 206) {
     const hint =
       res.status === 404 || res.status === 409
-        ? ' (hub missing blob or wrong MOD_HUB_PUBLIC_URL)'
+        ? ' (hub missing blob or wrong MOD_HUB_PUBLIC_URL / peer edge)'
         : '';
     throw new Error(`Download failed: HTTP ${res.status}${hint}`);
   }

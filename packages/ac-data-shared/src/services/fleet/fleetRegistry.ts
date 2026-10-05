@@ -1,8 +1,12 @@
+import { joinIpFromBaseUrl } from '../acstuffJoinUrl.js';
+
 export type FleetEdge = {
   id: string;
   label: string;
   baseUrl: string;
   instanceId?: string;
+  /** Public IP/hostname for acstuff join links when baseUrl is private. */
+  joinIp?: string;
 };
 
 let cachedFleet: FleetEdge[] | null = null;
@@ -46,15 +50,35 @@ function parseFleetRegistryJson(raw: string): FleetEdge[] {
           : key.trim();
       const instanceId =
         typeof row.instanceId === 'string' ? row.instanceId.trim() : undefined;
+      const joinIpRaw = typeof row.joinIp === 'string' ? row.joinIp.trim() : '';
       out.push({
         id,
         label,
         baseUrl: trimTrailingSlash(baseUrl),
         instanceId,
+        ...(joinIpRaw ? { joinIp: joinIpRaw } : {}),
       });
     }
   }
   return out;
+}
+
+/** Public join host: explicit joinIp (trusted), else hostname of baseUrl when public. */
+export function resolveFleetJoinIp(edge: FleetEdge): string | null {
+  const override = typeof edge.joinIp === 'string' ? edge.joinIp.trim() : '';
+  if (override) {
+    const lower = override.toLowerCase();
+    if (
+      lower === 'localhost' ||
+      lower === '127.0.0.1' ||
+      lower === '::1' ||
+      lower === '0.0.0.0'
+    ) {
+      return null;
+    }
+    return override;
+  }
+  return joinIpFromBaseUrl(edge.baseUrl);
 }
 
 function deriveFromHudEdgeRegistry(): FleetEdge[] {

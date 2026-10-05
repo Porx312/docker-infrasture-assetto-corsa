@@ -30,7 +30,7 @@ import {
 let loadingScreensActiveRefs = null;
 let loadingScreensModalBound = false;
 
-/** @type {Array<{ name: string; displayName?: string | null; wrapperPort?: number | null; fleetEdgeId?: string; fleetLabel?: string }>} */
+/** @type {Array<{ name: string; displayName?: string | null; wrapperPort?: number | null; httpPort?: number | null; joinUrl?: string | null; fleetEdgeId?: string; fleetLabel?: string }>} */
 let serverList = [];
 let activeServerName = null;
 /** @type {string} */

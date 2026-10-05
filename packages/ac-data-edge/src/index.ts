@@ -23,6 +23,7 @@ import { isBackendIngestForwardConfigured } from '@projectd/ac-data-shared/servi
 import { startModAgentLoop } from './services/modAgent/modAgentLoop.js';
 import { startModInventoryScanLoop } from './services/modInventoryScan.js';
 import { startControlApiAgentPresenceLoop } from './services/controlApiAgentPresence.js';
+import { modLocalUploadRouter, modBlobRouter } from './routes/modEdgeRoutes.js';
 import {
   isEdgeConfigSyncEnabled,
   isHubCentricEdgeMode,
@@ -109,6 +110,8 @@ app.use('/ac-server', apiKeyMiddleware, acServerRoutes);
 app.use('/client', ...clientLauncherMiddleware, clientSyncRoutes);
 app.use('/hud', ...hudMiddleware, hudRoutes);
 app.use('/admin', adminRoutes);
+app.use('/admin', modLocalUploadRouter);
+app.use('/api', modBlobRouter);
 
 initHudPushHub();
 startHudConvexQueryStatsLogging();
