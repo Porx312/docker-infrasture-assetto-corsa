@@ -44,7 +44,6 @@ import {
   listBrandingImages,
   storeBrandingImageFromTemp,
 } from '../services/brandingImages.js';
-import { syncContentToFleet } from '../services/fleet/contentFleetSync.js';
 
 export async function adminLogin(req: Request, res: Response): Promise<void> {
     const { username, password } = req.body;
@@ -688,17 +687,6 @@ export async function downloadHudReleaseAdminHandler(req: Request, res: Response
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.sendFile(filePath);
-}
-
-export async function syncContentFleetHandler(req: Request, res: Response): Promise<void> {
-    const dryRun = String(req.query.dryRun ?? req.body?.dryRun ?? 'false').toLowerCase() === 'true';
-    try {
-        const result = await syncContentToFleet({ dryRun });
-        res.status(result.ok ? 200 : 503).json(result);
-    } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : 'Unknown error';
-        res.status(500).json({ ok: false, message });
-    }
 }
 
 export async function deleteEmptyContentAdminHandler(req: Request, res: Response): Promise<void> {

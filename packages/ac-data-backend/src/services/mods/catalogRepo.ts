@@ -195,41 +195,6 @@ export async function recordEdgeHeartbeat(
   );
 }
 
-export async function createUploadSession(
-  uploadId: string,
-  originalName: string,
-  stagingPath: string,
-): Promise<void> {
-  const pool = getModPool();
-  await pool.query(
-    `INSERT INTO mod_upload_sessions (upload_id, original_name, staging_path, state) VALUES ($1, $2, $3, 'uploading')`,
-    [uploadId, originalName, stagingPath],
-  );
-}
-
-export async function getUploadSession(uploadId: string) {
-  const pool = getModPool();
-  const result = await pool.query(`SELECT * FROM mod_upload_sessions WHERE upload_id = $1`, [uploadId]);
-  return result.rows[0] as Record<string, unknown> | undefined;
-}
-
-export async function updateUploadSession(
-  uploadId: string,
-  patch: Record<string, unknown>,
-): Promise<void> {
-  const pool = getModPool();
-  const fields: string[] = [];
-  const values: unknown[] = [uploadId];
-  let idx = 2;
-  for (const [key, value] of Object.entries(patch)) {
-    fields.push(`${key} = $${idx}`);
-    values.push(value);
-    idx += 1;
-  }
-  fields.push('updated_at = NOW()');
-  await pool.query(`UPDATE mod_upload_sessions SET ${fields.join(', ')} WHERE upload_id = $1`, values);
-}
-
 export async function createPackageAndArtifact(input: {
   slug: string;
   displayName: string;

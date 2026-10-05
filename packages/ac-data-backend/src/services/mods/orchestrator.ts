@@ -324,7 +324,9 @@ export async function forceDeleteModPackage(packageId: string): Promise<{
   }
 
   for (const art of artifacts) {
-    await deleteMasterArtifact(art.storage_key).catch(() => undefined);
+    if (!isEdgeBlobStorageKey(art.storage_key)) {
+      await deleteMasterArtifact(art.storage_key).catch(() => undefined);
+    }
   }
 
   if (pkg.preview_image_filename) {

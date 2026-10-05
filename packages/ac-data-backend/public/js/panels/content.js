@@ -20,13 +20,14 @@ import {
 } from '../ui/content-templates.js';
 
 /** @type {Record<string, object[]>} */
-const itemsByType = { cars: [], tracks: [], weather: [] };
+// Cars/Tracks use mod-catalog.js; this panel is weather (and similar filesystem content).
+const itemsByType = { weather: [] };
 
 /** @type {Record<string, Set<string>>} */
-const selectedByType = { cars: new Set(), tracks: new Set() };
+const selectedByType = {};
 
 /** @type {Record<string, string[]>} */
-const visibleModNamesByType = { cars: [], tracks: [] };
+const visibleModNamesByType = {};
 
 /** @param {string} type */
 export function getItems(type) {

@@ -32,7 +32,6 @@ import {
     deleteHudReleaseHandler,
     downloadHudReleaseAdminHandler,
     deleteEmptyContentAdminHandler,
-    syncContentFleetHandler,
 } from '../controller/adminController.js';
 import {
     getActivityFeedHandler,
@@ -120,7 +119,6 @@ router.post(
 );
 
 router.delete('/content/empty', adminAuth, deleteEmptyContentAdminHandler);
-router.post('/content/sync-fleet', adminAuth, syncContentFleetHandler);
 
 router.get('/hud/releases', adminAuth, getHudReleasesHandler);
 router.post('/hud/releases', adminAuth, handleMulterUpload(upload.single('file')), uploadHudReleaseHandler);

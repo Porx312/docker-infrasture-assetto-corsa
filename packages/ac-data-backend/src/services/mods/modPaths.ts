@@ -11,7 +11,7 @@ function canWriteUnder(dir: string): boolean {
   }
 }
 
-/** Hub mod storage root: staging + master blobs (default sibling of CONTENT_PATH/data/mods). */
+/** Hub mod storage root: Fleet→edge upload staging + leftover master blobs. */
 export function resolveModUploadRoot(): string {
   const explicit = (process.env.MOD_UPLOAD_ROOT || '').trim();
   const contentPath = (process.env.CONTENT_PATH || '').trim();

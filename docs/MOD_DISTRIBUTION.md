@@ -1,8 +1,8 @@
 # Mod repository and distribution
 
-**Preferred model (edge-only blobs):** ZIP bytes live on game VPS nodes. The hub keeps **catalog metadata** only (`mod_packages`, `mod_artifacts`, inventory, sync jobs). Copy between VPS is **peer pull** (signed worker secret), not hub→edge re-upload.
+**Preferred model (edge-only blobs):** ZIP bytes live on game VPS nodes. The hub keeps **catalog metadata** only (`mod_packages`, `mod_artifacts`, inventory, sync jobs). Copy between VPS is **peer pull** (worker secret), not hub→edge re-upload.
 
-Legacy hub master storage (`MOD_STORAGE_MODE=local|s3`) still works for older artifacts (`storage_origin=hub`). New uploads should go **Fleet → VPS inventory → Upload to VPS**.
+Leftover hub master blobs (`storage_origin=hub`, `MOD_STORAGE_MODE`) are **read/delete only** — new uploads go **Fleet → VPS inventory → Upload to VPS**. There is no hub ZIP upload API.
 
 ## Architecture
 
@@ -100,7 +100,7 @@ Symlink each AC instance: `server/content/cars` → `$CONTENT_PATH/cars` (shared
 2. Hub enqueues install on B; at acquire time sets `downloadUrl` to A’s blob URL.
 3. B pulls with `X-Worker-Secret`, materializes, reports READY.
 
-Explicit API: `POST /admin/mods/artifacts/:id/copy-from-edge` `{ sourceEdgeId, targetEdgeIds }`.
+Explicit API: use `POST /admin/mods/artifacts/:id/distribute` with target edge ids (edge-owned artifacts peer-pull automatically).
 
 ### Delete on one VPS
 
@@ -129,7 +129,7 @@ Usually: agent off, wrong `EDGE_ID`, hub unreachable (`BACKEND_WORKER_URL`), or 
 | Surface | Paths |
 |---------|--------|
 | Control (worker) | `/v1/mods`, `/v1/mods/availability`, `/v1/instances/:id/mods/ensure` |
-| Admin | `/admin/mods/*`, `/admin/mods/edges/:id/inventory`, `/admin/mods/edges/:id/upload`, `/admin/mods/artifacts/:id/copy-from-edge` |
+| Admin | `/admin/mods/*`, `/admin/mods/edges/:id/inventory`, `/admin/mods/edges/:id/upload` |
 | Agent | `/api/mod-agent/v1/*` including `register-local` |
 | Peer blob | `GET /api/mod-agent/v1/blobs/:sha256` on source edge |
 
@@ -137,7 +137,6 @@ Usually: agent off, wrong `EDGE_ID`, hub unreachable (`BACKEND_WORKER_URL`), or 
 
 Not aggressive. `GET /admin/mods/gc/candidates` / `POST /admin/mods/gc/run` schedule removes for READY artifacts with zero server refs.
 
-## Legacy
+## Leftover hub masters
 
-- Hub ZIP upload + `MOD_STORAGE_MODE` master path: still supported for `storage_origin=hub`.
-- `CONTENT_FLEET_SYNC_ENABLED` full rsync: **deprecated**.
+Older `storage_origin=hub` artifacts may still download from hub disk/S3 until re-uploaded on an edge. No new hub ZIP writes. No CONTENT_FLEET_SYNC rsync.

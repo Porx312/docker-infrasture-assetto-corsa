@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { createReadStream, createWriteStream } from 'node:fs';
+import { createReadStream } from 'node:fs';
 import { resolveModMasterLocalPath, resolveModUploadRoot } from './modPaths.js';
 
 export type ObjectStorageMode = 'local' | 's3';
@@ -40,37 +40,7 @@ export function artifactStorageKey(sha256: string): string {
   return `artifacts/sha256/${prefix}/${mid}/${sha256}.zip`;
 }
 
-export async function putArtifactFromFile(localPath: string, sha256: string): Promise<string> {
-  const key = artifactStorageKey(sha256);
-  if (storageMode() === 'local') {
-    const dest = path.join(localMasterRoot(), key);
-    await fsp.mkdir(path.dirname(dest), { recursive: true });
-    await fsp.copyFile(localPath, dest);
-    return key;
-  }
-  const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3');
-  const cfg = s3Config();
-  const client = new S3Client({
-    region: cfg.region,
-    endpoint: cfg.endpoint,
-    credentials: {
-      accessKeyId: cfg.accessKeyId,
-      secretAccessKey: cfg.secretAccessKey,
-    },
-    forcePathStyle: Boolean(cfg.endpoint),
-  });
-  const body = fs.createReadStream(localPath);
-  await client.send(
-    new PutObjectCommand({
-      Bucket: cfg.bucket,
-      Key: key,
-      Body: body,
-      ContentType: 'application/zip',
-    }),
-  );
-  return key;
-}
-
+/** Read-only: serve / delete leftover hub master blobs (storage_origin=hub). No new puts. */
 export async function getArtifactDownloadUrl(
   storageKey: string,
   sha256: string,

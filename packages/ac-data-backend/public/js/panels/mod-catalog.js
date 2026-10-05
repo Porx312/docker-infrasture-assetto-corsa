@@ -1,7 +1,7 @@
-import { apiGet, apiPost, apiFetch, apiDelete, apiPostForm, apiPatch } from '../lib/api.js';
+import { apiGet, apiPost, apiDelete, apiPostForm, apiPatch } from '../lib/api.js';
 import { emptyStateHtml, escapeAttr, escapeHtml, formatSize } from '../lib/dom.js';
 import { distNeedsPolling, renderModSyncStatusCell } from '../lib/modSyncStatus.js';
-import { hideUploadOverlay, showConfirm, showUploadOverlay } from '../lib/modal.js';
+import { showConfirm } from '../lib/modal.js';
 import { showToast } from '../lib/toast.js';
 import { getTab } from '../config/tabs.js';
 import { skeletonHtml } from '../ui/content-templates.js';
@@ -79,16 +79,7 @@ export function mountModCatalogPanel(type, container) {
         </div>
       </div>
       <div class="mod-category-filters" id="${type}CategoryFilters" aria-label="Filter by category"></div>
-      <div class="upload-dropzone" id="${type}Upload">
-        <p>Drag &amp; drop a mod ZIP here</p>
-        <p class="upload-hint">${tab.hint}</p>
-        <input type="file" id="${type}FileInput" accept=".zip,application/zip">
-        <button type="button" class="btn btn-primary" data-select="${type}">Choose ZIP</button>
-        <div class="progress-bar" id="${type}Progress">
-          <div class="progress-bar-fill" id="${type}ProgressFill"></div>
-        </div>
-      </div>
-      <p id="${type}UploadStatus" class="panel-hint"></p>
+      <p class="panel-hint">${escapeHtml(tab.hint)}</p>
       <div class="mod-catalog-workspace" id="${type}Workspace">
         <div id="${type}List" class="content-grid"></div>
         <div id="${type}DistDetail" class="mod-dist-detail hidden"></div>
@@ -106,32 +97,6 @@ function bindModCatalogPanel(type) {
     if (!(btn instanceof HTMLElement)) return;
     categoryFilterByType[type] = btn.getAttribute('data-category-filter') || '';
     filterCatalog(type);
-  });
-
-  const dropzone = document.getElementById(`${type}Upload`);
-  dropzone?.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    e.currentTarget.classList.add('dragover');
-  });
-  dropzone?.addEventListener('dragleave', (e) => {
-    e.currentTarget.classList.remove('dragover');
-  });
-  dropzone?.addEventListener('drop', (e) => {
-    e.preventDefault();
-    e.currentTarget.classList.remove('dragover');
-    const file = e.dataTransfer?.files?.[0];
-    if (file) void confirmAndUploadZip(type, file);
-  });
-
-  document.getElementById(`${type}FileInput`)?.addEventListener('change', (e) => {
-    const input = /** @type {HTMLInputElement} */ (e.target);
-    const file = input.files?.[0];
-    if (file) void confirmAndUploadZip(type, file);
-    input.value = '';
-  });
-
-  document.querySelector(`[data-select="${type}"]`)?.addEventListener('click', () => {
-    document.getElementById(`${type}FileInput`)?.click();
   });
 }
 
@@ -361,75 +326,6 @@ export async function loadModCatalog(type) {
     filterCatalog(type);
   } catch {
     if (list) list.innerHTML = emptyStateHtml('Connection error');
-  }
-}
-
-/**
- * @param {string} type
- * @param {File} file
- */
-async function confirmAndUploadZip(type, file) {
-  const name = (file.name || '').toLowerCase();
-  if (!name.endsWith('.zip')) {
-    showToast('Only .zip files are supported', 'error');
-    return;
-  }
-  const confirmed = await showConfirm(
-    `Upload ${type === 'tracks' ? 'track' : 'car'} ZIP`,
-    file.name,
-    'Upload',
-  );
-  if (!confirmed) return;
-  await uploadCatalogZip(type, file);
-}
-
-/**
- * @param {string} type
- * @param {File} file
- */
-async function uploadCatalogZip(type, file) {
-  const statusEl = document.getElementById(`${type}UploadStatus`);
-  const dropzone = document.getElementById(`${type}Upload`);
-  const progressBar = document.getElementById(`${type}Progress`);
-  const progressFill = document.getElementById(`${type}ProgressFill`);
-
-  showUploadOverlay(`Uploading ${file.name}…`);
-  dropzone?.classList.add('is-uploading');
-  progressBar?.classList.add('show');
-  if (progressFill) progressFill.style.width = '30%';
-  if (statusEl) statusEl.textContent = `Uploading ${file.name}…`;
-
-  try {
-    const uploadFd = new FormData();
-    uploadFd.append('file', file);
-    const { res, data } = await apiFetch('/mods/upload', { method: 'POST', body: uploadFd });
-    if (!res.ok || !data.uploadId) {
-      showToast(data.message || 'Upload failed', 'error');
-      return;
-    }
-
-    if (progressFill) progressFill.style.width = '70%';
-    if (statusEl) statusEl.textContent = 'Finalizing (hash + storage)…';
-
-    const { data: fin } = await apiPost(`/mods/upload/${data.uploadId}/finalize`, {
-      kind: kindForType(type),
-      distributeTo: 'none',
-    });
-    if (!fin.ok) {
-      showToast(fin.message || 'Finalize failed', 'error');
-      return;
-    }
-
-    if (progressFill) progressFill.style.width = '100%';
-    showToast(`Registered ${file.name} — open the card to sync to VPS`, 'success');
-    await loadModCatalog(type);
-  } catch {
-    showToast('Connection error', 'error');
-  } finally {
-    dropzone?.classList.remove('is-uploading');
-    progressBar?.classList.remove('show');
-    hideUploadOverlay();
-    if (statusEl) statusEl.textContent = '';
   }
 }
 

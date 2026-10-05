@@ -127,7 +127,8 @@ Default remains `true` until ProjectD Host reads live from Control API.
 
 ## Central mod library (Host picker — preferred)
 
-Source of truth: Hub Postgres `mod_packages` + `mod_artifacts` + object storage.
+Source of truth: Hub Postgres `mod_packages` + `mod_artifacts` (catalog metadata).
+ZIP bytes live on game VPS (`storage_origin=edge`); leftover hub master blobs are read/delete only.
 Local cache on each VPS is separate; availability merges central + edge inventory + sync jobs.
 
 | Method | Path | Who |

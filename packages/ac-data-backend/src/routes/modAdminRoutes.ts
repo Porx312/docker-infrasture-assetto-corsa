@@ -6,8 +6,6 @@ import { adminAuth } from '../middleware/adminAuth.js';
 import {
   listModsHandler,
   listModArtifactsHandler,
-  modUploadBeginHandler,
-  modUploadFinalizeHandler,
   modDistributeHandler,
   modDistributionMatrixHandler,
   modResyncHandler,
@@ -27,7 +25,6 @@ import {
   modUpdatePackageHandler,
   modEdgeInventoryHandler,
   modEdgeUploadHandler,
-  modCopyFromEdgeHandler,
 } from '../controller/modController.js';
 import { ensureModStagingDir } from '../services/mods/modPaths.js';
 
@@ -82,8 +79,6 @@ router.get('/mods/fleet/sync-issues', adminAuth, (req, res) => {
   void listFleetSyncIssuesHandler(req, res);
 });
 router.patch('/mods/edges/:edgeId', adminAuth, disableModEdgeHandler);
-router.post('/mods/upload', adminAuth, upload.single('file'), modUploadBeginHandler);
-router.post('/mods/upload/:uploadId/finalize', adminAuth, modUploadFinalizeHandler);
 router.get('/mods/packages/:packageId/artifacts', adminAuth, listModArtifactsHandler);
 router.patch('/mods/packages/:packageId', adminAuth, (req, res) => {
   void modUpdatePackageHandler(req, res);
@@ -104,9 +99,6 @@ router.delete('/mods/:packageId/preview-image', adminAuth, (req, res) => {
 });
 router.get('/mods/artifacts/:artifactId/distribution', adminAuth, modDistributionMatrixHandler);
 router.post('/mods/artifacts/:artifactId/distribute', adminAuth, modDistributeHandler);
-router.post('/mods/artifacts/:artifactId/copy-from-edge', adminAuth, (req, res) => {
-  void modCopyFromEdgeHandler(req, res);
-});
 router.post('/mods/artifacts/:artifactId/resync', adminAuth, modResyncHandler);
 router.post('/mods/artifacts/:artifactId/verify', adminAuth, modVerifyHandler);
 router.post('/mods/artifacts/:artifactId/remove-from-edges', adminAuth, modRemoveFromEdgesHandler);

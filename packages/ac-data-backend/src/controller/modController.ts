@@ -1,6 +1,5 @@
 import type { Request, Response } from 'express';
 import fs from 'node:fs';
-import path from 'node:path';
 import { isModDbConfigured } from '../services/mods/db.js';
 import {
   listPackagesWithLatestArtifact,
@@ -14,7 +13,6 @@ import {
   listFleetSyncIssues,
   estimateEdgeCapacity,
 } from '../services/mods/catalogRepo.js';
-import { beginModUpload, finalizeModUpload, modStagingDir } from '../services/mods/uploadPipeline.js';
 import {
   distributeArtifact,
   forceDeleteModPackage,
@@ -22,7 +20,6 @@ import {
   verifyArtifactOnEdges,
   removePackageFromEdges,
   syncFleetEdgesToDb,
-  copyArtifactFromEdge,
 } from '../services/mods/orchestrator.js';
 import { getArtifactById } from '../services/mods/catalogRepo.js';
 import { streamLocalMasterArtifact } from '../services/mods/objectStorage.js';
@@ -82,51 +79,6 @@ export async function listModArtifactsHandler(req: Request, res: Response): Prom
   const packageId = String(req.params.packageId || '');
   const artifacts = await listArtifactsForPackage(packageId);
   res.json({ ok: true, artifacts });
-}
-
-export async function modUploadFinalizeHandler(req: Request, res: Response): Promise<void> {
-  if (!isModDbConfigured()) {
-    modDbUnavailable(res);
-    return;
-  }
-  const uploadId = String(req.params.uploadId || '');
-  const kindRaw = String(req.body.kind || '').trim().toLowerCase();
-  if (kindRaw !== 'car' && kindRaw !== 'track') {
-    res.status(400).json({ ok: false, message: 'kind must be car or track' });
-    return;
-  }
-  try {
-    const result = await finalizeModUpload({
-      uploadId,
-      kind: kindRaw,
-      displayName: req.body.displayName ? String(req.body.displayName) : undefined,
-      versionLabel: req.body.versionLabel ? String(req.body.versionLabel) : undefined,
-      packageSlug: req.body.packageSlug ? String(req.body.packageSlug) : undefined,
-      acContentSlug: req.body.acContentSlug ? String(req.body.acContentSlug) : undefined,
-      distributeTo: req.body.distributeTo ?? 'none',
-    });
-    res.json({ ok: true, ...result });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(400).json({ ok: false, message });
-  }
-}
-
-export async function modUploadBeginHandler(req: Request, res: Response): Promise<void> {
-  if (!isModDbConfigured()) {
-    modDbUnavailable(res);
-    return;
-  }
-  const file = req.file;
-  if (!file) {
-    res.status(400).json({ ok: false, message: 'file required' });
-    return;
-  }
-  fs.mkdirSync(modStagingDir(), { recursive: true });
-  const dest = path.join(modStagingDir(), path.basename(file.path));
-  fs.renameSync(file.path, dest);
-  const uploadId = await beginModUpload(file.originalname, dest);
-  res.json({ ok: true, uploadId });
 }
 
 export async function modDistributeHandler(req: Request, res: Response): Promise<void> {
@@ -575,28 +527,5 @@ export async function modEdgeUploadHandler(req: Request, res: Response): Promise
     res.status(502).json({ ok: false, message });
   } finally {
     await fsp.unlink(file.path).catch(() => undefined);
-  }
-}
-
-export async function modCopyFromEdgeHandler(req: Request, res: Response): Promise<void> {
-  if (!isModDbConfigured()) {
-    modDbUnavailable(res);
-    return;
-  }
-  const artifactId = String(req.params.artifactId || '');
-  const sourceEdgeId = String(req.body?.sourceEdgeId || '').trim();
-  const targetEdgeIds = Array.isArray(req.body?.targetEdgeIds)
-    ? (req.body.targetEdgeIds as unknown[]).map((id) => String(id))
-    : [];
-  if (!sourceEdgeId || !targetEdgeIds.length) {
-    res.status(400).json({ ok: false, message: 'sourceEdgeId and targetEdgeIds required' });
-    return;
-  }
-  try {
-    const result = await copyArtifactFromEdge(artifactId, sourceEdgeId, targetEdgeIds);
-    res.json({ ok: true, ...result });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(400).json({ ok: false, message });
   }
 }

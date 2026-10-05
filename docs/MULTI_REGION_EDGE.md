@@ -147,7 +147,7 @@ Duplicate lobby `NAME=` on **different VPS** is OK (routing uses `instanceId` fr
 - **Add instance**: `POST /admin/servers/provision` on the edge (proxied). Pick a **Region** in the header first in fleet mode; clones `server-templates/server-template` (or `servers/server`) to the next `server-N` folder with default ports.
 - **Bulk branding**: **Apply branding to servers…** (checkboxes) — unchanged.
 - **HUD downloads for players**: `GET /client/hud/latest` on the hub (`PROJECTD_HUD_PATH`, included in `ac-data-backend-hub` tarball).
-- **Phase 2 mods sync**: `POST /admin/content/sync-fleet` or [`scripts/sync-content-to-fleet.sh`](../scripts/sync-content-to-fleet.sh) (rsync; enable `CONTENT_FLEET_SYNC_ENABLED`).
+- **Mods**: upload ZIPs via admin **Fleet → Upload to VPS**; Sync/copy between edges uses peer pull (see [MOD_DISTRIBUTION.md](MOD_DISTRIBUTION.md)).
 
 Hub env: `FLEET_EDGE_REGISTRY`, `HUB_OWNS_CONTENT=true`, `CONTENT_PATH`, `CONVEX_WORKER_SECRET`.
 
@@ -204,7 +204,7 @@ Firewall checklist:
 |------------|--------|
 | Edge `BACKEND_INGEST_URL` set | Hub-centric ingest/worker (no Convex SDK on edge) |
 | `REDIS_CONFIG_SYNC_ON_EDGE=false` | Config pushed from hub |
-| `MOD_AGENT_ENABLED=true` | ZIP sync from hub catalog |
+| `MOD_AGENT_ENABLED=true` | Materialize mods on VPS (peer pull / local blob) |
 | `LIVE_INGEST_CONVEX=false` | Join/leave/status stay Redis-only |
 | Hub `FLEET_EDGE_REGISTRY` | Multi-VPS proxy + webhooks |
 

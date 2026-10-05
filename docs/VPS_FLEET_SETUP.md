@@ -63,11 +63,13 @@ HUD_PUBLIC_BASE_URL=https://api.example.com
 HUB_OWNS_CONTENT=true
 CONTENT_PATH=/path/to/content   # optional hub library
 
-# Mod distribution (optional but recommended)
+# Mod catalog (Postgres) + edge blobs — see docs/MOD_DISTRIBUTION.md
 DATABASE_URL=postgres://…
+# Staging for Fleet→edge upload proxy only
 MOD_UPLOAD_ROOT=/var/lib/ac-data/mod-uploads
-MOD_STORAGE_MODE=local          # or s3
-MOD_HUB_PUBLIC_URL=https://api.example.com
+# Optional: serve leftover hub-origin masters
+# MOD_STORAGE_MODE=local
+# MOD_HUB_PUBLIC_URL=https://api.example.com
 ```
 
 Deploy: [deploy/backend-hub/README.md](../deploy/backend-hub/README.md) or monorepo `npm run build:backend && npm run start -w @projectd/ac-data-backend`.

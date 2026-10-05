@@ -45,7 +45,7 @@ flowchart TB
 
 | Hub event | Sync |
 |-----------|------|
-| Upload finalize (`uploadPipeline`) | `syncHostCatalogUpsert` → upsert car/track |
+| Edge local-upload → hub `register-local` | `syncHostCatalogUpsert` → upsert car/track |
 | Force delete (`orchestrator`) | `syncHostCatalogDelete` → delete car/track |
 
 Slug = package `acContentSlug`. Skins / layouts are extracted from ZIP paths when available.
