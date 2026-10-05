@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPatch, apiPostForm } from '../lib/api.js';
+import { apiGet, apiPost, apiPatch } from '../lib/api.js';
 import { escapeAttr, escapeHtml } from '../lib/dom.js';
 import { distNeedsPolling, renderModSyncStatusCell } from '../lib/modSyncStatus.js';
 import { showConfirm } from '../lib/modal.js';
@@ -6,9 +6,6 @@ import { showToast } from '../lib/toast.js';
 
 /** @type {ReturnType<typeof setInterval> | null} */
 let fleetOpsPollTimer = null;
-
-/** @type {string} */
-let inventoryEdgeId = '';
 
 function formatBytes(n) {
   const num = Number(n);
@@ -189,11 +186,10 @@ export function mountModDistributionPanel(root) {
       <header class="panel-header">
         <div>
           <h2>Fleet</h2>
-          <p class="panel-hint">VPS inventory, upload to edge (no hub ZIP), copy between VPS, health. Hub catalog remains secondary.</p>
+          <p class="panel-hint">Agent health, capacity, stuck syncs, and disk GC. Upload and per-VPS inventory live in Cars / Tracks.</p>
         </div>
         <button type="button" class="btn btn-ghost btn-sm" id="fleetOpsRefreshBtn">Refresh</button>
       </header>
-      <div id="fleetOpsInventory" class="fleet-ops-section card"></div>
       <div id="fleetOpsEdges" class="mod-dist-edges card"></div>
       <div id="fleetOpsCapacity" class="fleet-ops-section card"></div>
       <div id="fleetOpsSyncIssues" class="fleet-ops-section card"></div>
@@ -214,147 +210,11 @@ export async function loadModDistributionPanel(root) {
   if (!root.querySelector('#fleetOpsEdges')) {
     mountModDistributionPanel(root);
   }
-  await Promise.all([
-    loadInventorySection(root),
-    loadEdgesSection(root),
-    loadSyncIssuesSection(root),
-    loadGcSection(root),
-  ]);
+  await Promise.all([loadEdgesSection(root), loadSyncIssuesSection(root), loadGcSection(root)]);
   startFleetOpsPoll(root);
 }
 
 export const loadFleetDeployPanel = loadModDistributionPanel;
-
-/** @param {HTMLElement} root */
-async function loadInventorySection(root) {
-  const el = root.querySelector('#fleetOpsInventory');
-  if (!el) return;
-  const { data: edgesData } = await apiGet('/mods/edges');
-  const edges = edgesData?.ok ? edgesData.edges || [] : [];
-  if (!edges.length) {
-    el.innerHTML =
-      '<h3>VPS inventory</h3><p class="panel-hint">No edges yet — set FLEET_EDGE_REGISTRY / wait for heartbeat.</p>';
-    return;
-  }
-  if (!inventoryEdgeId || !edges.some((e) => e.id === inventoryEdgeId)) {
-    inventoryEdgeId = edges[0].id;
-  }
-  const options = edges
-    .map(
-      (e) =>
-        `<option value="${escapeAttr(e.id)}"${e.id === inventoryEdgeId ? ' selected' : ''}>${escapeHtml(e.label || e.id)}</option>`,
-    )
-    .join('');
-
-  el.innerHTML = `
-    <h3>VPS inventory &amp; upload</h3>
-    <p class="panel-hint">ZIPs go to the selected VPS only (not hub disk). Use Copy in Cars/Tracks distribute, or remove-from-edges to delete on a VPS.</p>
-    <div class="fleet-inv-toolbar" style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:end;margin-bottom:0.75rem">
-      <label>Edge
-        <select id="fleetInvEdgeSelect" class="input">${options}</select>
-      </label>
-      <label>Kind
-        <select id="fleetInvKind" class="input">
-          <option value="car">car</option>
-          <option value="track">track</option>
-        </select>
-      </label>
-      <label>ZIP
-        <input id="fleetInvFile" type="file" accept=".zip,application/zip" />
-      </label>
-      <button type="button" class="btn btn-primary btn-sm" id="fleetInvUploadBtn">Upload to VPS</button>
-      <button type="button" class="btn btn-ghost btn-sm" id="fleetInvRefreshBtn">Refresh list</button>
-    </div>
-    <div id="fleetInvBody"><p class="panel-hint">Loading…</p></div>
-  `;
-
-  el.querySelector('#fleetInvEdgeSelect')?.addEventListener('change', (e) => {
-    const t = e.target;
-    if (t instanceof HTMLSelectElement) {
-      inventoryEdgeId = t.value;
-      void refreshInventoryBody(el);
-    }
-  });
-  el.querySelector('#fleetInvRefreshBtn')?.addEventListener('click', () => {
-    void refreshInventoryBody(el);
-  });
-  el.querySelector('#fleetInvUploadBtn')?.addEventListener('click', () => {
-    void uploadToSelectedEdge(el);
-  });
-  void refreshInventoryBody(el);
-}
-
-/** @param {HTMLElement} el */
-async function refreshInventoryBody(el) {
-  const body = el.querySelector('#fleetInvBody');
-  if (!body || !inventoryEdgeId) return;
-  body.innerHTML = '<p class="panel-hint">Loading…</p>';
-  const { data } = await apiGet(`/mods/edges/${encodeURIComponent(inventoryEdgeId)}/inventory`);
-  if (!data.ok) {
-    body.innerHTML = `<p class="panel-hint">${escapeHtml(data.message || 'Inventory unavailable')}</p>`;
-    return;
-  }
-  const cars = data.cars || [];
-  const tracks = data.tracks || [];
-  const carRows = cars
-    .map(
-      (c) =>
-        `<tr><td>car</td><td><code>${escapeHtml(c.carModel)}</code></td><td>${escapeHtml((c.skins || []).slice(0, 6).join(', ') || '—')}</td><td>${c.artifactId ? `<code>${escapeHtml(String(c.artifactId).slice(0, 8))}…</code>` : '—'}</td></tr>`,
-    )
-    .join('');
-  const trackRows = tracks
-    .map(
-      (t) =>
-        `<tr><td>track</td><td><code>${escapeHtml(t.trackSlug)}</code></td><td>${escapeHtml((t.configs || []).slice(0, 6).join(', ') || '—')}</td><td>${t.artifactId ? `<code>${escapeHtml(String(t.artifactId).slice(0, 8))}…</code>` : '—'}</td></tr>`,
-    )
-    .join('');
-  body.innerHTML = `
-    <p class="panel-hint">${escapeHtml(data.label || data.edgeId)} · ${cars.length} cars · ${tracks.length} tracks</p>
-    <table class="mod-dist-table">
-      <thead><tr><th>Kind</th><th>Slug</th><th>Skins / layouts</th><th>Artifact</th></tr></thead>
-      <tbody>${carRows}${trackRows || '<tr><td colspan="4">No content scanned yet</td></tr>'}</tbody>
-    </table>
-  `;
-}
-
-/** @param {HTMLElement} el */
-async function uploadToSelectedEdge(el) {
-  const fileInput = el.querySelector('#fleetInvFile');
-  const kindEl = el.querySelector('#fleetInvKind');
-  if (!(fileInput instanceof HTMLInputElement) || !fileInput.files?.length) {
-    showToast('Pick a ZIP first', 'error');
-    return;
-  }
-  const kind = kindEl instanceof HTMLSelectElement ? kindEl.value : 'car';
-  const form = new FormData();
-  form.append('file', fileInput.files[0]);
-  form.append('kind', kind);
-  const btn = el.querySelector('#fleetInvUploadBtn');
-  if (btn instanceof HTMLButtonElement) {
-    btn.disabled = true;
-    btn.textContent = 'Uploading…';
-  }
-  try {
-    const { data } = await apiPostForm(
-      `/mods/edges/${encodeURIComponent(inventoryEdgeId)}/upload`,
-      form,
-    );
-    if (!data.ok) {
-      showToast(data.message || 'Upload failed', 'error');
-      return;
-    }
-    showToast(data.message || 'Uploaded to VPS', 'success');
-    fileInput.value = '';
-    void refreshInventoryBody(el);
-  } catch {
-    showToast('Upload failed', 'error');
-  } finally {
-    if (btn instanceof HTMLButtonElement) {
-      btn.disabled = false;
-      btn.textContent = 'Upload to VPS';
-    }
-  }
-}
 
 /** @param {HTMLElement} root */
 function startFleetOpsPoll(root) {

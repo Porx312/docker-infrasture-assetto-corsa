@@ -19,6 +19,7 @@ export async function runModMigrationsIfConfigured(): Promise<void> {
     '005_mod_package_category.sql',
     '006_fleet_edge_capacity.sql',
     '007_fleet_edge_processes.sql',
+    '008_mod_artifact_edge_origin.sql',
   ];
   for (const file of files) {
     const sqlPath = path.join(migrationsDir, file);

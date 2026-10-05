@@ -31,13 +31,18 @@ export function shouldSkipFleetProxyForHubContent(req: Request): boolean {
 
 /** Proxy to selected edge when fleet mode is on. Returns true if response was sent. */
 export async function proxyFleetAdminIfNeeded(req: Request, res: Response): Promise<boolean> {
+  const edgeId = readFleetEdgeIdFromRequest(req);
+  // Explicit fleetEdge on preview → edge disk (Cars/Tracks VPS inventory), even if hub owns CONTENT_PATH.
+  if (edgeId && req.path.startsWith('/preview')) {
+    await proxyAdminRequestToEdge(edgeId, req, res);
+    return true;
+  }
   if (shouldSkipFleetProxyForHubContent(req)) {
     return false;
   }
   if (!isFleetModeEnabled()) {
     return false;
   }
-  const edgeId = readFleetEdgeIdFromRequest(req);
   if (!edgeId) {
     res.status(400).json({
       ok: false,

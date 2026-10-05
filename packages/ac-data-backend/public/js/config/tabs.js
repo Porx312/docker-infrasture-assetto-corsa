@@ -5,13 +5,13 @@ export const TABS = [
   {
     id: 'cars',
     label: 'Cars',
-    hint: 'Catalog metadata + VPS sync. Upload ZIPs in Fleet → Upload to VPS.',
+    hint: 'Mods on the selected VPS. Upload ZIP here; open a card to sync to other VPS.',
     kind: 'mod-catalog',
   },
   {
     id: 'tracks',
     label: 'Tracks',
-    hint: 'Catalog metadata + VPS sync. Upload ZIPs in Fleet → Upload to VPS.',
+    hint: 'Tracks on the selected VPS. Upload ZIP here; open a card to sync to other VPS.',
     kind: 'mod-catalog',
   },
   {
@@ -29,7 +29,7 @@ export const TABS = [
   {
     id: 'fleet-deploy',
     label: 'Fleet',
-    hint: 'Upload mods to VPS, inventory, agent health, capacity, GC',
+    hint: 'Agent health, capacity, stuck syncs, disk GC',
     kind: 'mods',
   },
   {

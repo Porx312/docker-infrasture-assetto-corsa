@@ -197,7 +197,10 @@ function bindGlobalHandlers() {
         catalogCard.dataset.openCatalog,
         catalogCard.dataset.artifactId,
         catalogCard.dataset.packageName,
-        { packageId: catalogCard.dataset.packageId },
+        {
+          packageId: catalogCard.dataset.packageId,
+          invSlug: catalogCard.dataset.invSlug,
+        },
       );
       return;
     }

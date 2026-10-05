@@ -70,18 +70,42 @@ export async function getValidCachedBlob(expectedSha256: string): Promise<string
   }
 }
 
-export async function ensureBlobCached(sha256: string, zipPath: string): Promise<string> {
-  const existing = await getValidCachedBlob(sha256);
-  if (existing) {
-    return existing;
-  }
+/**
+ * Place zip into content-addressed blob cache.
+ * @param opts.trustedSource when true, skip second full-file hash and try rename (source already hashed).
+ */
+export async function ensureBlobCached(
+  sha256: string,
+  zipPath: string,
+  opts?: { trustedSource?: boolean },
+): Promise<string> {
   const dest = blobZipPath(sha256);
-  await fsp.mkdir(path.dirname(dest), { recursive: true });
-  const digest = await sha256File(zipPath);
-  if (digest !== sha256) {
-    throw new Error('SHA-256 mismatch before blob cache write');
+  if (fs.existsSync(dest)) {
+    if (opts?.trustedSource) {
+      try {
+        const [srcStat, dstStat] = await Promise.all([fsp.stat(zipPath), fsp.stat(dest)]);
+        if (srcStat.size === dstStat.size) return dest;
+      } catch {
+        /* fall through */
+      }
+    } else {
+      const existing = await getValidCachedBlob(sha256);
+      if (existing) return existing;
+    }
   }
-  await fsp.copyFile(zipPath, dest);
+  await fsp.mkdir(path.dirname(dest), { recursive: true });
+  if (!opts?.trustedSource) {
+    const digest = await sha256File(zipPath);
+    if (digest !== sha256) {
+      throw new Error('SHA-256 mismatch before blob cache write');
+    }
+  }
+  // Same-filesystem rename avoids a full second copy of multi-GB uploads.
+  try {
+    await fsp.rename(zipPath, dest);
+  } catch {
+    await fsp.copyFile(zipPath, dest);
+  }
   return dest;
 }
 
@@ -200,6 +224,50 @@ async function hardlinkOrCopyDir(src: string, dest: string): Promise<void> {
   }
 }
 
+/** BFS for nested cars/<slug> or a folder named slug (ZIP wrappers). */
+function findNestedContentDir(
+  root: string,
+  folder: string,
+  slug: string,
+  maxDepth: number,
+): string | null {
+  const queue: Array<{ dir: string; depth: number }> = [{ dir: root, depth: 0 }];
+  while (queue.length) {
+    const { dir, depth } = queue.shift()!;
+    if (depth > maxDepth) continue;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const ent of entries) {
+      if (!ent.isDirectory() || ent.name === '__MACOSX' || ent.name.startsWith('.')) continue;
+      const child = path.join(dir, ent.name);
+      if (ent.name === slug && depth > 0) {
+        // Prefer …/cars|tracks/<slug>
+        const parentBase = path.basename(dir).toLowerCase();
+        if (parentBase === folder || parentBase === slug) return child;
+        // Bare <slug> with typical AC markers
+        if (
+          fs.existsSync(path.join(child, 'data.acd')) ||
+          fs.existsSync(path.join(child, 'skins')) ||
+          fs.existsSync(path.join(child, 'data')) ||
+          fs.existsSync(path.join(child, 'ui'))
+        ) {
+          return child;
+        }
+      }
+      if (ent.name.toLowerCase() === folder) {
+        const nested = path.join(child, slug);
+        if (fs.existsSync(nested) && fs.statSync(nested).isDirectory()) return nested;
+      }
+      if (depth < maxDepth) queue.push({ dir: child, depth: depth + 1 });
+    }
+  }
+  return null;
+}
+
 export type AcModSidecar = {
   artifactId?: string;
   sha256?: string;
@@ -245,6 +313,7 @@ export async function materializeManifestToPool(
     path.join(tree, folder, acContentSlug),
     path.join(tree, acContentSlug),
     ...manifest.acContentSlugs.map((slug) => path.join(tree, folder, slug)),
+    ...manifest.acContentSlugs.map((slug) => path.join(tree, slug)),
   ];
 
   let sourceDir: string | null = null;
@@ -253,6 +322,10 @@ export async function materializeManifestToPool(
       sourceDir = candidate;
       break;
     }
+  }
+  // Nested wrappers: …/cars/<slug> or …/<slug> with AC markers (max depth 4).
+  if (!sourceDir) {
+    sourceDir = findNestedContentDir(tree, folder, acContentSlug, 4);
   }
   if (!sourceDir) {
     throw new Error(`Extracted content not found for ${acContentSlug}`);

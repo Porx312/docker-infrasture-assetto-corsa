@@ -373,12 +373,14 @@ body {
 /* Content grid (cars / tracks) */
 .content-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 14px;
+  align-items: start;
 }
 
 .mod-card-wrap {
   position: relative;
+  min-width: 0;
 }
 
 .mod-card-wrap.is-selected .mod-card {
@@ -430,7 +432,9 @@ body {
 .mod-card {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
   padding: 10px;
   text-align: left;
   font-family: inherit;
@@ -439,6 +443,7 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   cursor: pointer;
+  overflow: hidden;
   transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
 }
 
@@ -449,6 +454,7 @@ body {
 }
 
 .mod-card-thumb {
+  width: 100%;
   aspect-ratio: 16 / 10;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -457,6 +463,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .mod-card-thumb img {
@@ -498,13 +505,19 @@ body {
 
 .mod-catalog-workspace.is-open {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
   gap: 1.25rem;
   align-items: start;
 }
 
 .mod-catalog-workspace.is-open .mod-dist-detail {
   display: block;
+  min-width: 0;
+}
+
+.mod-catalog-workspace.is-open .content-grid {
+  min-width: 0;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
 }
 
 .mod-side-panel {
@@ -527,7 +540,14 @@ body {
 
 .mod-side-panel-header h3 {
   margin: 0 0 0.25rem;
-  font-size: 1rem;
+  font-size: 0.95rem;
+  line-height: 1.3;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .mod-edit-section,
@@ -544,7 +564,11 @@ body {
 }
 
 .mod-edit-preview-thumb {
-  aspect-ratio: 16 / 10;
+  width: 100%;
+  max-width: 220px;
+  height: 120px;
+  max-height: 120px;
+  aspect-ratio: auto;
   border-radius: 8px;
   overflow: hidden;
   background: #161b22;
@@ -552,12 +576,26 @@ body {
   align-items: center;
   justify-content: center;
   border: 1px solid var(--border-subtle, #30363d);
+  flex-shrink: 0;
 }
 
 .mod-edit-preview-thumb img {
   width: 100%;
   height: 100%;
+  max-height: 120px;
   object-fit: cover;
+  display: block;
+}
+
+.mod-side-panel .variant-grid {
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+}
+
+.mod-side-panel .variant-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mod-edit-preview-actions,
@@ -598,17 +636,28 @@ body {
 .mod-card-name {
   font-size: 0.75rem;
   font-weight: 500;
-  word-break: break-all;
+  word-break: break-word;
+  overflow-wrap: anywhere;
   line-height: 1.3;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  max-height: 2.6em;
 }
 
 .mod-card-meta {
   font-size: 0.6875rem;
   color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.mod-card-meta code {
+  font-size: inherit;
+  word-break: break-all;
 }
 
 .mod-card-category {
@@ -2249,7 +2298,7 @@ body {
   }
 
   .content-grid {
-    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   }
 
   .modal-mod {

@@ -7,6 +7,7 @@ import { isWorkerRequestAuthorized } from '@projectd/ac-data-shared/services/hud
 import {
   handleLocalModUpload,
   handleServeModBlob,
+  handleDeleteLocalContent,
 } from '../services/modAgent/localModUpload.js';
 
 const upload = multer({
@@ -37,6 +38,9 @@ function workerAuth(
 export const modLocalUploadRouter = Router();
 modLocalUploadRouter.post('/mods/local-upload', hubOrAdminAuth, upload.single('file'), (req, res) => {
   void handleLocalModUpload(req, res);
+});
+modLocalUploadRouter.delete('/mods/local-content/:kind/:slug', hubOrAdminAuth, (req, res) => {
+  void handleDeleteLocalContent(req, res);
 });
 
 /** Mount under /api — peer edges pull blobs. */

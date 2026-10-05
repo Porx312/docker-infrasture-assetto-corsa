@@ -2,7 +2,7 @@
 
 **Preferred model (edge-only blobs):** ZIP bytes live on game VPS nodes. The hub keeps **catalog metadata** only (`mod_packages`, `mod_artifacts`, inventory, sync jobs). Copy between VPS is **peer pull** (worker secret), not hub→edge re-upload.
 
-Leftover hub master blobs (`storage_origin=hub`, `MOD_STORAGE_MODE`) are **read/delete only** — new uploads go **Fleet → VPS inventory → Upload to VPS**. There is no hub ZIP upload API.
+Leftover hub master blobs (`storage_origin=hub`, `MOD_STORAGE_MODE`) are **read/delete only** — new uploads go **Cars / Tracks → Upload to VPS**. There is no hub ZIP upload API.
 
 ## Architecture
 
@@ -89,7 +89,7 @@ Symlink each AC instance: `server/content/cars` → `$CONTENT_PATH/cars` (shared
 
 ### Upload to one VPS
 
-1. Admin → **Fleet** → pick edge → ZIP → **Upload to VPS**.
+1. Admin → **Cars** or **Tracks** → pick VPS → ZIP → **Upload to VPS**.
 2. Hub proxies multipart to edge `POST /admin/mods/local-upload` (temp only on hub).
 3. Edge caches blob, materializes pool, calls hub `register-local`.
 4. Hub inserts catalog row with `storage_origin=edge`, marks that edge READY.
@@ -116,8 +116,8 @@ AC must not depend on hub / peer download mid-session. Prefetch only.
 
 ## Admin UI
 
-- **Fleet:** per-VPS inventory, upload-to-edge, agent health, capacity, stuck syncs, GC.
-- **Cars / Tracks:** catalog metadata + distribution matrix (sync / verify / remove).
+- **Fleet:** agent health, capacity, stuck syncs, GC (not inventory).
+- **Cars / Tracks:** per-VPS inventory + upload-to-edge + distribution matrix (sync / verify / remove).
 - Server modal **Overview:** required mods readiness + sync missing.
 
 ## PENDING forever?

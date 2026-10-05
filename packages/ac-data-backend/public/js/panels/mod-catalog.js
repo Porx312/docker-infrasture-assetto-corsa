@@ -1,13 +1,22 @@
-import { apiGet, apiPost, apiDelete, apiPostForm, apiPatch } from '../lib/api.js';
+import { apiGet, apiPost, apiDelete, apiPostForm, apiPostFormWithProgress, apiPatch } from '../lib/api.js';
 import { emptyStateHtml, escapeAttr, escapeHtml, formatSize } from '../lib/dom.js';
 import { distNeedsPolling, renderModSyncStatusCell } from '../lib/modSyncStatus.js';
 import { showConfirm } from '../lib/modal.js';
 import { showToast } from '../lib/toast.js';
 import { getTab } from '../config/tabs.js';
-import { skeletonHtml } from '../ui/content-templates.js';
+import { skeletonHtml, renderVariantGrid, variantLabel, previewUrl } from '../ui/content-templates.js';
 
 /** @type {Record<string, object[]>} */
 const packagesByType = { cars: [], tracks: [] };
+
+/** @type {Record<string, object[]>} */
+const inventoryByType = { cars: [], tracks: [] };
+
+/** Shared across Cars / Tracks tabs. */
+let catalogEdgeId = '';
+
+/** @type {Array<{ id: string; label?: string }>} */
+let catalogEdges = [];
 
 /** @type {Record<string, string>} */
 const categoryFilterByType = { cars: '', tracks: '' };
@@ -34,29 +43,81 @@ function kindForType(type) {
 }
 
 /**
- * @param {object} pkg
+ * @param {object} item inventory row
  * @param {string} type
  */
-function renderCatalogCard(pkg, type) {
-  const art = pkg.latest_artifact;
-  const meta = art
-    ? `v${escapeHtml(art.version_label)} · ${formatSize(Number(art.size_bytes))}`
-    : 'No artifact';
-  const slug = escapeHtml(pkg.ac_content_slug || pkg.slug || '');
-  const artifactId = art?.id ? escapeAttr(art.id) : '';
-  const imageUrl = typeof pkg.imageUrl === 'string' && pkg.imageUrl ? pkg.imageUrl : '';
+function inventorySlug(item, type) {
+  if (type === 'tracks') return String(item.trackSlug || '').trim();
+  return String(item.carModel || '').trim();
+}
+
+/**
+ * @param {object} item
+ * @param {string} type
+ */
+function findPackageForInventory(item, type) {
+  const slug = inventorySlug(item, type).toLowerCase();
+  if (!slug) return null;
+  const packages = packagesByType[type] || [];
+  const byArtifact =
+    item.artifactId &&
+    packages.find((p) => p.latest_artifact?.id === item.artifactId);
+  if (byArtifact) return byArtifact;
+  return (
+    packages.find((p) => {
+      const ac = String(p.ac_content_slug || '').trim().toLowerCase();
+      const s = String(p.slug || '').trim().toLowerCase();
+      return ac === slug || s === slug;
+    }) || null
+  );
+}
+
+/**
+ * @param {object} item
+ * @param {string} type
+ */
+function renderInventoryCard(item, type) {
+  const slug = inventorySlug(item, type);
+  const pkg = findPackageForInventory(item, type);
+  const art = pkg?.latest_artifact;
+  const artifactId = item.artifactId || art?.id || '';
+  const packageId = pkg?.id || '';
+  const displayName = pkg?.display_name || slug || 'Unknown';
+  const skinCount = type === 'tracks' ? (item.configs || []).length : (item.skins || []).length;
+  const metaBits =
+    skinCount > 0
+      ? `${skinCount} ${type === 'tracks' ? 'layouts' : 'skins'}`
+      : '—';
+  const sizeMeta = art ? ` · ${formatSize(Number(art.size_bytes))}` : '';
+  const imageUrl = typeof pkg?.imageUrl === 'string' && pkg.imageUrl ? pkg.imageUrl : '';
   const category =
-    typeof pkg.category === 'string' && pkg.category.trim() ? pkg.category.trim() : '';
-  const thumbInner = imageUrl
+    typeof pkg?.category === 'string' && pkg.category.trim() ? pkg.category.trim() : '';
+  let thumbInner = imageUrl
     ? `<img class="mod-card-thumb-img" src="${escapeAttr(imageUrl)}" alt="" loading="lazy">`
-    : `<span class="mod-card-placeholder">${type === 'tracks' ? 'T' : 'C'}</span>`;
+    : '';
+  if (!thumbInner) {
+    const firstVariant =
+      type === 'tracks'
+        ? (() => {
+            const c = (item.configs || [])[0];
+            const raw = c === '' || c == null ? '' : String(c).trim();
+            return raw || slug;
+          })()
+        : (item.skins || [])[0];
+    if (firstVariant && slug && catalogEdgeId) {
+      thumbInner = `<img class="mod-card-thumb-img" src="${escapeAttr(previewUrl(type, slug, String(firstVariant), catalogEdgeId))}" alt="" loading="lazy" onerror="this.classList.add('hidden'); this.nextElementSibling?.classList.remove('hidden');"><span class="mod-card-placeholder hidden">${type === 'tracks' ? 'T' : 'C'}</span>`;
+    } else {
+      thumbInner = `<span class="mod-card-placeholder">${type === 'tracks' ? 'T' : 'C'}</span>`;
+    }
+  }
+  const openAttrs = `data-open-catalog="${escapeAttr(type)}" data-artifact-id="${escapeAttr(artifactId)}" data-package-id="${escapeAttr(packageId)}" data-package-name="${escapeAttr(displayName)}" data-inv-slug="${escapeAttr(slug)}"`;
 
   return `
-    <article class="mod-card-wrap" data-package-id="${escapeAttr(pkg.id)}" data-artifact-id="${artifactId}">
-      <button type="button" class="mod-card" data-open-catalog="${type}" data-artifact-id="${artifactId}" data-package-id="${escapeAttr(pkg.id)}" data-package-name="${escapeAttr(pkg.display_name)}">
+    <article class="mod-card-wrap" data-package-id="${escapeAttr(packageId)}" data-artifact-id="${escapeAttr(artifactId)}" data-inv-slug="${escapeAttr(slug)}">
+      <button type="button" class="mod-card" ${openAttrs}>
         <div class="mod-card-thumb">${thumbInner}</div>
-        <div class="mod-card-name">${escapeHtml(pkg.display_name)}</div>
-        <div class="mod-card-meta">${slug} · ${meta}</div>
+        <div class="mod-card-name" title="${escapeAttr(displayName)}">${escapeHtml(displayName)}</div>
+        <div class="mod-card-meta">${escapeHtml(metaBits)}${escapeHtml(sizeMeta)}</div>
         ${category ? `<span class="mod-card-category">${escapeHtml(category)}</span>` : ''}
       </button>
     </article>
@@ -74,12 +135,29 @@ export function mountModCatalogPanel(type, container) {
       <div class="panel-header">
         <h2>${tab.label}</h2>
         <div class="panel-search">
-          <input type="text" class="input search-input" id="${type}Search" placeholder="Search ${tab.label.toLowerCase()}…">
+          <input type="text" class="input search-input" id="${type}Search" placeholder="Search on this VPS…">
           <span class="panel-count" id="${type}Filtered"></span>
         </div>
       </div>
+      <div class="fleet-inv-toolbar" id="${type}InvToolbar" style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:end;margin-bottom:0.75rem">
+        <label>VPS
+          <select id="${type}EdgeSelect" class="input"></select>
+        </label>
+        <button type="button" class="btn btn-ghost btn-sm" id="${type}InvRefreshBtn">Refresh</button>
+      </div>
+      <div class="upload-dropzone" id="${type}InvDropzone" tabindex="0" role="button" aria-label="Upload ZIP to selected VPS">
+        <p>Drag & drop a car/track ZIP here</p>
+        <p class="upload-hint">Accepts cars/&lt;name&gt;/…, tracks/&lt;name&gt;/…, or a single folder at the ZIP root</p>
+        <input type="file" id="${type}InvFile" accept=".zip,application/zip" hidden>
+        <button type="button" class="btn btn-primary btn-sm" id="${type}InvPickBtn">Choose ZIP</button>
+        <button type="button" class="btn btn-primary btn-sm" id="${type}InvUploadBtn" disabled>Upload to VPS</button>
+        <div class="progress-bar" id="${type}InvProgress" hidden>
+          <div class="progress-bar-fill" id="${type}InvProgressFill"></div>
+        </div>
+        <p class="panel-hint" id="${type}InvUploadStatus" hidden></p>
+      </div>
+      <p class="panel-hint" id="${type}InvHint">${escapeHtml(tab.hint)}</p>
       <div class="mod-category-filters" id="${type}CategoryFilters" aria-label="Filter by category"></div>
-      <p class="panel-hint">${escapeHtml(tab.hint)}</p>
       <div class="mod-catalog-workspace" id="${type}Workspace">
         <div id="${type}List" class="content-grid"></div>
         <div id="${type}DistDetail" class="mod-dist-detail hidden"></div>
@@ -98,19 +176,183 @@ function bindModCatalogPanel(type) {
     categoryFilterByType[type] = btn.getAttribute('data-category-filter') || '';
     filterCatalog(type);
   });
+  document.getElementById(`${type}EdgeSelect`)?.addEventListener('change', (e) => {
+    const t = e.target;
+    if (!(t instanceof HTMLSelectElement)) return;
+    catalogEdgeId = t.value;
+    void loadModCatalog(type);
+  });
+  document.getElementById(`${type}InvRefreshBtn`)?.addEventListener('click', () => {
+    void loadModCatalog(type);
+  });
+
+  const fileInput = /** @type {HTMLInputElement | null} */ (document.getElementById(`${type}InvFile`));
+  const dropzone = document.getElementById(`${type}InvDropzone`);
+  const pickBtn = document.getElementById(`${type}InvPickBtn`);
+  const uploadBtn = /** @type {HTMLButtonElement | null} */ (
+    document.getElementById(`${type}InvUploadBtn`)
+  );
+
+  const syncUploadEnabled = () => {
+    if (uploadBtn) uploadBtn.disabled = !fileInput?.files?.length;
+  };
+
+  pickBtn?.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    fileInput?.click();
+  });
+  dropzone?.addEventListener('click', (e) => {
+    if (e.target instanceof Element && e.target.closest('button')) return;
+    fileInput?.click();
+  });
+  fileInput?.addEventListener('change', () => {
+    syncUploadEnabled();
+    const name = fileInput.files?.[0]?.name;
+    const status = document.getElementById(`${type}InvUploadStatus`);
+    if (status) {
+      status.hidden = !name;
+      status.textContent = name ? `Selected: ${name}` : '';
+    }
+  });
+  dropzone?.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropzone.classList.add('dragover');
+  });
+  dropzone?.addEventListener('dragleave', () => {
+    dropzone.classList.remove('dragover');
+  });
+  dropzone?.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('dragover');
+    const file = e.dataTransfer?.files?.[0];
+    if (!file) return;
+    if (!/\.zip$/i.test(file.name) && file.type !== 'application/zip') {
+      showToast('Drop a .zip file', 'error');
+      return;
+    }
+    if (!fileInput) return;
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    fileInput.files = dt.files;
+    fileInput.dispatchEvent(new Event('change'));
+  });
+  uploadBtn?.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    void uploadInventoryZip(type);
+  });
+}
+
+/** @param {string} type */
+function fillEdgeSelect(type) {
+  const select = /** @type {HTMLSelectElement | null} */ (document.getElementById(`${type}EdgeSelect`));
+  if (!select) return;
+  if (!catalogEdges.length) {
+    select.innerHTML = '<option value="">No VPS</option>';
+    return;
+  }
+  if (!catalogEdgeId || !catalogEdges.some((e) => e.id === catalogEdgeId)) {
+    catalogEdgeId = catalogEdges[0].id;
+  }
+  select.innerHTML = catalogEdges
+    .map(
+      (e) =>
+        `<option value="${escapeAttr(e.id)}"${e.id === catalogEdgeId ? ' selected' : ''}>${escapeHtml(e.label || e.id)}</option>`,
+    )
+    .join('');
+}
+
+/** @param {string} type */
+async function uploadInventoryZip(type) {
+  if (!catalogEdgeId) {
+    showToast('No VPS selected', 'error');
+    return;
+  }
+  const fileInput = /** @type {HTMLInputElement | null} */ (document.getElementById(`${type}InvFile`));
+  const file = fileInput?.files?.[0];
+  if (!file) {
+    showToast('Pick a ZIP first', 'error');
+    return;
+  }
+  const form = new FormData();
+  form.append('file', file);
+  form.append('kind', kindForType(type));
+  const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById(`${type}InvUploadBtn`));
+  const pickBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById(`${type}InvPickBtn`));
+  const dropzone = document.getElementById(`${type}InvDropzone`);
+  const progress = document.getElementById(`${type}InvProgress`);
+  const fill = /** @type {HTMLElement | null} */ (document.getElementById(`${type}InvProgressFill`));
+  const status = document.getElementById(`${type}InvUploadStatus`);
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Uploading…';
+  }
+  if (pickBtn) pickBtn.disabled = true;
+  dropzone?.classList.add('is-uploading');
+  if (progress) progress.hidden = false;
+  if (fill) fill.style.width = '0%';
+  if (status) {
+    status.hidden = false;
+    status.textContent = `Uploading ${file.name}…`;
+  }
+  try {
+    const { data } = await apiPostFormWithProgress(
+      `/mods/edges/${encodeURIComponent(catalogEdgeId)}/upload`,
+      form,
+      (loaded, total) => {
+        if (!fill) return;
+        if (total > 0) {
+          const pct = Math.min(99, Math.round((loaded / total) * 100));
+          fill.style.width = `${pct}%`;
+          if (status) status.textContent = `Uploading ${file.name}… ${pct}%`;
+        } else if (status) {
+          status.textContent = `Uploading ${file.name}… ${formatSize(loaded)}`;
+        }
+      },
+    );
+    if (!data.ok) {
+      showToast(data.message || 'Upload failed', 'error');
+      if (status) status.textContent = data.message || 'Upload failed';
+      return;
+    }
+    if (fill) fill.style.width = '100%';
+    showToast(data.message || 'Uploaded to VPS', 'success');
+    if (status) status.textContent = data.message || 'Uploaded';
+    if (fileInput) fileInput.value = '';
+    if (btn) btn.disabled = true;
+    await loadModCatalog(type);
+  } catch {
+    showToast('Upload failed', 'error');
+    if (status) status.textContent = 'Upload failed';
+  } finally {
+    if (btn) {
+      btn.disabled = !fileInput?.files?.length;
+      btn.textContent = 'Upload to VPS';
+    }
+    if (pickBtn) pickBtn.disabled = false;
+    dropzone?.classList.remove('is-uploading');
+    if (progress) {
+      setTimeout(() => {
+        progress.hidden = true;
+        if (fill) fill.style.width = '0%';
+      }, 800);
+    }
+  }
 }
 
 /** @param {string} type */
 function renderCategoryFilters(type) {
   const el = document.getElementById(`${type}CategoryFilters`);
   if (!el) return;
-  const items = packagesByType[type] || [];
+  const items = inventoryByType[type] || [];
   /** @type {Map<string, number>} */
   const counts = new Map();
   let uncategorized = 0;
-  for (const pkg of items) {
+  for (const item of items) {
+    const pkg = findPackageForInventory(item, type);
     const cat =
-      typeof pkg.category === 'string' && pkg.category.trim() ? pkg.category.trim().toLowerCase() : '';
+      typeof pkg?.category === 'string' && pkg.category.trim() ? pkg.category.trim().toLowerCase() : '';
     if (!cat) {
       uncategorized += 1;
       continue;
@@ -143,27 +385,31 @@ function filterCatalog(type) {
 
   const term = (searchInput?.value || '').toLowerCase().trim();
   const categoryFilter = categoryFilterByType[type] || '';
-  const items = packagesByType[type] || [];
-  const filtered = items.filter((pkg) => {
+  const items = inventoryByType[type] || [];
+  const filtered = items.filter((item) => {
+    const pkg = findPackageForInventory(item, type);
     const cat =
-      typeof pkg.category === 'string' && pkg.category.trim()
+      typeof pkg?.category === 'string' && pkg.category.trim()
         ? pkg.category.trim().toLowerCase()
         : '';
     if (categoryFilter === '__none__' && cat) return false;
     if (categoryFilter && categoryFilter !== '__none__' && cat !== categoryFilter) return false;
     if (!term) return true;
-    const hay = `${pkg.display_name} ${pkg.ac_content_slug} ${pkg.slug} ${cat}`.toLowerCase();
+    const slug = inventorySlug(item, type);
+    const skins =
+      type === 'tracks'
+        ? (item.configs || []).join(' ')
+        : (item.skins || []).join(' ');
+    const hay = `${pkg?.display_name || ''} ${slug} ${skins} ${cat}`.toLowerCase();
     return hay.includes(term);
   });
 
-  // Group by category for easier scanning (uncategorized last).
   filtered.sort((a, b) => {
-    const ca =
-      typeof a.category === 'string' && a.category.trim() ? a.category.trim().toLowerCase() : '~~~';
-    const cb =
-      typeof b.category === 'string' && b.category.trim() ? b.category.trim().toLowerCase() : '~~~';
-    if (ca !== cb) return ca.localeCompare(cb);
-    return String(a.display_name || '').localeCompare(String(b.display_name || ''));
+    const pa = findPackageForInventory(a, type);
+    const pb = findPackageForInventory(b, type);
+    const na = String(pa?.display_name || inventorySlug(a, type));
+    const nb = String(pb?.display_name || inventorySlug(b, type));
+    return na.localeCompare(nb);
   });
 
   if (filteredSpan) {
@@ -174,40 +420,76 @@ function filterCatalog(type) {
 
   if (!filtered.length) {
     list.innerHTML = emptyStateHtml(
-      items.length ? 'No matches' : `No ${type} in mod catalog yet — upload a ZIP`,
+      items.length
+        ? 'No matches'
+        : catalogEdgeId
+          ? `No ${type} on this VPS yet — upload a ZIP above`
+          : 'No VPS registered',
     );
     return;
   }
 
-  list.innerHTML = filtered.map((pkg) => renderCatalogCard(pkg, type)).join('');
+  list.innerHTML = filtered.map((item) => renderInventoryCard(item, type)).join('');
   highlightSelectedCatalogCard(type);
 }
 
 /**
  * @param {string} type
- * @param {string | null | undefined} packageId
+ * @param {string | null | undefined} openKey packageId or artifactId or inv slug
  */
-function setCatalogWorkspaceOpen(type, packageId) {
+function setCatalogWorkspaceOpen(type, openKey) {
   const workspace = document.getElementById(`${type}Workspace`);
-  workspace?.classList.toggle('is-open', Boolean(packageId));
-  highlightSelectedCatalogCard(type, packageId);
+  workspace?.classList.toggle('is-open', Boolean(openKey));
+  highlightSelectedCatalogCard(type, openKey);
 }
 
 /**
  * @param {string} type
- * @param {string | null | undefined} [packageId]
+ * @param {string | null | undefined} [openKey]
  */
-function highlightSelectedCatalogCard(type, packageId) {
+function highlightSelectedCatalogCard(type, openKey) {
   const detail = document.getElementById(`${type}DistDetail`);
   const activeId =
-    packageId ??
-    detail?.querySelector('[data-edit-package-id]')?.getAttribute('data-edit-package-id') ??
+    openKey ??
+    detail?.querySelector('[data-panel-open-key]')?.getAttribute('data-panel-open-key') ??
     '';
   const list = document.getElementById(`${type}List`);
   if (!list) return;
   for (const wrap of list.querySelectorAll('.mod-card-wrap')) {
-    wrap.classList.toggle('is-selected', wrap.getAttribute('data-package-id') === activeId);
+    const key =
+      wrap.getAttribute('data-package-id') ||
+      wrap.getAttribute('data-artifact-id') ||
+      wrap.getAttribute('data-inv-slug') ||
+      '';
+    wrap.classList.toggle('is-selected', Boolean(activeId) && key === activeId);
   }
+}
+
+/**
+ * @param {string} type
+ * @param {string} [invSlug]
+ * @param {string} [artifactId]
+ * @param {string} [packageId]
+ */
+function findInventoryItem(type, invSlug, artifactId, packageId) {
+  const items = inventoryByType[type] || [];
+  if (artifactId) {
+    const byArt = items.find((i) => String(i.artifactId || '') === artifactId);
+    if (byArt) return byArt;
+  }
+  if (packageId) {
+    const pkg = (packagesByType[type] || []).find((p) => p.id === packageId);
+    const slug = String(pkg?.ac_content_slug || pkg?.slug || '').trim().toLowerCase();
+    if (slug) {
+      const byPkg = items.find((i) => inventorySlug(i, type).toLowerCase() === slug);
+      if (byPkg) return byPkg;
+    }
+  }
+  if (invSlug) {
+    const needle = invSlug.trim().toLowerCase();
+    return items.find((i) => inventorySlug(i, type).toLowerCase() === needle) || null;
+  }
+  return null;
 }
 
 /**
@@ -307,22 +589,48 @@ function closeCatalogSidePanel(type) {
 export async function loadModCatalog(type) {
   const list = document.getElementById(`${type}List`);
   if (list) list.innerHTML = skeletonHtml(type);
+  const hint = document.getElementById(`${type}InvHint`);
 
   try {
-    const { data } = await apiGet('/mods');
-    if (!data.ok) {
-      if (list) {
-        list.innerHTML = emptyStateHtml(
-          data.message || 'Mod catalog unavailable (set DATABASE_URL on hub)',
-        );
-      }
+    const [{ data: edgesData }, { data: modsData }] = await Promise.all([
+      apiGet('/mods/edges'),
+      apiGet('/mods'),
+    ]);
+
+    catalogEdges = edgesData?.ok ? edgesData.edges || [] : [];
+    fillEdgeSelect(type);
+
+    const kind = kindForType(type);
+    packagesByType[type] = modsData?.ok
+      ? (modsData.packages || []).filter((pkg) => pkg.kind === kind)
+      : [];
+
+    if (!catalogEdgeId) {
+      inventoryByType[type] = [];
+      if (hint) hint.textContent = 'No VPS in FLEET_EDGE_REGISTRY yet.';
+      filterCatalog(type);
       return;
     }
 
-    const kind = kindForType(type);
-    packagesByType[type] = (data.packages || []).filter((pkg) => pkg.kind === kind);
+    const { data: inv } = await apiGet(`/mods/edges/${encodeURIComponent(catalogEdgeId)}/inventory`);
+    if (!inv.ok) {
+      inventoryByType[type] = [];
+      if (hint) hint.textContent = inv.message || 'Inventory unavailable';
+      filterCatalog(type);
+      return;
+    }
+
+    inventoryByType[type] =
+      type === 'tracks' ? inv.tracks || [] : inv.cars || [];
+    const edgeLabel = inv.label || inv.edgeId || catalogEdgeId;
+    const n = inventoryByType[type].length;
+    if (hint) {
+      hint.textContent = `${edgeLabel} · ${n} ${type} on disk. Upload ZIP to this VPS; open a card to sync/copy/remove.`;
+    }
+
     const searchInput = /** @type {HTMLInputElement | null} */ (document.getElementById(`${type}Search`));
     if (searchInput) searchInput.value = '';
+    categoryFilterByType[type] = '';
     filterCatalog(type);
   } catch {
     if (list) list.innerHTML = emptyStateHtml('Connection error');
@@ -330,40 +638,37 @@ export async function loadModCatalog(type) {
 }
 
 /**
- * Open side panel: edit metadata + distribution.
+ * Open side panel: edit metadata + distribution + skins/layouts.
  * @param {string} type
- * @param {string} artifactId
+ * @param {string} [artifactId]
  * @param {string} [displayName]
- * @param {{ preserveSelection?: boolean; quiet?: boolean; packageId?: string }} [opts]
+ * @param {{ preserveSelection?: boolean; quiet?: boolean; packageId?: string; invSlug?: string }} [opts]
  */
 export async function openCatalogDistribution(type, artifactId, displayName, opts = {}) {
-  if (!artifactId) {
-    showToast('No artifact for this package yet', 'error');
-    return;
-  }
   const detail = document.getElementById(`${type}DistDetail`);
   if (!detail) return;
 
-  /** @type {Set<string> | null} */
-  let prevSelected = null;
-  if (opts.preserveSelection) {
-    prevSelected = new Set(
-      [...detail.querySelectorAll('.mod-edge-check:checked')].map(
-        (el) => /** @type {HTMLInputElement} */ (el).value,
-      ),
-    );
-  }
+  const requestedArtifactId = String(artifactId || '').trim();
+  const invSlugOpt = String(opts.invSlug || '').trim();
 
-  const packageId =
-    opts.packageId ||
-    detail.querySelector('[data-edit-package-id]')?.getAttribute('data-edit-package-id') ||
-    (packagesByType[type] || []).find((p) => p.latest_artifact?.id === artifactId)?.id ||
-    '';
-
-  if (opts.quiet && detail.querySelector('.mod-side-panel')) {
-    const { data } = await apiGet(`/mods/artifacts/${artifactId}/distribution`);
-    if (!data.ok) return;
+  // Quiet poll for a different mod must not clobber the open panel.
+  if (opts.quiet) {
+    if (catalogDistPollArtifact[type] !== requestedArtifactId || !requestedArtifactId) {
+      return;
+    }
+    if (!detail.querySelector('.mod-side-panel')) return;
+    const { data } = await apiGet(`/mods/artifacts/${requestedArtifactId}/distribution`);
+    if (!data.ok || catalogDistPollArtifact[type] !== requestedArtifactId) return;
     const rows = data.distribution || [];
+    /** @type {Set<string> | null} */
+    let prevSelected = null;
+    if (opts.preserveSelection) {
+      prevSelected = new Set(
+        [...detail.querySelectorAll('.mod-edge-check:checked')].map(
+          (el) => /** @type {HTMLInputElement} */ (el).value,
+        ),
+      );
+    }
     const tbody = detail.querySelector('.mod-dist-table tbody');
     if (tbody) {
       tbody.innerHTML = rows
@@ -383,14 +688,13 @@ export async function openCatalogDistribution(type, artifactId, displayName, opt
       liveHint.textContent = distNeedsPolling(rows) ? ' · Updating live…' : '';
     }
     if (distNeedsPolling(rows)) {
-      if (catalogDistPollArtifact[type] !== artifactId) {
-        stopCatalogDistPoll(type);
-        catalogDistPollArtifact[type] = artifactId;
+      if (catalogDistPollTimers[type] == null) {
         catalogDistPollTimers[type] = setInterval(() => {
-          void openCatalogDistribution(type, artifactId, displayName, {
+          void openCatalogDistribution(type, requestedArtifactId, displayName, {
             preserveSelection: true,
             quiet: true,
-            packageId,
+            packageId: opts.packageId,
+            invSlug: invSlugOpt,
           });
         }, 2000);
       }
@@ -400,45 +704,107 @@ export async function openCatalogDistribution(type, artifactId, displayName, opt
     return;
   }
 
-  if (!opts.quiet) {
-    detail.classList.remove('hidden');
-    detail.innerHTML = '<p class="panel-hint">Loading…</p>';
-    setCatalogWorkspaceOpen(type, packageId || null);
+  stopCatalogDistPoll(type);
+
+  const packageIdHint =
+    opts.packageId ||
+    (packagesByType[type] || []).find((p) => p.latest_artifact?.id === requestedArtifactId)?.id ||
+    '';
+
+  const invItem = findInventoryItem(type, invSlugOpt, requestedArtifactId, packageIdHint);
+  const slugFromInv = invItem ? inventorySlug(invItem, type) : invSlugOpt;
+  const openKey = packageIdHint || requestedArtifactId || slugFromInv || 'open';
+
+  detail.classList.remove('hidden');
+  detail.innerHTML = '<p class="panel-hint">Loading…</p>';
+  setCatalogWorkspaceOpen(type, openKey);
+
+  /** @type {object | null} */
+  let art = null;
+  /** @type {object[]} */
+  let rows = [];
+  if (requestedArtifactId) {
+    const { data } = await apiGet(`/mods/artifacts/${requestedArtifactId}/distribution`);
+    if (!data.ok) {
+      detail.innerHTML = `<p class="panel-hint">${escapeHtml(data.message || 'Failed to load distribution')}</p>`;
+      setCatalogWorkspaceOpen(type, openKey);
+      return;
+    }
+    art = data.artifact;
+    rows = data.distribution || [];
   }
 
-  const { data } = await apiGet(`/mods/artifacts/${artifactId}/distribution`);
-  if (!data.ok) {
-    stopCatalogDistPoll(type);
-    detail.innerHTML = `<p class="panel-hint">${data.message || 'Failed to load distribution'}</p>`;
-    setCatalogWorkspaceOpen(type, packageId || null);
-    return;
-  }
-
-  const art = data.artifact;
-  const rows = data.distribution || [];
   const pkg =
-    (packagesByType[type] || []).find((p) => p.id === packageId) ||
-    (packagesByType[type] || []).find((p) => p.latest_artifact?.id === artifactId);
-  const resolvedPackageId = pkg?.id || packageId || art?.package?.id || '';
-  const title = displayName || pkg?.display_name || art?.package?.display_name || 'Mod';
-  const imageUrl =
-    typeof pkg?.imageUrl === 'string' && pkg.imageUrl
-      ? pkg.imageUrl
-      : '';
-  const acSlug = pkg?.ac_content_slug || art?.package?.ac_content_slug || '';
+    (packagesByType[type] || []).find((p) => p.id === packageIdHint) ||
+    (packagesByType[type] || []).find((p) => p.latest_artifact?.id === requestedArtifactId) ||
+    (slugFromInv
+      ? (packagesByType[type] || []).find((p) => {
+          const ac = String(p.ac_content_slug || '').trim().toLowerCase();
+          const s = String(p.slug || '').trim().toLowerCase();
+          const needle = slugFromInv.toLowerCase();
+          return ac === needle || s === needle;
+        })
+      : null);
+
+  const resolvedPackageId = pkg?.id || packageIdHint || art?.package?.id || '';
+  const resolvedArtifactId = requestedArtifactId || pkg?.latest_artifact?.id || '';
+  const acSlug =
+    slugFromInv || pkg?.ac_content_slug || art?.package?.ac_content_slug || '';
+  const title =
+    displayName || pkg?.display_name || art?.package?.display_name || acSlug || 'Mod';
+  const packageImageUrl =
+    typeof pkg?.imageUrl === 'string' && pkg.imageUrl ? pkg.imageUrl : '';
   const category =
     (typeof pkg?.category === 'string' && pkg.category) ||
     (typeof art?.package?.category === 'string' && art.package.category) ||
     '';
 
+  const variantNames =
+    type === 'tracks'
+      ? (invItem?.configs || []).map((c) => {
+          const raw = c === '' || c == null ? '' : String(c).trim();
+          // AC default layout often uses track folder name under ui/
+          return raw || acSlug || 'default';
+        })
+      : (invItem?.skins || []).map(String).filter(Boolean);
+
+  const coverFromSkin =
+    !packageImageUrl && acSlug && variantNames[0] && catalogEdgeId
+      ? previewUrl(type, acSlug, variantNames[0], catalogEdgeId)
+      : '';
+  const coverUrl = packageImageUrl || coverFromSkin;
+  const subtitleParts = [];
+  if (art?.version_label) subtitleParts.push(`v${art.version_label}`);
+  if (variantNames.length) {
+    subtitleParts.push(
+      `${variantNames.length} ${type === 'tracks' ? 'layouts' : 'skins'}`,
+    );
+  }
+  if (acSlug && acSlug !== title) subtitleParts.push(acSlug);
+
+  const variantsSection = acSlug
+    ? `
+      <section class="mod-edit-section">
+        <p class="modal-mod-section">${escapeHtml(variantLabel(type))} on this VPS</p>
+        ${
+          variantNames.length
+            ? renderVariantGrid(type, acSlug, variantNames, catalogEdgeId)
+            : '<p class="panel-hint">No skins/layouts in inventory scan yet.</p>'
+        }
+      </section>`
+    : '';
+
+  const panelKey = resolvedPackageId || resolvedArtifactId || acSlug || openKey;
+  catalogDistPollArtifact[type] = resolvedArtifactId || null;
+
   detail.classList.remove('hidden');
-  setCatalogWorkspaceOpen(type, resolvedPackageId || null);
+  setCatalogWorkspaceOpen(type, panelKey);
   detail.innerHTML = `
-    <aside class="mod-side-panel card" data-edit-package-id="${escapeAttr(resolvedPackageId)}">
+    <aside class="mod-side-panel card" data-edit-package-id="${escapeAttr(resolvedPackageId)}" data-panel-open-key="${escapeAttr(panelKey)}">
       <header class="mod-side-panel-header">
         <div>
-          <h3>${escapeHtml(title)}</h3>
-          <p class="panel-hint">v${escapeHtml(art?.version_label || '')}<span data-dist-live-hint>${
+          <h3 title="${escapeAttr(title)}">${escapeHtml(title)}</h3>
+          <p class="panel-hint">${escapeHtml(subtitleParts.join(' · '))}<span data-dist-live-hint>${
             distNeedsPolling(rows) ? ' · Updating live…' : ''
           }</span></p>
         </div>
@@ -446,22 +812,27 @@ export async function openCatalogDistribution(type, artifactId, displayName, opt
       </header>
 
       <section class="mod-edit-section">
-        <p class="modal-mod-section">Edit</p>
         <div class="mod-edit-preview">
           <div class="mod-edit-preview-thumb">
             ${
-              imageUrl
-                ? `<img src="${escapeAttr(imageUrl)}" alt="" loading="lazy">`
+              coverUrl
+                ? `<img src="${escapeAttr(coverUrl)}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'mod-card-placeholder',textContent:'${type === 'tracks' ? 'T' : 'C'}'}))">`
                 : `<span class="mod-card-placeholder">${type === 'tracks' ? 'T' : 'C'}</span>`
             }
           </div>
-          <div class="mod-edit-preview-actions">
+          ${
+            resolvedPackageId
+              ? `<div class="mod-edit-preview-actions">
             <input type="file" class="hidden" data-side-preview-input accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif">
-            <button type="button" class="btn btn-sm" data-side-preview-upload>${imageUrl ? 'Replace image' : 'Upload image'}</button>
-            ${imageUrl ? '<button type="button" class="btn btn-sm btn-ghost" data-side-preview-remove>Remove image</button>' : ''}
-          </div>
+            <button type="button" class="btn btn-sm" data-side-preview-upload>${packageImageUrl ? 'Replace cover' : 'Upload cover'}</button>
+            ${packageImageUrl ? '<button type="button" class="btn btn-sm btn-ghost" data-side-preview-remove>Remove cover</button>' : ''}
+          </div>`
+              : ''
+          }
         </div>
-        <div class="form-group">
+        ${
+          resolvedPackageId
+            ? `<div class="form-group">
           <label for="${type}ModDisplayName">Display name</label>
           <input class="input" type="text" id="${type}ModDisplayName" value="${escapeAttr(title)}" autocomplete="off">
         </div>
@@ -471,7 +842,6 @@ export async function openCatalogDistribution(type, artifactId, displayName, opt
           <datalist id="${type}ModCategoryList">
             ${CATEGORY_SUGGESTIONS.map((c) => `<option value="${escapeAttr(c)}"></option>`).join('')}
           </datalist>
-          <p class="field-hint">Extra label to group mods (not car/track — that comes from this tab).</p>
         </div>
         <div class="form-group">
           <label for="${type}ModAcSlug">AC content slug</label>
@@ -480,21 +850,37 @@ export async function openCatalogDistribution(type, artifactId, displayName, opt
         <div class="mod-edit-actions">
           <button type="button" class="btn btn-primary btn-sm" data-side-save>Save changes</button>
           <button type="button" class="btn btn-danger btn-sm" data-side-delete>Delete mod</button>
-        </div>
+        </div>`
+            : ''
+        }
       </section>
 
-      <section class="mod-dist-section">
+      ${variantsSection}
+
+      ${
+        resolvedArtifactId
+          ? `<section class="mod-dist-section">
         <p class="modal-mod-section">VPS distribution</p>
-        <p class="panel-hint">Sync copies from a READY VPS (peer pull) when the ZIP is edge-owned — hub does not store master blobs for those. Remove deletes content on the selected VPS only.</p>
+        <p class="panel-hint">Sync copies from a READY VPS (peer pull). Remove deletes content on the selected VPS only. If the table is empty, use Delete folder on this VPS.</p>
         <table class="mod-dist-table">
           <thead><tr><th></th><th>VPS</th><th>Status</th></tr></thead>
           <tbody>
-            ${rows
+            ${(rows.length
+              ? rows
+              : catalogEdgeId
+                ? [
+                    {
+                      edge_id: catalogEdgeId,
+                      label:
+                        catalogEdges.find((e) => e.id === catalogEdgeId)?.label || catalogEdgeId,
+                      status: 'LOCAL_ONLY',
+                    },
+                  ]
+                : []
+            )
               .map((row) => {
-                const checked =
-                  !prevSelected || prevSelected.has(row.edge_id) ? ' checked' : '';
                 return `<tr>
-                <td><input type="checkbox" class="mod-edge-check" value="${escapeAttr(row.edge_id)}"${checked} /></td>
+                <td><input type="checkbox" class="mod-edge-check" value="${escapeAttr(row.edge_id)}" checked /></td>
                 <td>${escapeHtml(row.label || row.edge_id)}</td>
                 <td>${renderModSyncStatusCell(row)}</td>
               </tr>`;
@@ -503,11 +889,24 @@ export async function openCatalogDistribution(type, artifactId, displayName, opt
           </tbody>
         </table>
         <div class="modal-actions mod-side-dist-actions">
-          <button type="button" class="btn btn-primary btn-sm" data-sync-edges="${escapeAttr(artifactId)}">Sync / copy to selected</button>
-          <button type="button" class="btn btn-ghost btn-sm" data-verify-edges="${escapeAttr(artifactId)}">Verify</button>
-          <button type="button" class="btn btn-danger btn-sm" data-remove-edges="${escapeAttr(artifactId)}">Remove from VPS</button>
+          <button type="button" class="btn btn-primary btn-sm" data-sync-edges="${escapeAttr(resolvedArtifactId)}">Sync / copy to selected</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-verify-edges="${escapeAttr(resolvedArtifactId)}">Verify</button>
+          <button type="button" class="btn btn-danger btn-sm" data-remove-edges="${escapeAttr(resolvedArtifactId)}">Remove from VPS</button>
+          ${
+            acSlug && catalogEdgeId
+              ? `<button type="button" class="btn btn-danger btn-sm" data-delete-local-slug="${escapeAttr(acSlug)}" data-delete-local-kind="${escapeAttr(kindForType(type))}">Delete folder on this VPS</button>`
+              : ''
+          }
         </div>
-      </section>
+      </section>`
+          : `<section class="mod-dist-section">
+        <p class="modal-mod-section">This VPS only</p>
+        <p class="panel-hint">Not linked to the hub catalog yet (no .acmod.json / artifact). Re-upload via Cars/Tracks to enable Sync to other VPS. You can still delete the folder on <strong>${escapeHtml(catalogEdgeId || 'this VPS')}</strong>.</p>
+        <div class="modal-actions mod-side-dist-actions">
+          <button type="button" class="btn btn-danger btn-sm" data-delete-local-slug="${escapeAttr(acSlug)}" data-delete-local-kind="${escapeAttr(kindForType(type))}">Delete from this VPS</button>
+        </div>
+      </section>`
+      }
     </aside>
   `;
 
@@ -531,7 +930,9 @@ export async function openCatalogDistribution(type, artifactId, displayName, opt
   });
 
   detail.querySelector('[data-side-save]')?.addEventListener('click', () => {
-    if (resolvedPackageId) void saveCatalogPackageMeta(type, resolvedPackageId, artifactId);
+    if (resolvedPackageId && resolvedArtifactId) {
+      void saveCatalogPackageMeta(type, resolvedPackageId, resolvedArtifactId);
+    }
   });
   detail.querySelector('[data-side-delete]')?.addEventListener('click', () => {
     if (resolvedPackageId) void deleteCatalogPackage(type, resolvedPackageId, title);
@@ -542,51 +943,87 @@ export async function openCatalogDistribution(type, artifactId, displayName, opt
       (el) => /** @type {HTMLInputElement} */ (el).value,
     );
 
-  detail.querySelector('[data-sync-edges]')?.addEventListener('click', async () => {
-    const edgeIds = selectedEdges();
-    const { data: res } = await apiPost(`/mods/artifacts/${artifactId}/distribute`, { edgeIds });
-    showToast(res.ok ? `Enqueued ${res.enqueued} jobs` : res.message, res.ok ? 'success' : 'error');
-    await openCatalogDistribution(type, artifactId, displayName, { packageId: resolvedPackageId });
-  });
+  if (resolvedArtifactId) {
+    detail.querySelector('[data-sync-edges]')?.addEventListener('click', async () => {
+      const edgeIds = selectedEdges();
+      const { data: res } = await apiPost(`/mods/artifacts/${resolvedArtifactId}/distribute`, {
+        edgeIds,
+      });
+      showToast(res.ok ? `Enqueued ${res.enqueued} jobs` : res.message, res.ok ? 'success' : 'error');
+      await openCatalogDistribution(type, resolvedArtifactId, displayName, {
+        packageId: resolvedPackageId,
+        invSlug: acSlug,
+      });
+    });
 
-  detail.querySelector('[data-verify-edges]')?.addEventListener('click', async () => {
-    const edgeIds = selectedEdges();
-    const { data: res } = await apiPost(`/mods/artifacts/${artifactId}/verify`, { edgeIds });
-    showToast(res.ok ? `Verify enqueued (${res.enqueued})` : res.message, res.ok ? 'success' : 'error');
-  });
+    detail.querySelector('[data-verify-edges]')?.addEventListener('click', async () => {
+      const edgeIds = selectedEdges();
+      const { data: res } = await apiPost(`/mods/artifacts/${resolvedArtifactId}/verify`, { edgeIds });
+      showToast(res.ok ? `Verify enqueued (${res.enqueued})` : res.message, res.ok ? 'success' : 'error');
+    });
 
-  detail.querySelector('[data-remove-edges]')?.addEventListener('click', async () => {
-    const edgeIds = selectedEdges();
-    if (!edgeIds.length) {
-      showToast('Select at least one VPS', 'error');
-      return;
-    }
-    const ok = await showConfirm(
-      'Remove from VPS?',
-      `Delete this mod from ${edgeIds.length} selected VPS (local pool + blob). Catalog metadata stays on the hub.`,
-      'Remove',
-    );
-    if (!ok) return;
-    const { data: res } = await apiPost(`/mods/artifacts/${artifactId}/remove-from-edges`, { edgeIds });
-    showToast(res.ok ? 'Remove scheduled' : res.message, res.ok ? 'success' : 'error');
-    await openCatalogDistribution(type, artifactId, displayName, { packageId: resolvedPackageId });
-  });
+    detail.querySelector('[data-remove-edges]')?.addEventListener('click', async () => {
+      let edgeIds = selectedEdges();
+      // Fallback: empty matrix / no checks → current inventory VPS
+      if (!edgeIds.length && catalogEdgeId) edgeIds = [catalogEdgeId];
+      if (!edgeIds.length) {
+        showToast('Select at least one VPS', 'error');
+        return;
+      }
+      const ok = await showConfirm(
+        'Remove from VPS?',
+        `Delete this mod from ${edgeIds.length} selected VPS (local pool + blob). Catalog metadata stays on the hub.`,
+        'Remove',
+      );
+      if (!ok) return;
+      const { data: res } = await apiPost(`/mods/artifacts/${resolvedArtifactId}/remove-from-edges`, {
+        edgeIds,
+      });
+      showToast(res.ok ? 'Remove scheduled' : res.message, res.ok ? 'success' : 'error');
+      await openCatalogDistribution(type, resolvedArtifactId, displayName, {
+        packageId: resolvedPackageId,
+        invSlug: acSlug,
+      });
+    });
 
-  if (distNeedsPolling(rows)) {
-    if (catalogDistPollArtifact[type] !== artifactId) {
-      stopCatalogDistPoll(type);
-      catalogDistPollArtifact[type] = artifactId;
+    if (distNeedsPolling(rows)) {
       catalogDistPollTimers[type] = setInterval(() => {
-        void openCatalogDistribution(type, artifactId, displayName, {
+        void openCatalogDistribution(type, resolvedArtifactId, displayName, {
           preserveSelection: true,
           quiet: true,
           packageId: resolvedPackageId,
+          invSlug: acSlug,
         });
       }, 2000);
     }
-  } else {
-    stopCatalogDistPoll(type);
   }
+
+  // Local folder delete (works with or without catalog artifact — for orphans / empty matrix).
+  detail.querySelector('[data-delete-local-slug]')?.addEventListener('click', async (e) => {
+    const btn = /** @type {HTMLElement} */ (e.currentTarget);
+    const slug = btn.getAttribute('data-delete-local-slug') || '';
+    const kind = btn.getAttribute('data-delete-local-kind') || kindForType(type);
+    if (!slug || !catalogEdgeId) {
+      showToast('Missing slug or VPS', 'error');
+      return;
+    }
+    const ok = await showConfirm(
+      'Delete folder on this VPS?',
+      `Permanently delete ${kind}s/${slug} from ${catalogEdgeId}.`,
+      'Delete',
+    );
+    if (!ok) return;
+    const { data: res } = await apiDelete(
+      `/mods/edges/${encodeURIComponent(catalogEdgeId)}/content/${encodeURIComponent(kind)}/${encodeURIComponent(slug)}`,
+    );
+    if (!res.ok) {
+      showToast(res.message || 'Delete failed', 'error');
+      return;
+    }
+    showToast(res.message || 'Deleted from VPS', 'success');
+    closeCatalogSidePanel(type);
+    await loadModCatalog(type);
+  });
 }
 
 /**

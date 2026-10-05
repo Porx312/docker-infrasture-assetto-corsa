@@ -147,7 +147,7 @@ Duplicate lobby `NAME=` on **different VPS** is OK (routing uses `instanceId` fr
 - **Add instance**: `POST /admin/servers/provision` on the edge (proxied). Pick a **Region** in the header first in fleet mode; clones `server-templates/server-template` (or `servers/server`) to the next `server-N` folder with default ports.
 - **Bulk branding**: **Apply branding to servers…** (checkboxes) — unchanged.
 - **HUD downloads for players**: `GET /client/hud/latest` on the hub (`PROJECTD_HUD_PATH`, included in `ac-data-backend-hub` tarball).
-- **Mods**: upload ZIPs via admin **Fleet → Upload to VPS**; Sync/copy between edges uses peer pull (see [MOD_DISTRIBUTION.md](MOD_DISTRIBUTION.md)).
+- **Mods**: upload ZIPs via admin **Cars / Tracks → Upload to VPS**; Sync/copy between edges uses peer pull (see [MOD_DISTRIBUTION.md](MOD_DISTRIBUTION.md)).
 
 Hub env: `FLEET_EDGE_REGISTRY`, `HUB_OWNS_CONTENT=true`, `CONTENT_PATH`, `CONVEX_WORKER_SECRET`.
 

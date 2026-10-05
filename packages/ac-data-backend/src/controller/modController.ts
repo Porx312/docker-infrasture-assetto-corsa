@@ -47,7 +47,7 @@ import {
   resolveFleetEdgeByInstanceId,
 } from '@projectd/ac-data-shared/services/fleet/fleetRegistry.js';
 import fsp from 'node:fs/promises';
-import { Blob } from 'node:buffer';
+import { openAsBlob } from 'node:fs';
 
 function modDbUnavailable(res: Response): void {
   res.status(503).json({ ok: false, message: 'Mod repository requires DATABASE_URL' });
@@ -463,19 +463,93 @@ export async function modEdgeInventoryHandler(req: Request, res: Response): Prom
       res.status(503).json({ ok: false, message: 'redis_unavailable' });
       return;
     }
+
+    // Fill missing artifactId from hub catalog by ac_content_slug (orphans without .acmod.json).
+    let carOut = cars.cars;
+    let trackOut = tracks.tracks;
+    if (isModDbConfigured()) {
+      const packages = await listPackagesWithLatestArtifact();
+      const byKey = new Map<
+        string,
+        { artifactId: string; packageId: string; displayName: string }
+      >();
+      for (const pkg of packages) {
+        const art = pkg.latest_artifact as { id?: string } | null | undefined;
+        if (!art?.id) continue;
+        const slug = String(pkg.ac_content_slug || pkg.slug || '')
+          .trim()
+          .toLowerCase();
+        if (!slug) continue;
+        byKey.set(`${pkg.kind}:${slug}`, {
+          artifactId: art.id,
+          packageId: pkg.id,
+          displayName: pkg.display_name,
+        });
+      }
+      carOut = cars.cars.map((c) => {
+        if (c.artifactId) return c;
+        const hit = byKey.get(`car:${String(c.carModel || '').trim().toLowerCase()}`);
+        return hit
+          ? { ...c, artifactId: hit.artifactId, displayName: c.displayName || hit.displayName }
+          : c;
+      });
+      trackOut = tracks.tracks.map((t) => {
+        if (t.artifactId) return t;
+        const hit = byKey.get(`track:${String(t.trackSlug || '').trim().toLowerCase()}`);
+        return hit ? { ...t, artifactId: hit.artifactId } : t;
+      });
+    }
+
     res.json({
       ok: true,
       edgeId: edge?.id || edgeId,
       instanceId,
       label: edge?.label || edgeId,
-      cars: cars.cars,
-      tracks: tracks.tracks,
+      cars: carOut,
+      tracks: trackOut,
       carsMeta: cars.meta,
       tracksMeta: tracks.meta,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(503).json({ ok: false, message });
+  }
+}
+
+/** Delete car/track folder on a VPS (works without catalog artifact). */
+export async function modEdgeDeleteContentHandler(req: Request, res: Response): Promise<void> {
+  const edgeId = String(req.params.edgeId || '').trim().toLowerCase();
+  const kind = String(req.params.kind || '').trim().toLowerCase();
+  const slug = String(req.params.slug || '').trim();
+  const edge = resolveFleetEdge(edgeId);
+  if (!edge?.baseUrl) {
+    res.status(404).json({ ok: false, message: `Unknown fleet edge: ${edgeId}` });
+    return;
+  }
+  if ((kind !== 'car' && kind !== 'track') || !slug) {
+    res.status(400).json({ ok: false, message: 'kind and slug required' });
+    return;
+  }
+  const secret = (process.env.CONVEX_WORKER_SECRET || '').trim();
+  if (!secret) {
+    res.status(503).json({ ok: false, message: 'CONVEX_WORKER_SECRET missing' });
+    return;
+  }
+  try {
+    const url = new URL(
+      `/admin/mods/local-content/${encodeURIComponent(kind)}/${encodeURIComponent(slug)}`,
+      edge.baseUrl.endsWith('/') ? edge.baseUrl : `${edge.baseUrl}/`,
+    );
+    const upstream = await fetch(url, {
+      method: 'DELETE',
+      headers: { 'X-Worker-Secret': secret },
+      signal: AbortSignal.timeout(Number(process.env.FLEET_ADMIN_PROXY_TIMEOUT_MS || 60_000)),
+    });
+    const data = (await upstream.json().catch(() => ({}))) as Record<string, unknown>;
+    res.status(upstream.status).json(data);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(502).json({ ok: false, message });
   }
 }
 
@@ -498,13 +572,10 @@ export async function modEdgeUploadHandler(req: Request, res: Response): Promise
     return;
   }
   try {
-    const bytes = await fsp.readFile(file.path);
+    // Stream file to edge (avoid loading multi‑GB ZIP into hub RAM).
+    const blob = await openAsBlob(file.path);
     const form = new FormData();
-    form.append(
-      'file',
-      new Blob([new Uint8Array(bytes)], { type: 'application/zip' }),
-      file.originalname || 'mod.zip',
-    );
+    form.append('file', blob, file.originalname || 'mod.zip');
     const kind = typeof req.body?.kind === 'string' ? req.body.kind : '';
     const displayName = typeof req.body?.displayName === 'string' ? req.body.displayName : '';
     if (kind) form.append('kind', kind);

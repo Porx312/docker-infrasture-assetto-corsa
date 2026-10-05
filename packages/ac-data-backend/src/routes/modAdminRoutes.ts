@@ -25,6 +25,7 @@ import {
   modUpdatePackageHandler,
   modEdgeInventoryHandler,
   modEdgeUploadHandler,
+  modEdgeDeleteContentHandler,
 } from '../controller/modController.js';
 import { ensureModStagingDir } from '../services/mods/modPaths.js';
 
@@ -75,6 +76,9 @@ router.post(
     void modEdgeUploadHandler(req, res);
   },
 );
+router.delete('/mods/edges/:edgeId/content/:kind/:slug', adminAuth, (req, res) => {
+  void modEdgeDeleteContentHandler(req, res);
+});
 router.get('/mods/fleet/sync-issues', adminAuth, (req, res) => {
   void listFleetSyncIssuesHandler(req, res);
 });

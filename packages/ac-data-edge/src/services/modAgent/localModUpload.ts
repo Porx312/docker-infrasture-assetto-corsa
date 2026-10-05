@@ -12,13 +12,21 @@ import {
   materializeManifestToPool,
   sha256File,
   getValidCachedBlob,
+  contentPoolPath,
+  writeAcModSidecar,
 } from './materialize.js';
+import { scanLocalModInventory, postModInventoryToHub } from '../modInventoryScan.js';
 
 function inferKind(paths: string[]): ModKind {
   const normalized = paths.map((p) => p.replace(/\\/g, '/').toLowerCase());
-  if (normalized.some((p) => p.includes('/cars/') || p.startsWith('cars/'))) return 'car';
-  if (normalized.some((p) => p.includes('/tracks/') || p.startsWith('tracks/'))) return 'track';
-  if (normalized.some((p) => p.includes('/weather/') || p.startsWith('weather/'))) return 'weather';
+  if (normalized.some((p) => /(^|\/)cars\//.test(p))) return 'car';
+  if (normalized.some((p) => /(^|\/)tracks\//.test(p))) return 'track';
+  if (normalized.some((p) => /(^|\/)weather\//.test(p))) return 'weather';
+  // Bare car/track folder ZIPs (RaceDepartment etc.): look for AC markers.
+  if (normalized.some((p) => /(^|\/)(data\.acd|data\/car\.ini|skins\/)/.test(p))) return 'car';
+  if (normalized.some((p) => /(^|\/)(ui_track\.json|surfaces\.ini|map\.png|data\/surfaces\.ini)/.test(p))) {
+    return 'track';
+  }
   return 'misc';
 }
 
@@ -29,18 +37,31 @@ function contentFolder(kind: ModKind): 'cars' | 'tracks' | 'weather' | undefined
   return undefined;
 }
 
+/** Slugs from cars/<slug>/… anywhere in the zip (root or nested wrapper). */
 function extractSlugs(paths: string[], kind: ModKind): string[] {
   const folder = contentFolder(kind);
   if (!folder) return [];
   const slugs = new Set<string>();
-  const prefix = `${folder}/`;
   for (const raw of paths) {
-    const p = raw.replace(/\\/g, '/');
-    if (!p.startsWith(prefix)) continue;
-    const slug = p.slice(prefix.length).split('/')[0];
-    if (slug && !slug.includes('..')) slugs.add(slug);
+    const parts = raw.replace(/\\/g, '/').split('/').filter(Boolean);
+    const idx = parts.findIndex((seg) => seg.toLowerCase() === folder);
+    if (idx >= 0) {
+      const slug = parts[idx + 1];
+      if (slug && !slug.includes('..') && slug !== '__MACOSX') slugs.add(slug);
+    }
   }
   return [...slugs];
+}
+
+function singleRootSlug(paths: string[]): string | null {
+  const roots = [
+    ...new Set(
+      paths
+        .map((p) => p.replace(/\\/g, '/').split('/')[0])
+        .filter((r): r is string => Boolean(r) && r !== '__MACOSX' && !r.startsWith('.') && r !== 'desktop.ini'),
+    ),
+  ];
+  return roots.length === 1 ? roots[0]! : null;
 }
 
 async function buildManifestFromZip(zipPath: string, kindHint?: ModKind): Promise<ModManifest> {
@@ -53,12 +74,18 @@ async function buildManifestFromZip(zipPath: string, kindHint?: ModKind): Promis
     }
   }
   const kind = kindHint && kindHint !== 'misc' ? kindHint : inferKind(paths);
-  const slugs = extractSlugs(paths, kind);
+  let slugs = extractSlugs(paths, kind);
+  // Common layout: ZIP is just <car_folder>/… without a cars/ prefix.
+  if (!slugs.length && (kind === 'car' || kind === 'track')) {
+    const root = singleRootSlug(paths);
+    if (root) slugs = [root];
+  }
+  const folder = contentFolder(kind);
   return {
     kind,
     acContentSlugs: slugs,
-    rootPaths: slugs.map((s) => `${contentFolder(kind)}/${s}`),
-    contentTypeFolder: contentFolder(kind),
+    rootPaths: folder ? slugs.map((s) => `${folder}/${s}`) : slugs,
+    contentTypeFolder: folder,
     entryPaths: paths.slice(0, 50_000),
   };
 }
@@ -101,15 +128,17 @@ export async function handleLocalModUpload(req: Request, res: Response): Promise
     const sha256 = await sha256File(file.path);
     const sizeBytes = fs.statSync(file.path).size;
     const manifest = await buildManifestFromZip(file.path, kindHint);
-    const acSlug = manifest.acContentSlugs[0] || displayName.toLowerCase().replace(/\s+/g, '-');
     if (!manifest.contentTypeFolder || !manifest.acContentSlugs.length) {
       res.status(400).json({
         ok: false,
-        message: 'ZIP must contain cars/ or tracks/ content (Assetto Corsa layout)',
+        message:
+          'ZIP must contain cars/<name>/ or tracks/<name>/ (or a single car/track folder at the ZIP root)',
       });
       return;
     }
-    const cached = await ensureBlobCached(sha256, file.path);
+    const acSlug = manifest.acContentSlugs[0]!;
+    // Skip re-hash + prefer rename into blob store (big speedup for multi‑GB ZIPs).
+    const cached = await ensureBlobCached(sha256, file.path, { trustedSource: true });
     await materializeManifestToPool(sha256, cached, manifest, acSlug, {
       sha256,
       kind: manifest.kind,
@@ -146,6 +175,27 @@ export async function handleLocalModUpload(req: Request, res: Response): Promise
       });
       return;
     }
+
+    // Sidecar must include artifactId so inventory scan / UI can Sync & Remove.
+    const destDir = path.join(contentPoolPath(), manifest.contentTypeFolder!, acSlug);
+    await writeAcModSidecar(destDir, {
+      artifactId: body.artifactId,
+      sha256,
+      kind: manifest.kind,
+      slug: acSlug,
+      version: new Date().toISOString().slice(0, 10),
+    }).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[mod-local-upload] sidecar write failed: ${message}`);
+    });
+
+    void scanLocalModInventory()
+      .then((snap) => postModInventoryToHub(snap))
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`[mod-local-upload] inventory rescan failed: ${message}`);
+      });
+
     res.json({
       ok: true,
       message: 'Installed on this VPS and registered (ZIP stays on this edge only)',
@@ -183,4 +233,30 @@ export async function handleServeModBlob(req: Request, res: Response): Promise<v
   res.setHeader('Content-Length', String(stat.size));
   res.setHeader('X-Content-Sha256', sha256);
   fs.createReadStream(zipPath).pipe(res);
+}
+
+/** Delete a car/track folder from this edge CONTENT_PATH pool (orphans without catalog OK). */
+export async function handleDeleteLocalContent(req: Request, res: Response): Promise<void> {
+  const kindRaw = String(req.params.kind || '').trim().toLowerCase();
+  const slug = String(req.params.slug || '').trim();
+  if ((kindRaw !== 'car' && kindRaw !== 'track') || !slug || slug.includes('..') || slug.includes('/')) {
+    res.status(400).json({ ok: false, message: 'kind (car|track) and slug required' });
+    return;
+  }
+  const folder = kindRaw === 'car' ? 'cars' : 'tracks';
+  const destDir = path.join(contentPoolPath(), folder, slug);
+  if (!fs.existsSync(destDir)) {
+    res.status(404).json({ ok: false, message: 'content_not_found' });
+    return;
+  }
+  try {
+    await fsp.rm(destDir, { recursive: true, force: true });
+    void scanLocalModInventory()
+      .then((snap) => postModInventoryToHub(snap))
+      .catch(() => undefined);
+    res.json({ ok: true, message: `Removed ${folder}/${slug} from this VPS` });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ ok: false, message });
+  }
 }

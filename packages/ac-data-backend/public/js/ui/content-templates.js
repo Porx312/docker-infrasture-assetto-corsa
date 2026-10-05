@@ -11,32 +11,39 @@ export function variantLabel(type) {
  * @param {string} type
  * @param {string} itemName
  * @param {string} variantName
+ * @param {string} [fleetEdgeId]
  */
-export function previewUrl(type, itemName, variantName) {
-  return `${API_BASE}/preview/${type}/${encodeURIComponent(itemName)}/${encodeURIComponent(variantName)}`;
+export function previewUrl(type, itemName, variantName, fleetEdgeId) {
+  const base = `${API_BASE}/preview/${type}/${encodeURIComponent(itemName)}/${encodeURIComponent(variantName)}`;
+  const edge = (fleetEdgeId || '').trim();
+  if (!edge) return base;
+  return `${base}?fleetEdge=${encodeURIComponent(edge)}`;
 }
 
 /**
  * @param {string} type
  * @param {string} itemName
- * @param {Array<{ name: string }>} variants
+ * @param {Array<{ name: string } | string>} variants
+ * @param {string} [fleetEdgeId]
  */
-export function renderVariantGrid(type, itemName, variants) {
+export function renderVariantGrid(type, itemName, variants, fleetEdgeId) {
   if (!variants?.length) return '';
 
   return `
     <div class="variant-grid">
       ${variants
-        .map(
-          (variant) => `
-        <article class="variant-card" title="${escapeAttr(variant.name)}">
+        .map((variant) => {
+          const name = typeof variant === 'string' ? variant : variant.name;
+          if (!name) return '';
+          return `
+        <article class="variant-card" title="${escapeAttr(name)}">
           <div class="variant-thumb">
-            <img src="${previewUrl(type, itemName, variant.name)}" alt="" loading="lazy" onerror="this.closest('.variant-thumb').classList.add('no-preview'); this.remove();">
+            <img src="${previewUrl(type, itemName, name, fleetEdgeId)}" alt="" loading="lazy" onerror="this.closest('.variant-thumb').classList.add('no-preview'); this.remove();">
           </div>
-          <div class="variant-name">${escapeHtml(variant.name)}</div>
+          <div class="variant-name">${escapeHtml(name)}</div>
         </article>
-      `,
-        )
+      `;
+        })
         .join('')}
     </div>
   `;
