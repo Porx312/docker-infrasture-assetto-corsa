@@ -509,6 +509,30 @@ export async function ensureModsOnInstance(
 
   for (const target of targets) {
     if (!target.sha256 || !target.packageId) {
+      // Unresolved in hub catalog — still LOCAL if present on VPS content inventory.
+      const slugHint = (target.slug || target.artifactId || '').trim().toLowerCase();
+      let onDisk = false;
+      if (slugHint) {
+        const [carsSnap, tracksSnap] = await Promise.all([
+          getModsCars(edgeId),
+          getModsTracks(edgeId),
+        ]);
+        onDisk =
+          (carsSnap?.cars ?? []).some(
+            (c) => String(c.carModel || '').trim().toLowerCase() === slugHint,
+          ) ||
+          (tracksSnap?.tracks ?? []).some(
+            (t) => String(t.trackSlug || '').trim().toLowerCase() === slugHint,
+          );
+      }
+      if (onDisk) {
+        items.push({
+          artifactId: target.artifactId,
+          slug: target.slug || target.artifactId,
+          status: 'LOCAL',
+        });
+        continue;
+      }
       items.push({
         artifactId: target.artifactId,
         status: 'NOT_FOUND',

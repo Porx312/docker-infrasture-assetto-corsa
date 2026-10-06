@@ -107,6 +107,14 @@ export function resolveVariantPreviewPath(
     return findPreviewFile(skinDir);
   }
 
+  // Default (empty) layout: preview lives under ui/ at track root, not ui/<name>/.
+  if (!variantName || variantName === 'default') {
+    const rootUiPreview = findPreviewFile(path.join(itemDir, 'ui'));
+    if (rootUiPreview) {
+      return rootUiPreview;
+    }
+  }
+
   const layoutDir = path.join(itemDir, 'ui', variantName);
   if (!isPathInside(itemDir, layoutDir)) {
     return null;

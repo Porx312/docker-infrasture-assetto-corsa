@@ -99,9 +99,12 @@ function renderInventoryCard(item, type) {
     const firstVariant =
       type === 'tracks'
         ? (() => {
-            const c = (item.configs || [])[0];
-            const raw = c === '' || c == null ? '' : String(c).trim();
-            return raw || slug;
+            const configs = item.configs || [];
+            const named = configs.map((c) => String(c ?? '').trim()).find(Boolean);
+            // Empty string = AC default layout; do not use track slug as a fake layout name.
+            if (named) return named;
+            if (configs.some((c) => c === '' || c == null)) return 'default';
+            return '';
           })()
         : (item.skins || [])[0];
     if (firstVariant && slug && catalogEdgeId) {
@@ -763,8 +766,8 @@ export async function openCatalogDistribution(type, artifactId, displayName, opt
     type === 'tracks'
       ? (invItem?.configs || []).map((c) => {
           const raw = c === '' || c == null ? '' : String(c).trim();
-          // AC default layout often uses track folder name under ui/
-          return raw || acSlug || 'default';
+          // Empty config = AC default layout. Never show the track folder name as a layout.
+          return raw || 'default';
         })
       : (invItem?.skins || []).map(String).filter(Boolean);
 

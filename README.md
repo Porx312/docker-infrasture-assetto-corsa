@@ -65,6 +65,12 @@ pgrep -a acServer
 tail -f ac-data.log         # ac-data-edge logs (legacy filename)
 tail -f telemetry-data.log   # telemetry logs (dev)
 redis-cli xlen ac:events     # Check Redis events
+
+# Log rotation (prevents ac-data.log filling the disk)
+# Preferred (no sudo): cron runs scripts/rotate-assetto-logs.sh every 30m
+#   crontab -l | grep rotate-assetto-logs
+# Optional system logrotate:
+#   sudo cp scripts/logrotate-assetto.conf /etc/logrotate.d/assetto-infra
 ```
 
 ## Port Assignments
@@ -99,15 +105,15 @@ Each folder (`server`, `server-1`, `server-2`, …) should use the **Plugin** UD
 | File | When |
 |------|------|
 | `.env.example` | Template (copy, do not edit secrets here) |
-| `.env.local` | `./start.sh dev` — local Redis, telemetry on host |
-| `.env.production` | `./start.sh prod` — Redis in Docker, telemetry in Docker |
+| `.env.local` | `./start.sh dev` — shared Redis (`REDIS_HOST`), telemetry on host |
+| `.env.production` | `./start.sh prod` — same shared Redis; telemetry in Docker |
 
-`./start.sh` exports `ASSETTO_ENV` and `ASSETTO_ENV_FILE` so **ac-data-edge** and **telemetry-data** use the same file for the chosen mode. See [`.env.example`](.env.example) for all variables.
+`./start.sh` exports `ASSETTO_ENV` and `ASSETTO_ENV_FILE` so **ac-data-edge** and **telemetry-data** use the same file for the chosen mode. See [`.env.example`](.env.example) for all variables. Local `redis-server` is only started if `REDIS_HOST` is `127.0.0.1`/`localhost`.
 
 | Variable | Description |
 |----------|-------------|
 | `AC_INSTANCE_ID` | Unique VPS identifier |
-| `REDIS_HOST` | Redis host |
+| `REDIS_HOST` | Redis host (same as hub/backend — not a per-VPS Redis) |
 | `REDIS_PORT` | Redis port |
 | `SERVERS_PATH` | Path to AC server configs |
 | `EVENTS_SERVERS_PATH` | Path for event server configs |

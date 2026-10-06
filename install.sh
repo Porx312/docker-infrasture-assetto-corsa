@@ -26,19 +26,20 @@ if [ "$SKIP_DEPS" != "--skip-deps" ]; then
     sudo apt update
     sudo apt upgrade -y
 
-    # Core tools
+    # Core tools (redis-tools = redis-cli for remote Redis; no local redis-server)
     sudo apt install -y \
         build-essential \
         curl \
         git \
         htop \
         netstat-nat \
-        redis-server \
+        redis-tools \
         python3 \
         python3-pip \
         iptables
 
     echo -e "${GREEN}System dependencies installed${NC}"
+    echo -e "${YELLOW}Note: use shared REDIS_HOST from the backend (no local redis-server). Optional lab: apt install redis-server${NC}"
 else
     echo -e "${YELLOW}Skipping system dependencies${NC}"
 fi
@@ -160,18 +161,10 @@ else
 fi
 
 # ──────────────────────────────────────────────
-# 8. Redis
+# 8. Redis (shared backend — do not start local redis-server)
 # ──────────────────────────────────────────────
-echo -e "${YELLOW}Starting Redis...${NC}"
-if ! pgrep -x redis-server > /dev/null; then
-    sudo redis-server --daemonize yes
-fi
-
-if redis-cli ping 2>/dev/null | grep -q PONG; then
-    echo -e "${GREEN}Redis is running${NC}"
-else
-    echo -e "${RED}Redis failed to start${NC}"
-fi
+echo -e "${YELLOW}Redis: configure REDIS_HOST in .env.local to the same Redis as the hub/backend${NC}"
+echo -e "${YELLOW}Local redis-server is not started by this installer.${NC}"
 
 # ──────────────────────────────────────────────
 # Done

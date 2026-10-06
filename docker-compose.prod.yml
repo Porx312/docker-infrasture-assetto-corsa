@@ -1,18 +1,5 @@
 services:
-  redis:
-    image: redis:7-alpine
-    container_name: assetto-redis-cloud
-    env_file:
-      - path: ./.env.production
-        required: true
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
+  # Redis runs externally (shared backend / Dokploy). Set REDIS_HOST in .env.production.
   # ac-data-edge runs on the host (spawns 32-bit acServer); not containerized here.
 
   telemetry-data:
@@ -27,7 +14,4 @@ services:
       - /home/jose/assetto-infra/server:/home/jose/assetto-infra/server:ro
     # Bind AC plugin ports 12000+ on the host (see server_cfg.ini UDP_PLUGIN_ADDRESS).
     network_mode: host
-    depends_on:
-      redis:
-        condition: service_healthy
     restart: unless-stopped

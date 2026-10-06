@@ -143,13 +143,13 @@ The `[SERVER]` section MUST include:
 ```
 
 This installs:
-- System dependencies (build-essential, redis-server, python3, pip, iptables)
+- System dependencies (build-essential, redis-tools, python3, pip, iptables)
 - Node.js 20 via nvm
 - Python dependencies (python-dotenv, redis)
 - Opens firewall ports
 - Sets up ac-data (npm install && npm run build)
 - Creates content symlinks
-- Starts Redis
+- Does **not** start a local redis-server (use shared `REDIS_HOST` from the backend)
 
 ### 2. Environment Variables
 
@@ -165,7 +165,7 @@ nano .env.local
 
 Key variables:
 - `AC_INSTANCE_ID` - Unique VPS identifier
-- `REDIS_HOST` / `REDIS_PORT` - Redis connection
+- `REDIS_HOST` / `REDIS_PORT` - Same Redis as the hub/backend (shared; not localhost unless lab-only)
 - `SERVERS_PATH` - Path to AC server configs
 - `EVENTS_SERVERS_PATH` - Path for telemetry event servers
 - `REDIS_CONFIG_APPLIER_RESTART_ON_BOOT=true` - Auto-start servers
@@ -240,7 +240,7 @@ All services share the repo-root [`.env.example`](.env.example) template (copied
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `REDIS_HOST` | 127.0.0.1 | Redis host |
+| `REDIS_HOST` | (shared backend) | Same Redis as hub — not a per-VPS instance |
 | `REDIS_PORT` | 6379 | Redis port |
 | `REDIS_STREAM_KEY` | ac:events | Events stream key |
 | `REDIS_CONFIG_STREAM_KEY` | ac:config | Config stream key |

@@ -92,12 +92,21 @@ async function scanCars(carsDir: string): Promise<ScannedCarMod[]> {
 async function scanTracks(tracksDir: string): Promise<ScannedTrackMod[]> {
   const slugs = await listDirNames(tracksDir);
   const tracks: ScannedTrackMod[] = [];
+  const skipDirs = new Set(['ui', 'skins', 'extension', 'data', 'ai']);
   for (const trackSlug of slugs) {
     const trackPath = path.join(tracksDir, trackSlug);
     const entries = await fsp.readdir(trackPath, { withFileTypes: true }).catch(() => []);
-    const configs: string[] = [''];
+    const configs: string[] = [];
+    // Default (empty) layout only when track root itself is playable — not for multi-layout packs.
+    const rootIsLayout =
+      fs.existsSync(path.join(trackPath, 'models.ini')) ||
+      fs.existsSync(path.join(trackPath, 'surfaces.ini')) ||
+      fs.existsSync(path.join(trackPath, 'data', 'surfaces.ini'));
+    if (rootIsLayout) {
+      configs.push('');
+    }
     for (const entry of entries) {
-      if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'ui') {
+      if (!entry.isDirectory() || entry.name.startsWith('.') || skipDirs.has(entry.name)) {
         continue;
       }
       const looksLikeLayout =
