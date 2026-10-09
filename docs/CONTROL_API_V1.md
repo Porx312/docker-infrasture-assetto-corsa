@@ -3,7 +3,7 @@
 **Audience:** `ac-data-backend` (hub) + `ac-data-edge` (per VPS) + ProjectD Host BFF.  
 **Goal:** The web **reads** installed mods and live lobby rosters from the hub. Convex stays auth / presets / laps / battles — **not** a store for disk inventory or ephemeral presence.
 
-Related: [MULTI_REGION_EDGE.md](./MULTI_REGION_EDGE.md), [MOD_DISTRIBUTION.md](./MOD_DISTRIBUTION.md), [CONTROL_API_HOST_CUTOVER.md](./CONTROL_API_HOST_CUTOVER.md), [VPS_FLEET_SETUP.md](./VPS_FLEET_SETUP.md), handoff alias [control-api-vps-spec.md](./control-api-vps-spec.md).
+Related: [MULTI_REGION_EDGE.md](./MULTI_REGION_EDGE.md), [MOD_DISTRIBUTION.md](./MOD_DISTRIBUTION.md), [VPS_FLEET_SETUP.md](./VPS_FLEET_SETUP.md), [HUD_HARDENING_CUTOVER.md](./HUD_HARDENING_CUTOVER.md).
 
 **OpenAPI:** [openapi/control-api-v1.yaml](./openapi/control-api-v1.yaml)
 
@@ -267,7 +267,7 @@ Full Host flow: [SERVER_PLATFORM.md](./SERVER_PLATFORM.md).
 3. Handlers call hub `GET/POST /v1/...` with `X-Worker-Secret`.
 
 Example Host BFF (Next.js): [`docs/examples/PROJECTD_BFF_INSTALL.md`](./examples/PROJECTD_BFF_INSTALL.md).  
-Cutover checklist: [`CONTROL_API_HOST_CUTOVER.md`](./CONTROL_API_HOST_CUTOVER.md) (includes `LIVE_INGEST_CONVEX=false`).
+Live ingest flag: [`HUD_HARDENING_CUTOVER.md`](./HUD_HARDENING_CUTOVER.md) (`LIVE_INGEST_CONVEX=false`).
 
 Stop writing car/track catalogs by hand in Convex; stop querying `live_players` for Host dashboards once live GETs are wired.
 

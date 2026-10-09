@@ -5,7 +5,7 @@ import {
   shouldFanoutToPlayer,
   type LapBoardContext,
 } from './hudRivalFanout.js';
-import type { PlayerPresenceRecord } from './hudTypes.js';
+import type { PlayerPresenceRecord } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 const board: LapBoardContext = {
   serverName: 'Akina TA',

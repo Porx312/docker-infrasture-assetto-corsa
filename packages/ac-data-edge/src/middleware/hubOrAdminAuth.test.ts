@@ -29,7 +29,7 @@ function mockRes() {
 
 afterEach(() => {
   delete process.env.CONVEX_WORKER_SECRET;
-  delete process.env.EDGE_ADMIN_PUBLIC;
+  delete process.env.FLEET_EDGE_SECRET;
 });
 
 test('hubOrAdminAuth accepts worker secret', () => {
@@ -47,7 +47,7 @@ test('hubOrAdminAuth accepts worker secret', () => {
   assert.equal((req as Request & { adminUser?: string }).adminUser, 'hub');
 });
 
-test('hubOrAdminAuth rejects without secret when public admin disabled', () => {
+test('hubOrAdminAuth rejects without secret', () => {
   process.env.CONVEX_WORKER_SECRET = 'test-secret';
   const req = { headers: {}, cookies: {}, body: {} } as unknown as Request;
   const out = mockRes();

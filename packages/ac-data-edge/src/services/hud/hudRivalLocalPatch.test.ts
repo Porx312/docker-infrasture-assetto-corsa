@@ -7,7 +7,7 @@ import {
   patchRivalLapInProfile,
   rivalMatchesAuthor,
 } from './hudRivalLocalPatch.js';
-import type { HudProfile } from './hudTypes.js';
+import type { HudProfile } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 const baseProfile: HudProfile = {
   name: 'Observer',

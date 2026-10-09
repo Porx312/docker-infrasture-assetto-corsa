@@ -1,5 +1,5 @@
 import os from 'node:os';
-import { listServerInstanceNames } from '../serverBranding.js';
+import { listServerInstanceNames } from '@projectd/ac-data-shared/services/serverBranding.js';
 import { getServerRuntime } from '../serverRuntime.js';
 import { collectProcessSamples, type EdgeProcessSample } from './processMetrics.js';
 

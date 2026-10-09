@@ -3,7 +3,7 @@ import {
   buildSessionCacheKey,
   playerRedisKey,
   sessionRedisKey,
-} from './hudCacheKeys.js';
+} from '@projectd/ac-data-shared/services/hud/hudCacheKeys.js';
 import {
   getSessionCached,
   peekSessionCache,
@@ -11,7 +11,7 @@ import {
   persistSessionCacheResult,
 } from './lapCompletedHudRefresh.js';
 import { playerResultFromSession } from './hudProfile.js';
-import type { HudProfile, HudRival } from './hudTypes.js';
+import type { HudProfile, HudRival } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 export type LapAuthorPb = {
   steamId: string;

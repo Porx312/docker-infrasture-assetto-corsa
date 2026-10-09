@@ -1,4 +1,8 @@
-"""Check overlay SSE presence in Redis (written by ac-data on /hud/stream connect)."""
+"""Check overlay WS presence in Redis (written by ac-data-edge on /hud/ws connect).
+
+Primary key: ac:hud:conn:{steamId}
+Legacy fallback: ac:hud:sse:{steamId} (pre-WS dual-write era).
+"""
 
 from __future__ import annotations
 
@@ -16,7 +20,13 @@ _cache_lock = threading.Lock()
 _cache: dict[str, tuple[bool, float]] = {}
 
 
+def hud_conn_redis_key(steam_id: str) -> str:
+    trimmed = steam_id.strip()
+    return f"{settings.HUD_CONN_REDIS_PREFIX}{trimmed}"
+
+
 def hud_sse_redis_key(steam_id: str) -> str:
+    """Legacy SSE key — kept for fallback reads during migration."""
     trimmed = steam_id.strip()
     return f"{settings.HUD_SSE_REDIS_PREFIX}{trimmed}"
 
@@ -31,9 +41,11 @@ def _read_active_from_redis(steam_id: str) -> bool:
         from core.redis_client import get_redis_client
 
         redis = get_redis_client()
+        if redis.exists(hud_conn_redis_key(trimmed)):
+            return True
         return bool(redis.exists(hud_sse_redis_key(trimmed)))
     except Exception as exc:
-        log.warning("hud sse presence check failed for %s: %s", trimmed, exc)
+        log.warning("hud conn presence check failed for %s: %s", trimmed, exc)
         return False
 
 
@@ -55,19 +67,19 @@ def _cached_overlay_active(steam_id: str) -> bool:
 
 
 def has_hud_overlay_connected(steam_id: str) -> bool:
-    """True when ac:hud:sse:{steamId} exists — always reads Redis (chat routing)."""
+    """True when overlay presence exists — always reads Redis (chat routing)."""
     return _cached_overlay_active(steam_id)
 
 
 def is_hud_sse_active(steam_id: str) -> bool:
-    """Return True when ac:hud:sse:{steamId} exists (overlay connected)."""
+    """Return True when overlay is connected (conn key, else legacy sse)."""
     if not settings.BATTLE_REQUIRE_HUD_SSE:
         return True
     return _cached_overlay_active(steam_id)
 
 
 def filter_hud_eligible(guids: Iterable[str]) -> set[str]:
-    """Batch filter: guids with active HUD SSE (MGET when Redis available)."""
+    """Batch filter: guids with active HUD overlay (MGET when Redis available)."""
     if not settings.BATTLE_REQUIRE_HUD_SSE:
         return set(guids)
 
@@ -95,13 +107,25 @@ def filter_hud_eligible(guids: Iterable[str]) -> set[str]:
             from core.redis_client import get_redis_client
 
             redis = get_redis_client()
-            keys = [hud_sse_redis_key(g) for g in pending]
-            values = redis.mget(keys)
+            conn_keys = [hud_conn_redis_key(g) for g in pending]
+            conn_values = redis.mget(conn_keys)
+            still_missing = [
+                g for g, value in zip(pending, conn_values, strict=True) if value is None
+            ]
+            sse_active: dict[str, bool] = {}
+            if still_missing:
+                sse_keys = [hud_sse_redis_key(g) for g in still_missing]
+                sse_values = redis.mget(sse_keys)
+                for guid, value in zip(still_missing, sse_values, strict=True):
+                    sse_active[guid] = value is not None
             with _cache_lock:
-                for guid, value in zip(pending, values, strict=True):
-                    _cache[guid] = (value is not None, now)
+                for guid, value in zip(pending, conn_values, strict=True):
+                    if value is not None:
+                        _cache[guid] = (True, now)
+                    else:
+                        _cache[guid] = (sse_active.get(guid, False), now)
         except Exception as exc:
-            log.warning("hud sse batch check failed: %s", exc)
+            log.warning("hud conn batch check failed: %s", exc)
             for guid in pending:
                 active = _read_active_from_redis(guid)
                 with _cache_lock:

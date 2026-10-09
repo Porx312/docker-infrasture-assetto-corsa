@@ -9,7 +9,7 @@ import {
   setHudPushHubTestHooks,
 } from './hudPushHub.js';
 import { setHudSessionPresenceTestHooks } from './hudSessionPresence.js';
-import type { HudSessionOk, HudVersionOk } from './hudTypes.js';
+import type { HudSessionOk, HudVersionOk } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 const steamId = '76561199000000001';
 

@@ -6,9 +6,7 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import adminRoutes from './routes/adminRoutes.js';
 import acServerRoutes from './routes/acServerRoutes.js';
-import clientSyncRoutes from './routes/clientSyncRoutes.js';
 import hudRoutes from './routes/hudRoutes.js';
-import { clientLauncherMiddleware } from './middleware/clientLauncherMiddleware.js';
 import { hudMiddleware } from './middleware/hudMiddleware.js';
 import { initHudPushHub } from './services/hud/battleHudPush.js';
 import { startHudConvexQueryStatsLogging } from './services/hud/hudConvexQueryStats.js';
@@ -17,7 +15,7 @@ import { startRedisConfigApplier } from './services/redisConfigApplier.js';
 import { bootstrapManagedServersFromDisk } from './services/hud/hudManagedServers.js';
 import { publishHudRegistryToHubIfConfigured } from './services/hud/edgeHudRegistryPublish.js';
 import { startServerPoolMonitor } from './services/serverPool.js';
-import { getPublicHealthHandler } from './controller/healthController.js';
+import { getPublicHealthHandler } from '@projectd/ac-data-shared/controller/healthController.js';
 import { resolveEnvFilePath } from '@projectd/ac-data-shared/config/loadEnv.js';
 import { attachHudWs } from './services/hud/hudWs.js';
 import { isBackendIngestForwardConfigured } from '@projectd/ac-data-shared/services/edgeIngestForward.js';
@@ -109,7 +107,7 @@ const apiKeyMiddleware = (
 app.get('/api/health', getPublicHealthHandler);
 
 app.use('/ac-server', apiKeyMiddleware, acServerRoutes);
-app.use('/client', ...clientLauncherMiddleware, clientSyncRoutes);
+// HUD zip downloads (/client/hud/*) are hub-only — see MULTI_REGION_EDGE.md
 app.use('/hud', ...hudMiddleware, hudRoutes);
 app.use('/admin', adminRoutes);
 app.use('/admin', modLocalUploadRouter);

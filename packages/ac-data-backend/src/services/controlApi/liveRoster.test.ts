@@ -5,7 +5,7 @@ import { parseLiveServerRef } from './liveRoster.js';
 import {
   presenceRosterRedisKey,
   parsePresenceRosterKeySuffix,
-} from '../hud/hudCacheKeys.js';
+} from '@projectd/ac-data-shared/services/hud/hudCacheKeys.js';
 
 test('parseLiveServerRef keeps plain lobby names', () => {
   assert.deepEqual(parseLiveServerRef('ProjectD'), {

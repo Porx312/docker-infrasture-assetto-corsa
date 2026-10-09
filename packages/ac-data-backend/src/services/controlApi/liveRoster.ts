@@ -4,12 +4,12 @@ import {
   presenceRedisKey,
   presenceRosterRedisKey,
   parsePresenceRosterKeySuffix,
-} from '../hud/hudCacheKeys.js';
+} from '@projectd/ac-data-shared/services/hud/hudCacheKeys.js';
 import {
   getHudRedisClient,
   hudRedisGet,
   isHudRedisConfigured,
-} from '../hud/hudRedis.js';
+} from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 import type { HubPlayerPresenceRecord } from '../hud/hudPlayerRouting.js';
 import { resolveServerJoinEndpoint } from './joinEndpoint.js';
 

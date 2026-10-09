@@ -5,7 +5,7 @@ import {
 import {
   presenceRedisKey,
   presenceRosterRedisKey,
-} from './hudCacheKeys.js';
+} from '@projectd/ac-data-shared/services/hud/hudCacheKeys.js';
 import { invalidateSessionCache } from './hudSessionCache.js';
 import { lookupManagedServer } from './hudManagedServers.js';
 import { normalizeHudServerName } from '@projectd/ac-data-shared/services/hud/hudQueryNormalize.js';
@@ -18,12 +18,12 @@ import {
   hudRedisSet,
   hudRedisTouch,
   isHudRedisConfigured,
-} from './hudRedis.js';
+} from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 import type {
   PlayerPresenceRecord,
   ResolvePlayerPresenceResult,
   ResolvedPlayerPresence,
-} from './hudTypes.js';
+} from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 function parsePlayerRow(raw: unknown): { steamId: string; carModel: string; name?: string } | null {
   if (!raw || typeof raw !== 'object') {
@@ -129,19 +129,19 @@ async function writePresence(
   await hudRedisSet(presenceRedisKey(steamId), serializeHudPresenceRecord(record), ttlSec);
 }
 
-/** In-memory fallback while battle SSE is connected (Redis key may expire mid-session). */
-const activeBattleSseBySteamId = new Map<string, ResolvedPlayerPresence>();
+/** In-memory fallback while battle WS is connected (Redis key may expire mid-session). */
+const activeBattleWsBySteamId = new Map<string, ResolvedPlayerPresence>();
 
-export function registerBattleSsePresence(presence: ResolvedPlayerPresence): void {
-  activeBattleSseBySteamId.set(presence.steamId, presence);
+export function registerBattleWsPresence(presence: ResolvedPlayerPresence): void {
+  activeBattleWsBySteamId.set(presence.steamId, presence);
 }
 
-export function unregisterBattleSsePresence(steamId: string): void {
-  activeBattleSseBySteamId.delete(steamId.trim());
+export function unregisterBattleWsPresence(steamId: string): void {
+  activeBattleWsBySteamId.delete(steamId.trim());
 }
 
 function battleSsePresenceRecord(steamId: string): PlayerPresenceRecord | null {
-  const presence = activeBattleSseBySteamId.get(steamId.trim());
+  const presence = activeBattleWsBySteamId.get(steamId.trim());
   if (!presence) {
     return null;
   }
@@ -176,7 +176,7 @@ export async function refreshPlayerPresence(presence: ResolvedPlayerPresence): P
     folderSlug: presence.folderSlug,
   };
   await writePresence(presence.steamId, record, HUD_PRESENCE_JOIN_TTL_SEC);
-  registerBattleSsePresence({ ...presence, updatedAt: record.updatedAt });
+  registerBattleWsPresence({ ...presence, updatedAt: record.updatedAt });
 }
 
 export async function readPlayerPresenceRecord(
@@ -471,9 +471,9 @@ export async function noteHudPlayerLeave(payload: Record<string, unknown>): Prom
   return true;
 }
 
-/** Test helper: reset in-memory battle SSE presence map. */
-export function resetBattleSsePresenceForTests(): void {
-  activeBattleSseBySteamId.clear();
+/** Test helper: reset in-memory battle WS presence map. */
+export function resetBattleWsPresenceForTests(): void {
+  activeBattleWsBySteamId.clear();
 }
 
 /** Test helper: build presence record from event fields. */

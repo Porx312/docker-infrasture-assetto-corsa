@@ -4,9 +4,9 @@ Documento para el equipo **ProjectD Host**. Implementar en el repo web/BFF y Con
 
 **Contratos hub** (este repo): [CONTROL_API_V1.md](../CONTROL_API_V1.md) (live), [SERVER_PLATFORM.md](../SERVER_PLATFORM.md) (allocate = fase 2), **[HOST_CATALOG_SYNC.md](../HOST_CATALOG_SYNC.md)** (hub → Convex cars/tracks/servers — SoT).
 
-**HUD sin `live_players` (Convex):** [PROJECTD_HUD_PRESENCE_NO_LIVE_PLAYERS.md](./PROJECTD_HUD_PRESENCE_NO_LIVE_PLAYERS.md) — pegar en el repo web.
+**HUD sin `live_players` (Convex):** [HUD_HARDENING_CUTOVER.md](../HUD_HARDENING_CUTOVER.md) (handoff archivado: [archive/examples/PROJECTD_HUD_PRESENCE_NO_LIVE_PLAYERS.md](../archive/examples/PROJECTD_HUD_PRESENCE_NO_LIVE_PLAYERS.md)).
 
-**ProjectD** (rutas en el repo Host, no en assetto-infra): `CONTROL_API_HOST_CUTOVER.md`, `PROJECTD_HOST_TEAM_HANDOFF.md`, `LIVE_INGEST_CUTOVER.md`, `convex/worker/hostCatalogSync.ts`, `convex/controlApiConfig.ts`, `convex/lib/configRefreshPush.ts`.
+**ProjectD** (rutas en el repo Host): `PROJECTD_HOST_TEAM_HANDOFF.md`, `LIVE_INGEST_CUTOVER.md`, `convex/worker/hostCatalogSync.ts`, `convex/controlApiConfig.ts`, `convex/lib/configRefreshPush.ts`.
 
 ---
 

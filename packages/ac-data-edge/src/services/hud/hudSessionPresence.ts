@@ -1,10 +1,10 @@
-import { presenceRedisKey } from './hudCacheKeys.js';
+import { presenceRedisKey } from '@projectd/ac-data-shared/services/hud/hudCacheKeys.js';
 import { pickCarModelId } from './hudCarModel.js';
 import { lookupManagedServer } from './hudManagedServers.js';
 import { normalizeHudServerName } from '@projectd/ac-data-shared/services/hud/hudQueryNormalize.js';
-import { hudRedisGet } from './hudRedis.js';
+import { hudRedisGet } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 import { peekSessionCache } from './lapCompletedHudRefresh.js';
-import type { HudSessionOk, HudSessionResult, PlayerPresenceRecord } from './hudTypes.js';
+import type { HudSessionOk, HudSessionResult, PlayerPresenceRecord } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 type HudSessionPresenceTestHooks = {
   peekSessionCache?: (steamId: string) => Promise<HudSessionResult | null>;

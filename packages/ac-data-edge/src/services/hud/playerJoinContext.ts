@@ -4,7 +4,7 @@ import {
   buildSessionCacheKey,
   playerRedisKey,
   sessionRedisKey,
-} from './hudCacheKeys.js';
+} from '@projectd/ac-data-shared/services/hud/hudCacheKeys.js';
 import { isProfileInvalidated, normalizeHudProfile, playerResultFromSession } from './hudProfile.js';
 import {
   clearUserInvalidated,
@@ -29,7 +29,7 @@ import type {
   HudSessionResult,
   PlayerJoinContextResult,
   PlayerJoinUser,
-} from './hudTypes.js';
+} from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 type FetchPlayerJoinContextFn = typeof fetchPlayerJoinContext;
 

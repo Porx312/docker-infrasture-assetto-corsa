@@ -59,12 +59,12 @@ Lo que limita el hardware son **procesos `acServer` vivos**, no filas en Convex:
 ### Prueba de carga local
 
 ```bash
-chmod +x scripts/load-test-ac-servers.sh scripts/vps-capacity-check.sh
-# Requiere API_KEY y ac-data en :3000
-./scripts/load-test-ac-servers.sh --count 12 --hold 60
+chmod +x scripts/vps-capacity-check.sh
+# Optional spawn load (archived):
+# ./scripts/archive/load-test/load-test-ac-servers.sh --count 12 --hold 60
 ```
 
-Logs en `scripts/load-test-results/`. En VPS 10 no subas `--count` por encima de carpetas existentes (~12). En dedicado futuro, repetir con 30–50 y comparar RAM/load.
+Logs de load-test archivados en `scripts/archive/load-test/`. En VPS 10 no subas `--count` por encima de carpetas existentes (~12).
 
 ## Escalar más allá de `server-11`
 
@@ -77,7 +77,7 @@ Logs en `scripts/load-test-results/`. En VPS 10 no subas `--count` por encima de
 
 ## Decisión de hardware (checklist)
 
-Tras `./scripts/load-test-ac-servers.sh` con el pico que esperes:
+Tras un load-test (archivado) con el pico que esperes:
 
 | Resultado bajo carga | Acción |
 |----------------------|--------|

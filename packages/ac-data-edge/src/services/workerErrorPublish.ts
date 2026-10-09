@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { getHudRedisClient, isHudRedisConfigured } from './hud/hudRedis.js';
+import { getHudRedisClient, isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 
 const REDIS_STREAM_KEY = process.env.REDIS_STREAM_KEY || 'ac:events';
 

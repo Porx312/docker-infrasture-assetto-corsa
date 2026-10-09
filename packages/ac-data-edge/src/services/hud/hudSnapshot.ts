@@ -11,7 +11,7 @@ import {
   sessionContextServerName,
   shouldRefreshJoinContextForPresence,
 } from './hudSessionPresence.js';
-import { isHudRedisConfigured } from './hudRedis.js';
+import { isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 import { peekSessionCache } from './lapCompletedHudRefresh.js';
 import { refreshPlayerJoinFromConvex } from './playerJoinContext.js';
 import { buildHudVersionForSession } from './hudClientVersion.js';
@@ -25,7 +25,7 @@ import {
   syncProfileCosmeticsFromProfile,
 } from './hudProfileCosmetics.js';
 import { parseHudSnapshotSections } from './hudSnapshotSections.js';
-import type { HudBattleErr, HudBattleOk, HudSessionResult, HudVersionOk } from './hudTypes.js';
+import type { HudBattleErr, HudBattleOk, HudSessionResult, HudVersionOk } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 import { markHudConnConnected } from './hudConnPresence.js';
 import { markUserInvalidated } from './hudUserInvalidation.js';
 

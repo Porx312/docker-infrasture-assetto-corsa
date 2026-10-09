@@ -9,7 +9,7 @@ import {
   buildDynamicEntriesForSync,
   mergeDynamicRegistryMaps,
 } from '@projectd/ac-data-shared/services/hud/hudRegistrySyncApply.js';
-import { isHudRedisConfigured } from './hudRedis.js';
+import { isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 import { resolveHudEdgeForSteamId } from './hudPlayerRouting.js';
 
 const prevFleet = process.env.FLEET_EDGE_REGISTRY;

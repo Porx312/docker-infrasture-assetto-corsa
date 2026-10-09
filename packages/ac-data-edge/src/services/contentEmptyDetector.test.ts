@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { isEmptyMod, modHasContentFiles } from './contentEmptyDetector.js';
+import { isEmptyMod, modHasContentFiles } from '@projectd/ac-data-shared/services/contentEmptyDetector.js';
 
 async function withTempDir(fn: (dir: string) => Promise<void>): Promise<void> {
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'ac-empty-mod-'));

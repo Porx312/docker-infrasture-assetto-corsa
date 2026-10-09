@@ -1,10 +1,10 @@
-import type { BoardCacheParams, PlayerCacheParams } from './hudTypes.js';
-import { buildBoardCacheKey, buildPlayerCacheKey } from './hudCacheKeys.js';
+import type { BoardCacheParams, PlayerCacheParams } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
+import { buildBoardCacheKey, buildPlayerCacheKey } from '@projectd/ac-data-shared/services/hud/hudCacheKeys.js';
 import {
   boardScopeKeyFromCacheKey,
   playerScopeKeyFromCacheKey,
 } from './hudScopeKeys.js';
-import { getHudRedisClient, isHudRedisConfigured } from './hudRedis.js';
+import { getHudRedisClient, isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 
 export const HUD_VER_PREFIX = 'ac:hud:ver:';
 export const HUD_UPDATES_CHANNEL = 'ac:hud:updates';

@@ -44,19 +44,12 @@ export const HUD_BATTLE_PREFIX = 'ac:hud:battle:';
 export const HUD_BATTLE_PROFILE_PREFIX = 'ac:hud:battle:profile:';
 export const HUD_PRESENCE_PREFIX = 'ac:hud:presence:';
 export const HUD_PRESENCE_ROSTER_PREFIX = 'ac:hud:presence:roster:';
-/** Overlay connection gate (WSS). Primary key. */
+/** Overlay connection gate (WSS). */
 export const HUD_CONN_PRESENCE_PREFIX = 'ac:hud:conn:';
-/** @deprecated Legacy SSE key — dual-written one release for telemetry-data. */
-export const HUD_SSE_PRESENCE_PREFIX = 'ac:hud:sse:';
 export const HUD_VER_PREFIX = 'ac:hud:ver:';
 
 export function connPresenceRedisKey(steamId: string): string {
   return `${HUD_CONN_PRESENCE_PREFIX}${steamId}`;
-}
-
-/** @deprecated Use connPresenceRedisKey */
-export function ssePresenceRedisKey(steamId: string): string {
-  return `${HUD_SSE_PRESENCE_PREFIX}${steamId}`;
 }
 
 export function presenceRedisKey(steamId: string): string {

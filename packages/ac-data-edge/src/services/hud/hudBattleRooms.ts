@@ -1,6 +1,6 @@
-import { buildBattleCacheKey } from './hudCacheKeys.js';
+import { buildBattleCacheKey } from '@projectd/ac-data-shared/services/hud/hudCacheKeys.js';
 import { buildBattleServerKey } from './hudBattleServerKey.js';
-import type { BattleCacheParams } from './hudTypes.js';
+import type { BattleCacheParams } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 /** Socket.io room / Redis scopeKey prefix for battle HUD. */
 export const BATTLE_SCOPE_PREFIX = 'battle:';

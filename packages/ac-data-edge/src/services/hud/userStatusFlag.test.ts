@@ -6,7 +6,7 @@ import {
   readUserStatusFlag,
   userStatusFlagRedisKey,
 } from './userStatusFlag.js';
-import { hudRedisDel, isHudRedisConfigured } from './hudRedis.js';
+import { hudRedisDel, isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 
 const steamId = '76561199000000998';
 const prefix = 'ac:test:flag:';

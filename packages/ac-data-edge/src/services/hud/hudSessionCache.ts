@@ -3,9 +3,9 @@ import {
   buildSessionCacheKey,
   playerRedisKey,
   sessionRedisKey,
-} from './hudCacheKeys.js';
-import { hudRedisDel } from './hudRedis.js';
-import type { PlayerCacheParams, SessionQueryParams } from './hudTypes.js';
+} from '@projectd/ac-data-shared/services/hud/hudCacheKeys.js';
+import { hudRedisDel } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
+import type { PlayerCacheParams, SessionQueryParams } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 export async function invalidatePlayerCache(params: PlayerCacheParams): Promise<void> {
   const cacheKey = buildPlayerCacheKey(params);

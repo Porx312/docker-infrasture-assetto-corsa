@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseSyncContentType } from './contentAdminHelpers.js';
+import { parseSyncContentType } from '@projectd/ac-data-shared/services/contentAdminHelpers.js';
 
 test('parseSyncContentType accepts cars and tracks', () => {
   assert.equal(parseSyncContentType('cars'), 'cars');

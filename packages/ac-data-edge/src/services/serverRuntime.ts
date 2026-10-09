@@ -3,7 +3,7 @@ import path from 'node:path';
 import { activeServers } from '../controller/controller.js';
 import { readCmWrapperPort } from '@projectd/ac-data-shared/controller/cmWrapper.js';
 import { getServerPorts } from '../controller/serverPorts.js';
-import { assertValidServerName, readServerInstanceConfig } from './serverInstanceConfig.js';
+import { assertValidServerName, readServerInstanceConfig } from '@projectd/ac-data-shared/services/serverInstanceConfig.js';
 import '@projectd/ac-data-shared/config/loadEnv.js';
 
 export type ServerRuntimeInfo = {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { parseCmDescription } from './serverInstanceConfig.js';
+import { parseCmDescription } from '@projectd/ac-data-shared/services/serverInstanceConfig.js';
 
 test('parseCmDescription extracts banner and body', () => {
   const parsed = parseCmDescription(
@@ -17,7 +17,9 @@ test('parseCmDescription returns full text when no banner', () => {
 });
 
 test('pickServerBrandingUpdate extracts only explicit branding fields', async () => {
-  const { pickServerBrandingUpdate, hasServerBrandingUpdate } = await import('./serverInstanceConfig.js');
+  const { pickServerBrandingUpdate, hasServerBrandingUpdate } = await import(
+    '@projectd/ac-data-shared/services/serverInstanceConfig.js'
+  );
 
   assert.equal(hasServerBrandingUpdate({}), false);
   assert.equal(

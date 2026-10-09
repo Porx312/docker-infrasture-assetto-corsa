@@ -1,4 +1,4 @@
-import { normalizeHudKeyPart } from './hudCacheKeys.js';
+import { normalizeHudKeyPart } from '@projectd/ac-data-shared/services/hud/hudCacheKeys.js';
 import { normalizeHudServerName } from '@projectd/ac-data-shared/services/hud/hudQueryNormalize.js';
 
 /** Fleet-scoped battle Redis key prefix (matches telemetry battle_server_key). */

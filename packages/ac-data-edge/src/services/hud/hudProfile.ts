@@ -1,4 +1,4 @@
-import type { HudDisplayStyle, HudInputType, HudPlayerResult, HudProfile, HudRival, HudRivals, HudSessionResult } from './hudTypes.js';
+import type { HudDisplayStyle, HudInputType, HudPlayerResult, HudProfile, HudRival, HudRivals, HudSessionResult } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 const EMPTY_RIVALS: HudRivals = { above: null, below: null };
 

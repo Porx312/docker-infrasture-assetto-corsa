@@ -12,9 +12,6 @@ import { httpsToWss } from '@projectd/ac-data-shared/services/hud/hudWsUrl.js';
 import { resolveHudEdgeBaseUrl } from '@projectd/ac-data-shared/services/hud/hudEdgeRegistry.js';
 import { resolveHudEdgeForSteamId } from './hudPlayerRouting.js';
 
-export { readServerNameFromRequestQuery, readServerNameFromUrl } from '@projectd/ac-data-shared/services/hud/hudQueryParams.js';
-export { httpsToWss };
-
 function requireQueryString(value: unknown): string | null {
   if (typeof value !== 'string') {
     return null;

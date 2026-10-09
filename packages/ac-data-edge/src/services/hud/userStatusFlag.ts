@@ -4,7 +4,7 @@ import {
   hudRedisGet,
   hudRedisSet,
   isHudRedisConfigured,
-} from './hudRedis.js';
+} from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 
 export type UserStatusFlagConfig = {
   redisPrefix: string;

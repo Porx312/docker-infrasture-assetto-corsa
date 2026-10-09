@@ -12,9 +12,9 @@ import {
 } from './battleHudPush.js';
 import { requireHudApiKeyFromQuery } from './hudBattleAuth.js';
 import {
-  registerBattleSsePresence,
+  registerBattleWsPresence,
   resolvePlayerPresence,
-  unregisterBattleSsePresence,
+  unregisterBattleWsPresence,
 } from './hudPlayerPresence.js';
 import { peekSessionCache } from './lapCompletedHudRefresh.js';
 import { refreshPlayerJoinFromConvex } from './playerJoinContext.js';
@@ -24,7 +24,7 @@ import {
   sendInitialHudPushSnapshot,
   type HudPushConnection,
 } from './hudPushHub.js';
-import { isHudRedisConfigured } from './hudRedis.js';
+import { isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 import {
   clearHudConnPresence,
   markHudConnConnected,
@@ -37,9 +37,7 @@ import {
 } from './hudBattleRoomSubscription.js';
 import { battleRoomFromParams } from './hudBattleRooms.js';
 import { HUD_WS_PATH } from '@projectd/ac-data-shared/services/hud/hudQueryParams.js';
-import type { ResolvedPlayerPresence } from './hudTypes.js';
-
-export { HUD_WS_PATH };
+import type { ResolvedPlayerPresence } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 function wsKeepaliveMs(): number {
   return Number(process.env.HUD_WS_KEEPALIVE_MS || process.env.HUD_SSE_KEEPALIVE_MS || 30_000);
@@ -128,7 +126,7 @@ async function handleHudWsConnection(
     `[hud-ws-connect] steamId=${steamId} serverName=${serverName} room=${battleRoom}`,
   );
 
-  registerBattleSsePresence(presence);
+  registerBattleWsPresence(presence);
   await markHudConnConnected(steamId);
   initHudPushHub();
 
@@ -184,7 +182,7 @@ async function handleHudWsConnection(
   ws.on('close', (code, reason) => {
     clearInterval(keepalive);
     unregisterHud();
-    unregisterBattleSsePresence(steamId);
+    unregisterBattleWsPresence(steamId);
     void clearHudConnPresence(steamId);
     if (battleSubscription) {
       unsubscribeBattleHudRoom(battleSubscription.room, battleSubscription.listener);
@@ -247,5 +245,3 @@ export function attachHudWs(server: HttpServer): WebSocketServer | null {
   console.log(`[hud-ws] listening on ${HUD_WS_PATH} keepaliveMs=${wsKeepaliveMs()}`);
   return wss;
 }
-
-export { isHudWsEnabled } from './battleHudPush.js';

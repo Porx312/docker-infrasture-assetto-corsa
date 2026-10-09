@@ -13,7 +13,7 @@ import {
   setBattleRoomPresenceResolverForTests,
   setBattleRoomRefreshPresenceForTests,
 } from './hudBattleRoomSubscription.js';
-import type { ResolvedPlayerPresence } from './hudTypes.js';
+import type { ResolvedPlayerPresence } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 const STEAM_ID = '76561199000000001';
 

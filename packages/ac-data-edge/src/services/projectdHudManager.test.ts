@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { resolveSafeHudFilename, validateZipFile } from './projectdHudManager.js';
+import { resolveSafeHudFilename, validateZipFile } from '@projectd/ac-data-shared/services/projectdHudManager.js';
 
 test('resolveSafeHudFilename accepts zip basename', () => {
   assert.equal(resolveSafeHudFilename('projectd-hud-v1.0.0.zip'), 'projectd-hud-v1.0.0.zip');

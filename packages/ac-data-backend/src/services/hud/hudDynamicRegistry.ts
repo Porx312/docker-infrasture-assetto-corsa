@@ -8,7 +8,7 @@ import {
   setDynamicHudEdgeRegistry,
   type HudEdgeRegistryEntry,
 } from '@projectd/ac-data-shared/services/hud/hudEdgeRegistry.js';
-import { getHudRedisClient, isHudRedisConfigured } from './hudRedis.js';
+import { getHudRedisClient, isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 
 const REDIS_KEY = process.env.HUD_DYNAMIC_REGISTRY_REDIS_KEY || 'ac:hud:registry:state';
 

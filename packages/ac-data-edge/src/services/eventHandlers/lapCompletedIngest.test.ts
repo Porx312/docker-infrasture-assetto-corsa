@@ -7,8 +7,8 @@ import {
   saveTimeRedisKey,
   syncUserPrefsFromProfile,
 } from '../hud/hudUserPrefs.js';
-import { hudRedisGet, isHudRedisConfigured } from '../hud/hudRedis.js';
-import type { HudProfile } from '../hud/hudTypes.js';
+import { hudRedisGet, isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
+import type { HudProfile } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 const steamId = '76561199000000777';
 

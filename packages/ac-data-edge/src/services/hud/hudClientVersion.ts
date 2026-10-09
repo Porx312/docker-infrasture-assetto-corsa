@@ -1,6 +1,6 @@
 import { profileCosmeticsFingerprint } from './hudProfile.js';
 import { sessionLeaderboardFingerprint } from './lapCompletedHudRefresh.js';
-import type { HudSessionOk, HudVersionOk } from './hudTypes.js';
+import type { HudSessionOk, HudVersionOk } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 /** FNV-1a 32-bit — stable numeric playerVersion for HUD clients. */
 export function fnv1aHash32(input: string): number {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Request, Response } from 'express';
 
-import { clientSyncApiKeyMiddleware } from './clientSyncAuth.js';
+import { clientSyncApiKeyMiddleware } from '@projectd/ac-data-shared/middleware/clientSyncAuth.js';
 
 function mockReqRes(apiKey?: string, headerKey?: string) {
   const req = {

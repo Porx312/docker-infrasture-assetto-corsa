@@ -9,7 +9,7 @@ import {
   listTrackLayouts,
   previewContentType,
   resolveVariantPreviewPath,
-} from './contentPreviews.js';
+} from '@projectd/ac-data-shared/services/contentPreviews.js';
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-content-previews-'));
 

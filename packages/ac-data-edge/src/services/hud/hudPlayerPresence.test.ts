@@ -8,13 +8,13 @@ import {
 import {
   buildPresenceRecordForTests,
   noteHudPlayerJoin,
-  registerBattleSsePresence,
-  resetBattleSsePresenceForTests,
+  registerBattleWsPresence,
+  resetBattleWsPresenceForTests,
   setHudPlayerPresenceTestHooks,
   validateResolvedPresence,
 } from './hudPlayerPresence.js';
-import { presenceRedisKey } from './hudCacheKeys.js';
-import { hudRedisGet, isHudRedisConfigured } from './hudRedis.js';
+import { presenceRedisKey } from '@projectd/ac-data-shared/services/hud/hudCacheKeys.js';
+import { hudRedisGet, isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 
 test('validateResolvedPresence returns player_not_connected without record', () => {
   resetManagedServersForTests();
@@ -71,11 +71,11 @@ test('buildPresenceRecordForTests normalizes server name', () => {
 
 test('validateResolvedPresence accepts in-memory battle SSE fallback', () => {
   resetManagedServersForTests();
-  resetBattleSsePresenceForTests();
+  resetBattleWsPresenceForTests();
   updateManagedServersFromSnapshot([
     { serverName: 'server-2', displayName: 'ProjectD', type: 'battle' },
   ]);
-  registerBattleSsePresence({
+  registerBattleWsPresence({
     steamId: '76561199000000001',
     serverName: 'ProjectD',
     track: 'pk_akina',
@@ -97,7 +97,7 @@ test('validateResolvedPresence accepts in-memory battle SSE fallback', () => {
     },
   );
   assert.equal(result.ok, true);
-  resetBattleSsePresenceForTests();
+  resetBattleWsPresenceForTests();
 });
 
 test('noteHudPlayerJoin invalidates session cache when car changes', async () => {

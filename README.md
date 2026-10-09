@@ -5,21 +5,27 @@ Automated infrastructure for managing Assetto Corsa dedicated servers with Redis
 ## Architecture
 
 ```
-Python (Host/Dev, Docker/Prod) ──writes──> Redis (Local) ──reads──> ac-data-edge (Host) ──forwards──> Convex (hub or direct)
-      │                                       │
-      │                                       └── Spawns AC Servers (32-bit native)
-      └── Reads AC server configs, sends events
+telemetry-data ──> Redis (shared) <── ac-data-edge (VPS)
+                         │                    │
+                         │                    ├── AC servers + HUD WSS
+                         │                    └── ingest/worker ──> ac-data-backend (hub)
+                         │                                              │
+                         └── HUD presence / roster                       ├── Convex
+                                                                        └── Control API / admin
 ```
+
+Docs index: **[docs/README.md](docs/README.md)**. Fleet checklist: [docs/VPS_FLEET_SETUP.md](docs/VPS_FLEET_SETUP.md).
 
 ## Services
 
-| Service | Language | Dev | Prod | Purpose |
-|---------|----------|-----|------|---------|
-| `telemetry-data` | Python | Host | Docker | Reads AC server configs, publishes events to Redis |
-| `ac-data-edge` | Node.js | Host | Host | Spawns AC servers, Redis bridge, HUD WSS on VPS |
-| `ac-data-backend` | Node.js | — | Hub (Dokploy) | Admin, ingest, HUD gateway (not on game VPS) |
+| Service | Language | Where | Purpose |
+|---------|----------|-------|---------|
+| `telemetry-data` | Python | Host / Docker | AC UDP → Redis `ac:events` |
+| `ac-data-edge` | Node.js | Game VPS (host, not Docker) | Spawn AC, Redis bridge, HUD WSS, mod agent |
+| `ac-data-backend` | Node.js | Hub (Dokploy) | Convex ingest, admin, HUD gateway, Control API |
+| `ac-data-shared` | Node.js | npm workspace | Contracts (keys, fleet, secrets) |
 
-**Important:** `ac-data-edge` runs on HOST (not Docker) because it spawns native 32-bit AC server processes.
+**Important:** `ac-data-edge` runs on the host (not Docker) because it spawns native 32-bit AC processes.
 
 ## Prerequisites
 
@@ -148,15 +154,13 @@ tail -f ac-data.log
 
 ## Control API (hub `/v1`)
 
-The hub (`ac-data-backend`) exposes a **Control API** for ProjectD Host: installed mods + live lobbies (Redis), plus desired-config webhooks from Convex. Edges report mods inventory and agent heartbeats.
+The hub exposes a **Control API** for ProjectD Host (mods inventory, live lobbies, desired-config). See **[docs/README.md](docs/README.md)**.
 
 | Doc | Purpose |
 |-----|---------|
 | [docs/CONTROL_API_V1.md](docs/CONTROL_API_V1.md) | Canonical API spec |
-| [docs/control-api-vps-spec.md](docs/control-api-vps-spec.md) | Handoff alias (ProjectD naming) |
 | [docs/openapi/control-api-v1.yaml](docs/openapi/control-api-v1.yaml) | OpenAPI v1 |
-| [docs/CONTROL_API_HOST_CUTOVER.md](docs/CONTROL_API_HOST_CUTOVER.md) | Host BFF cutover checklist |
-| [docs/SERVER_PLATFORM.md](docs/SERVER_PLATFORM.md) | Allocate / start / stop server slots |
+| [docs/SERVER_PLATFORM.md](docs/SERVER_PLATFORM.md) | Host start / live roster |
 
 ## CI/CD
 

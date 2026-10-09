@@ -9,7 +9,7 @@ import express from 'express';
 import {
   sendZipDownloadFile,
   setZipDownloadNoCacheHeaders,
-} from './sendZipDownload.js';
+} from '@projectd/ac-data-shared/lib/sendZipDownload.js';
 
 function createMinimalZip(): Buffer {
   // Local file header + central directory for empty zip (22 bytes minimum valid zip)

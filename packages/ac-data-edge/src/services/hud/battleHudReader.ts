@@ -4,7 +4,7 @@ import {
   buildBattleCacheKey,
   buildSessionCacheKey,
   sessionRedisKey,
-} from './hudCacheKeys.js';
+} from '@projectd/ac-data-shared/services/hud/hudCacheKeys.js';
 import { peekSessionCache } from './lapCompletedHudRefresh.js';
 import { isProfileInvalidated, mergeCosmeticFields } from './hudProfile.js';
 import {
@@ -13,7 +13,7 @@ import {
   hudRedisGet,
   hudRedisSet,
   hudRedisTouch,
-} from './hudRedis.js';
+} from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 import type {
   BattleCacheParams,
   HudBattleOk,
@@ -22,7 +22,7 @@ import type {
   HudBattleResult,
   HudBattleSnapshotOk,
   HudProfile,
-} from './hudTypes.js';
+} from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 type BattleEnrichSource = 'peek' | 'battle-profile' | 'snapshot' | 'miss';
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildPlayerCacheKey, buildSessionCacheKey, playerRedisKey, sessionRedisKey } from './hudCacheKeys.js';
+import { buildPlayerCacheKey, buildSessionCacheKey, playerRedisKey, sessionRedisKey } from '@projectd/ac-data-shared/services/hud/hudCacheKeys.js';
 import { refreshHudAfterPlayerJoin } from './hudAfterPlayerJoin.js';
 import {
   hudErrorCacheTtlSec,
@@ -17,7 +17,7 @@ import {
   setFetchPlayerJoinContextForTests,
   setJoinContextRetryDelayMsForTests,
 } from './playerJoinContext.js';
-import { HUD_PLAYER_NOT_CONNECTED_TTL_SEC, HUD_TRANSIENT_ERROR_TTL_SEC, hudRedisDel, hudRedisGet, isHudRedisConfigured } from './hudRedis.js';
+import { HUD_PLAYER_NOT_CONNECTED_TTL_SEC, HUD_TRANSIENT_ERROR_TTL_SEC, hudRedisDel, hudRedisGet, isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 import {
   clearUserInvalidated,
   readUserInvalidated,

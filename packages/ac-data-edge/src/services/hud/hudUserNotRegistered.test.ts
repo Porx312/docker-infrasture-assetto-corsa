@@ -9,7 +9,7 @@ import {
   USER_NOT_REGISTERED_CHANNEL,
   USER_NOT_REGISTERED_TTL_SEC,
 } from './hudUserNotRegistered.js';
-import { hudRedisDel, isHudRedisConfigured } from './hudRedis.js';
+import { hudRedisDel, isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 
 const steamId = '76561199000000998';
 

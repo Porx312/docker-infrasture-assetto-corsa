@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { isHudRedisConfigured } from './hudRedis.js';
+import { isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 import {
   setClearUserInvalidatedForTests,
   setMarkUserInvalidatedForTests,

@@ -4,7 +4,7 @@ Infra changes in this repo (shared cache keys, presence type, gateway tests) do 
 
 ## Prerequisites
 
-1. Deploy ProjectD Convex per [examples/PROJECTD_HUD_PRESENCE_NO_LIVE_PLAYERS.md](./examples/PROJECTD_HUD_PRESENCE_NO_LIVE_PLAYERS.md) (`presence` on `getPlayerJoinContext` / `getHudSession`).
+1. Deploy ProjectD Convex with optional Redis `presence` on `getPlayerJoinContext` / `getHudSession` (archived handoff: [archive/examples/PROJECTD_HUD_PRESENCE_NO_LIVE_PLAYERS.md](./archive/examples/PROJECTD_HUD_PRESENCE_NO_LIVE_PLAYERS.md)).
 2. Hub + all edges share the same Redis and `FLEET_EDGE_SECRET` or `CONVEX_WORKER_SECRET` (optional `MOD_PEER_SECRET` for blob peer pull).
 3. Each edge has `EDGE_PUBLIC_BASE_URL`, `EDGE_REGISTRY_BASE_URL`, `HUD_WS_ENABLED=true`.
 4. Hub has `FLEET_EDGE_REGISTRY` (bootstrap) + `HUD_PUBLIC_BASE_URL`; Postgres `fleet_edges` overlays at runtime.

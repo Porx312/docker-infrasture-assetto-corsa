@@ -122,7 +122,7 @@ Webhooks (HTTP actions) → **hub**:
 - `POST {HUB}/v1/internal/desired-config` (optional; validates mods snapshot)
 
 BFF Host (Next.js): [examples/PROJECTD_BFF_INSTALL.md](./examples/PROJECTD_BFF_INSTALL.md).  
-Host cutover: [CONTROL_API_HOST_CUTOVER.md](./CONTROL_API_HOST_CUTOVER.md).
+HUD / live ingest: [HUD_HARDENING_CUTOVER.md](./HUD_HARDENING_CUTOVER.md).
 
 ---
 

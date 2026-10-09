@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildSessionCacheKey, presenceRedisKey, sessionRedisKey } from '../hud/hudCacheKeys.js';
+import { buildSessionCacheKey, presenceRedisKey, sessionRedisKey } from '@projectd/ac-data-shared/services/hud/hudCacheKeys.js';
 import {
   noteHudPlayerJoin,
   noteHudPlayerLeave,
   setHudPlayerPresenceTestHooks,
 } from '../hud/hudPlayerPresence.js';
-import { hudRedisGet, hudRedisSet, isHudRedisConfigured } from '../hud/hudRedis.js';
+import { hudRedisGet, hudRedisSet, isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 import { handlePlayerLeaveAfterIngest } from './playerLeave.js';
 
 const steamId = '76561199000000003';

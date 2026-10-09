@@ -29,7 +29,7 @@ import type {
   PlayerJoinContextResult,
   SessionQueryParams,
   WorkerSyncVersionResult,
-} from './hudTypes.js';
+} from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 const CONVEX_WORKER_SECRET = (process.env.CONVEX_WORKER_SECRET || '').trim();
 const AC_INSTANCE_ID = process.env.AC_INSTANCE_ID || 'default';

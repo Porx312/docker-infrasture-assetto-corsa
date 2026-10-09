@@ -42,7 +42,7 @@ CONVEX_WORKER_SECRET=…    # same as hub X-Worker-Secret; NEVER NEXT_PUBLIC_
 - Flow: catalog → ensure LOCAL → allocate → apply-config → start
 - Do **not** build the global library from per-VPS inventory alone
 
-Hub contracts: [CONTROL_API_V1.md](../CONTROL_API_V1.md), [MOD_DISTRIBUTION.md](../MOD_DISTRIBUTION.md), [SERVER_PLATFORM.md](../SERVER_PLATFORM.md), [CONTROL_API_HOST_CUTOVER.md](../CONTROL_API_HOST_CUTOVER.md), [openapi/control-api-v1.yaml](../openapi/control-api-v1.yaml).
+Hub contracts: [CONTROL_API_V1.md](../CONTROL_API_V1.md), [MOD_DISTRIBUTION.md](../MOD_DISTRIBUTION.md), [SERVER_PLATFORM.md](../SERVER_PLATFORM.md), [HUD_HARDENING_CUTOVER.md](../HUD_HARDENING_CUTOVER.md), [openapi/control-api-v1.yaml](../openapi/control-api-v1.yaml).
 
 ## Smoke (hub reachable)
 

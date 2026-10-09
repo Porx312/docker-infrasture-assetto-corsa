@@ -1,4 +1,4 @@
-import { hudRedisGet, hudRedisSet, isHudRedisConfigured } from '../hud/hudRedis.js';
+import { hudRedisGet, hudRedisSet, isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 import { AGENT_PRESENCE_TTL_SEC, instanceAgentKey } from './redisKeys.js';
 
 export type AgentServerSlot = {

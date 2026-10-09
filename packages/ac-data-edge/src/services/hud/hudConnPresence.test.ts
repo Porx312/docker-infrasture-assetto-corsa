@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { connPresenceRedisKey, ssePresenceRedisKey } from './hudCacheKeys.js';
-import { hudRedisDel, hudRedisGet, isHudRedisConfigured } from './hudRedis.js';
+import { connPresenceRedisKey } from '@projectd/ac-data-shared/services/hud/hudCacheKeys.js';
+import { hudRedisDel, hudRedisGet, isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 import {
   clearHudConnPresence,
   markHudConnConnected,
@@ -15,23 +15,19 @@ test('connPresenceRedisKey uses steamId suffix', () => {
   assert.equal(connPresenceRedisKey('76561199000000001'), 'ac:hud:conn:76561199000000001');
 });
 
-test('markHudConnConnected dual-writes conn + legacy sse keys', async () => {
+test('markHudConnConnected writes conn key only', async () => {
   if (!isHudRedisConfigured()) {
     return;
   }
 
   const connKey = connPresenceRedisKey(steamId);
-  const sseKey = ssePresenceRedisKey(steamId);
   await hudRedisDel(connKey);
-  await hudRedisDel(sseKey);
 
   assert.equal(await hudRedisGet(connKey), null);
   await markHudConnConnected(steamId);
   assert.equal(await hudRedisGet(connKey), '1');
-  assert.equal(await hudRedisGet(sseKey), '1');
   await clearHudConnPresence(steamId);
   assert.equal(await hudRedisGet(connKey), null);
-  assert.equal(await hudRedisGet(sseKey), null);
 });
 
 test('renewHudConnPresence extends TTL on existing key', async () => {

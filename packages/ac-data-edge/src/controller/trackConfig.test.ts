@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { normalizeTrackConfigForIni } from './trackConfig.js';
+import { normalizeTrackConfigForIni } from '@projectd/ac-data-shared/controller/trackConfig.js';
 
 test('normalizeTrackConfigForIni maps default and empty to empty string', () => {
     assert.equal(normalizeTrackConfigForIni('default'), '');

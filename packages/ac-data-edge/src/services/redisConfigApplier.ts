@@ -11,19 +11,19 @@ import {
   stopServerCore,
   ServerConfigPayload,
 } from '../controller/controller.js';
-import { normalizeTrackConfigForIni } from '../controller/trackConfig.js';
+import { normalizeTrackConfigForIni } from '@projectd/ac-data-shared/controller/trackConfig.js';
 import { shouldStartFromConfig } from './serverPool.js';
-import { buildConfigSignature } from './configApplierLogic.js';
+import { buildConfigSignature } from '@projectd/ac-data-shared/services/configApplierLogic.js';
 import {
   hasServerBrandingUpdate,
   pickServerBrandingUpdate,
   updateServerInstanceConfig,
-} from './serverInstanceConfig.js';
+} from '@projectd/ac-data-shared/services/serverInstanceConfig.js';
 import {
   updateManagedServersFromSnapshot,
   type ManagedServerRow,
 } from './hud/hudManagedServers.js';
-import { connectRedisClient, createRedisClient, isRedisConfigured } from './redisClient.js';
+import { connectRedisClient, createRedisClient, isRedisConfigured } from '@projectd/ac-data-shared/services/redisClient.js';
 
 const REDIS_CONFIG_STREAM_KEY = process.env.REDIS_CONFIG_STREAM_KEY || 'ac:config';
 const AC_INSTANCE_ID = process.env.AC_INSTANCE_ID || 'default';

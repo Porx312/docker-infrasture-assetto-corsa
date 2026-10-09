@@ -2,12 +2,8 @@ import { Router } from 'express';
 import fs from 'fs';
 import multer from 'multer';
 import path from 'path';
-import { hubOrAdminAuth, isEdgeAdminPublicEnabled } from '../middleware/hubOrAdminAuth.js';
-import { adminLoginRateLimiter } from '../middleware/adminLoginRateLimiter.js';
+import { hubOrAdminAuth } from '../middleware/hubOrAdminAuth.js';
 import {
-    adminLogin,
-    adminLogout,
-    adminCheck,
     getContent,
     getContentItems,
     getContentPreview,
@@ -29,13 +25,9 @@ import {
     downloadHudReleaseAdminHandler,
     deleteEmptyContentAdminHandler,
 } from '../controller/adminController.js';
-import { getAdminHealthHandler } from '../controller/healthController.js';
-
-import { fileURLToPath } from 'url';
+import { getAdminHealthHandler } from '@projectd/ac-data-shared/controller/healthController.js';
 
 const router = Router();
-const acDataRoot = path.dirname(fileURLToPath(import.meta.url));
-const VIEWS_PATH = process.env.ADMIN_VIEWS_PATH || path.join(acDataRoot, '..', '..', 'views');
 
 const uploadDir = process.env.ADMIN_UPLOAD_DIR || '/tmp/ac-admin-uploads';
 fs.mkdirSync(uploadDir, { recursive: true });
@@ -57,32 +49,6 @@ const upload = multer({
     },
 });
 
-router.get('/login', (_req, res) => {
-    if (!isEdgeAdminPublicEnabled()) {
-        res.status(404).json({ ok: false, message: 'Not found' });
-        return;
-    }
-    res.sendFile(path.join(VIEWS_PATH, 'login.html'));
-});
-
-router.post('/login', adminLoginRateLimiter, adminLogin);
-router.post('/logout', adminLogout);
-router.get('/dashboard', hubOrAdminAuth, (_req, res) => {
-    if (!isEdgeAdminPublicEnabled()) {
-        res.status(404).json({ ok: false, message: 'Not found' });
-        return;
-    }
-    res.sendFile(path.join(VIEWS_PATH, 'dashboard.html'));
-});
-
-router.get('/check', adminCheck);
-
-router.get('/health', hubOrAdminAuth, getAdminHealthHandler);
-
-router.get('/content', hubOrAdminAuth, getContent);
-router.get('/content/:type', hubOrAdminAuth, getContentItems);
-router.get('/preview/:type/:name/:variant', hubOrAdminAuth, getContentPreview);
-router.delete('/content/:type/:name', hubOrAdminAuth, deleteContentItem);
 function handleMulterUpload(
     uploadMiddleware: ReturnType<typeof upload.single> | ReturnType<typeof upload.array>,
 ) {
@@ -102,6 +68,13 @@ function handleMulterUpload(
         });
     };
 }
+
+router.get('/health', hubOrAdminAuth, getAdminHealthHandler);
+
+router.get('/content', hubOrAdminAuth, getContent);
+router.get('/content/:type', hubOrAdminAuth, getContentItems);
+router.get('/preview/:type/:name/:variant', hubOrAdminAuth, getContentPreview);
+router.delete('/content/:type/:name', hubOrAdminAuth, deleteContentItem);
 
 router.post('/upload/:type', hubOrAdminAuth, handleMulterUpload(upload.single('file')), uploadContent);
 router.post(

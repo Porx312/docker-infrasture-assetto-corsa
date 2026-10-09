@@ -21,8 +21,8 @@ After code changes: **always rebuild + restart ac-data** (see deploy checklist i
 - Consumes `ac:events` from Redis → forwards to Convex; HUD/pool side effects via event handlers
 - Publishes Convex config snapshots to `ac:config` → applies INI + restart
 - Spawns native 32-bit AC server processes (must run on host, not Docker)
-- Admin panel: content, branding, activity timeline, server config, ProjectD HUD releases
-- Public HUD download API (`/client/hud/*`) — see [`docs/HUD_CLIENT_API.md`](../docs/HUD_CLIENT_API.md)
+- Live HUD runtime (`/hud/ws`, snapshot, presence) — player ZIP downloads and admin UI live on the **hub**
+- JSON `/admin/*` for hub proxy (worker secret); see [`docs/MULTI_REGION_EDGE.md`](../../docs/MULTI_REGION_EDGE.md)
 
 ## Architecture
 

@@ -1,11 +1,11 @@
 import { getBattleCachedFast } from './battleHudReader.js';
-import type { BattleCacheParams } from './hudTypes.js';
+import type { BattleCacheParams } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 import { parseBattleScopeKey } from './hudBattleRooms.js';
 import { parsePlayerScopeKey } from './hudScopeKeys.js';
-import { isHudRedisConfigured } from './hudRedis.js';
+import { isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 import { pushHudUpdateForSteamId } from './hudPushHub.js';
 import { startHudUpdatesSubscriber } from './hudUpdatesSubscriber.js';
-import type { HudBattleErr, HudBattleOk } from './hudTypes.js';
+import type { HudBattleErr, HudBattleOk } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 export type BattleHudPushEvent = 'battle';
 

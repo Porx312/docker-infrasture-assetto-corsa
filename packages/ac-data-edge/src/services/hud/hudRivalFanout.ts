@@ -13,8 +13,8 @@ import {
   refreshPlayerHudCacheForLap,
 } from './lapCompletedHudRefresh.js';
 import { listConnectedHudSteamIds } from './hudPushHub.js';
-import { isHudRedisConfigured } from './hudRedis.js';
-import type { PlayerPresenceRecord } from './hudTypes.js';
+import { isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
+import type { PlayerPresenceRecord } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 export type LapBoardContext = {
   serverName: string;

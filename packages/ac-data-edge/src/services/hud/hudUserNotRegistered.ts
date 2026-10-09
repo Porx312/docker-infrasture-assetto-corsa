@@ -1,4 +1,4 @@
-import { getHudRedisClient, isHudRedisConfigured } from './hudRedis.js';
+import { getHudRedisClient, isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 import {
   clearUserStatusFlag,
   markUserStatusFlag,

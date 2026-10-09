@@ -6,8 +6,6 @@
 export const HUD_PRESENCE_TTL_DEFAULT_SEC = 450;
 export const HUD_PRESENCE_JOIN_TTL_DEFAULT_SEC = 600;
 export const HUD_CONN_PRESENCE_TTL_DEFAULT_SEC = 45;
-/** @deprecated Alias of HUD_CONN_PRESENCE_TTL_DEFAULT_SEC */
-export const HUD_SSE_PRESENCE_TTL_DEFAULT_SEC = HUD_CONN_PRESENCE_TTL_DEFAULT_SEC;
 export const HUD_PLAYER_TTL_DEFAULT_SEC = 300;
 export const HUD_SESSION_TTL_DEFAULT_SEC = 300;
 export const HUD_BATTLE_PROFILE_TTL_DEFAULT_SEC = 3600;
@@ -47,15 +45,11 @@ export function hudPresenceJoinTtlSec(): number {
 }
 
 export function hudConnPresenceTtlSec(): number {
+  // Legacy env alias HUD_SSE_PRESENCE_TTL_SEC kept for ops during conn migration.
   return envNumber(
     'HUD_CONN_PRESENCE_TTL_SEC',
     envNumber('HUD_SSE_PRESENCE_TTL_SEC', HUD_CONN_PRESENCE_TTL_DEFAULT_SEC),
   );
-}
-
-/** @deprecated Use hudConnPresenceTtlSec */
-export function hudSsePresenceTtlSec(): number {
-  return hudConnPresenceTtlSec();
 }
 
 /** Eager constants matching historical `export const HUD_*_TTL_SEC = Number(...)` load-time evaluation. */
@@ -67,5 +61,3 @@ export const HUD_TRANSIENT_ERROR_TTL_SEC = hudTransientErrorTtlSec();
 export const HUD_PRESENCE_TTL_SEC = hudPresenceTtlSec();
 export const HUD_PRESENCE_JOIN_TTL_SEC = hudPresenceJoinTtlSec();
 export const HUD_CONN_PRESENCE_TTL_SEC = hudConnPresenceTtlSec();
-/** @deprecated Use HUD_CONN_PRESENCE_TTL_SEC */
-export const HUD_SSE_PRESENCE_TTL_SEC = HUD_CONN_PRESENCE_TTL_SEC;

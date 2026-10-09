@@ -4,8 +4,8 @@ import {
   hudRedisGet,
   hudRedisSet,
   isHudRedisConfigured,
-} from './hudRedis.js';
-import type { HudProfile } from './hudTypes.js';
+} from '@projectd/ac-data-shared/services/hud/hudRedis.js';
+import type { HudProfile } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 export const USER_PREFS_SAVE_TIME_PREFIX =
   process.env.USER_PREFS_SAVE_TIME_PREFIX || 'ac:user:prefs:save_time:';
@@ -42,21 +42,6 @@ let publishPrefChangeOverride: PublishPrefChangeFn | null = null;
 /** Test helper: override pref pub/sub notify. */
 export function setPublishPrefChangeForTests(fn: PublishPrefChangeFn | null): void {
   publishPrefChangeOverride = fn;
-}
-
-/** @deprecated use setPublishPrefChangeForTests */
-export function setPublishAcceptBattlePrefChangeForTests(
-  fn: ((steamId: string, acceptBattle: boolean) => Promise<void>) | null,
-): void {
-  if (!fn) {
-    publishPrefChangeOverride = null;
-    return;
-  }
-  publishPrefChangeOverride = async (steamId, pref, enabled) => {
-    if (pref === 'acceptBattle') {
-      await fn(steamId, enabled);
-    }
-  };
 }
 
 export function saveTimeRedisKey(steamId: string): string {

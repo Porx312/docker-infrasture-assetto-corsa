@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { getActivityFeed, getActivitySummary, getActivityTimeline } from '../services/activity/activityService.js';
-import { isHudRedisConfigured } from '../services/hud/hudRedis.js';
-import { summarizeServers } from '../services/serverBranding.js';
+import { isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
+import { summarizeServers } from '@projectd/ac-data-shared/services/serverBranding.js';
 import type { ActivityCategory } from '../services/activity/activityTypes.js';
 import {
   fetchMergedActivityFeed,

@@ -6,11 +6,11 @@ import {
 } from './battleHudPush.js';
 import { battleRoomFromParams } from './hudBattleRooms.js';
 import {
-  registerBattleSsePresence,
+  registerBattleWsPresence,
   refreshPlayerPresence,
   resolvePlayerPresence,
 } from './hudPlayerPresence.js';
-import type { ResolvedPlayerPresence, ResolvePlayerPresenceResult } from './hudTypes.js';
+import type { ResolvedPlayerPresence, ResolvePlayerPresenceResult } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 export type BattleRoomSubscription = {
   room: string;
@@ -59,7 +59,7 @@ export async function refreshBattleRoomSubscription(
   await (refreshPresenceOverride
     ? refreshPresenceOverride(resolved.presence)
     : refreshPlayerPresence(resolved.presence));
-  registerBattleSsePresence(resolved.presence);
+  registerBattleWsPresence(resolved.presence);
 
   const room = battleRoomFromParams(resolved.presence.serverName, steamId);
   const listener = current?.listener;

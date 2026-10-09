@@ -1,7 +1,7 @@
 # ProjectD Host — team handoff (servers + mods)
 
 **Where to implement:** ProjectD repo (Next.js Host), **not** `assetto-infra`.  
-**Hub contracts:** [CONTROL_API_V1.md](../CONTROL_API_V1.md), [SERVER_PLATFORM.md](../SERVER_PLATFORM.md), [MOD_DISTRIBUTION.md](../MOD_DISTRIBUTION.md), [CONTROL_API_HOST_CUTOVER.md](../CONTROL_API_HOST_CUTOVER.md), OpenAPI [openapi/control-api-v1.yaml](../openapi/control-api-v1.yaml), short install [PROJECTD_BFF_INSTALL.md](./PROJECTD_BFF_INSTALL.md).
+**Hub contracts:** [CONTROL_API_V1.md](../CONTROL_API_V1.md), [SERVER_PLATFORM.md](../SERVER_PLATFORM.md), [MOD_DISTRIBUTION.md](../MOD_DISTRIBUTION.md), [HUD_HARDENING_CUTOVER.md](../HUD_HARDENING_CUTOVER.md), OpenAPI [openapi/control-api-v1.yaml](../openapi/control-api-v1.yaml), short install [PROJECTD_BFF_INSTALL.md](./PROJECTD_BFF_INSTALL.md).
 
 Paste this file (or the Cursor prompt in §7) into a ProjectD chat. Do not implement Host UI inside assetto-infra.
 
@@ -240,7 +240,7 @@ More detail: [SERVER_PLATFORM.md](../SERVER_PLATFORM.md).
 7. Live roster uses lobby name + `instanceId` (hub BFF) — not Convex presence loop.
 8. Hub smoke curls ([PROJECTD_BFF_INSTALL.md](./PROJECTD_BFF_INSTALL.md)) OK for **live** before UI work; idle/allocate curls only if phase 2.
 
-After Host no longer needs Convex `live_players`: ops sets `LIVE_INGEST_CONVEX=false` on every edge ([CONTROL_API_HOST_CUTOVER.md](../CONTROL_API_HOST_CUTOVER.md)).
+After Host no longer needs Convex `live_players`: ops sets `LIVE_INGEST_CONVEX=false` on every edge ([HUD_HARDENING_CUTOVER.md](../HUD_HARDENING_CUTOVER.md)).
 
 ---
 

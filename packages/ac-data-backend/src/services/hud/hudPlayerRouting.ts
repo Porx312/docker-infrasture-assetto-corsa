@@ -15,8 +15,8 @@ import {
   parseHudPresenceRecordJson,
   type HudPresenceRecord,
 } from '@projectd/ac-data-shared/services/hud/hudPresenceRecord.js';
-import { presenceRedisKey } from './hudCacheKeys.js';
-import { hudRedisGet, isHudRedisConfigured } from './hudRedis.js';
+import { presenceRedisKey } from '@projectd/ac-data-shared/services/hud/hudCacheKeys.js';
+import { hudRedisGet, isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 
 /** @deprecated Prefer HudPresenceRecord from ac-data-shared — alias kept for hub call sites. */
 export type HubPlayerPresenceRecord = HudPresenceRecord;

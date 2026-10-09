@@ -8,7 +8,6 @@ import {
   HUD_PRESENCE_TTL_SEC,
   HUD_SESSION_TTL_SEC,
   HUD_CONN_PRESENCE_TTL_SEC,
-  HUD_SSE_PRESENCE_TTL_SEC,
   HUD_TRANSIENT_ERROR_TTL_SEC,
 } from './hudTtl.js';
 import { createRedisClient, isRedisConfigured } from '../redisClient.js';
@@ -22,7 +21,6 @@ export {
   HUD_PRESENCE_TTL_SEC,
   HUD_PRESENCE_JOIN_TTL_SEC,
   HUD_CONN_PRESENCE_TTL_SEC,
-  HUD_SSE_PRESENCE_TTL_SEC,
 };
 
 let client: RedisClientType | null = null;

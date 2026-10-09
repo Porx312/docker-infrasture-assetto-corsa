@@ -4,7 +4,7 @@ import {
   buildSessionCacheKey,
   playerRedisKey,
   sessionRedisKey,
-} from './hudCacheKeys.js';
+} from '@projectd/ac-data-shared/services/hud/hudCacheKeys.js';
 import {
   isProfileInvalidated,
   normalizeHudProfile,
@@ -18,7 +18,7 @@ import {
   HUD_TRANSIENT_ERROR_TTL_SEC,
   hudRedisGet,
   hudRedisSet,
-} from './hudRedis.js';
+} from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 import { bumpBoardVersion, bumpPlayerVersion } from './hudVersion.js';
 import {
   clearUserInvalidated,
@@ -31,7 +31,7 @@ import type {
   HudSessionResult,
   PlayerCacheParams,
   SessionQueryParams,
-} from './hudTypes.js';
+} from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 import { isTransientHudErrorReason, TRANSIENT_HUD_ERROR_REASONS } from './hudTransientReasons.js';
 import {
   invalidateHudCachesForSteamId,

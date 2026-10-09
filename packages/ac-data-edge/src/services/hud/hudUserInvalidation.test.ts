@@ -9,7 +9,7 @@ import {
   USER_INVALIDATED_CHANNEL,
   USER_INVALIDATED_TTL_SEC,
 } from './hudUserInvalidation.js';
-import { hudRedisDel, isHudRedisConfigured } from './hudRedis.js';
+import { hudRedisDel, isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 
 const steamId = '76561199000000999';
 

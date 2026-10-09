@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { readServerInstanceConfig } from '../serverInstanceConfig.js';
+import { readServerInstanceConfig } from '@projectd/ac-data-shared/services/serverInstanceConfig.js';
 import { contentPoolPath } from './materialize.js';
 import { isModAgentEnabled, refreshServerModsOnHub } from './hubModClient.js';
 

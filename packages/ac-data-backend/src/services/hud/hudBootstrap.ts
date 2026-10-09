@@ -7,8 +7,6 @@ import {
   resolveHudEdgeForSteamId,
 } from './hudPlayerRouting.js';
 
-export { httpsToWss };
-
 function trimTrailingSlash(url: string): string {
   return url.replace(/\/+$/, '');
 }

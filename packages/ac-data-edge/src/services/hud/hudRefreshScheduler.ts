@@ -6,7 +6,7 @@ import {
 import { isHudConvexConfigured } from './hudConvex.js';
 import { countHudPushListeners } from './hudPushHub.js';
 import { refreshHudForRivalLapObservers, type LapAuthorPb } from './hudRivalFanout.js';
-import { isHudRedisConfigured } from './hudRedis.js';
+import { isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 
 const HUD_LAP_REFRESH_DEBOUNCE_MS = Number(process.env.HUD_LAP_REFRESH_DEBOUNCE_MS || 1500);
 const HUD_LAP_REFRESH_DELAY_MS = Number(process.env.HUD_LAP_REFRESH_DELAY_MS || 800);

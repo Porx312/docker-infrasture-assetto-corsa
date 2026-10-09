@@ -9,8 +9,8 @@ import {
   syncProfileCosmeticsFromProfile,
   USER_PROFILE_COSMETICS_TTL_SEC,
 } from './hudProfileCosmetics.js';
-import { hudRedisGet, isHudRedisConfigured } from './hudRedis.js';
-import type { HudProfile } from './hudTypes.js';
+import { hudRedisGet, isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
+import type { HudProfile } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 const steamId = '76561199000000999';
 

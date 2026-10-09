@@ -14,7 +14,7 @@ import {
   hasServerBrandingUpdate,
   pickServerBrandingUpdate,
   updateServerInstanceConfig,
-} from '../services/serverInstanceConfig.js';
+} from '@projectd/ac-data-shared/services/serverInstanceConfig.js';
 
 function requireValidServerName(serverName: string | undefined, res: Response): string | null {
   if (!serverName) {

@@ -4,8 +4,8 @@ import {
   hudRedisGet,
   hudRedisSet,
   isHudRedisConfigured,
-} from './hudRedis.js';
-import type { HudProfile } from './hudTypes.js';
+} from '@projectd/ac-data-shared/services/hud/hudRedis.js';
+import type { HudProfile } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 export const USER_PROFILE_COSMETICS_FP_PREFIX =
   process.env.USER_PROFILE_COSMETICS_FP_PREFIX || 'ac:user:profile:cosmetics_fp:';

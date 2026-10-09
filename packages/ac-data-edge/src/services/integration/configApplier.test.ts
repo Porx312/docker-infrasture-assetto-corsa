@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildConfigSignature } from '../configApplierLogic.js';
+import { buildConfigSignature } from '@projectd/ac-data-shared/services/configApplierLogic.js';
 
 test('buildConfigSignature changes when track or entries change', () => {
   const base = {

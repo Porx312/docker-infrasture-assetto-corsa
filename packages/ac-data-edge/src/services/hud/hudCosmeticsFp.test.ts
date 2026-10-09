@@ -5,7 +5,7 @@ import type { Request, Response } from 'express';
 import '@projectd/ac-data-shared/config/loadEnv.js';
 import { handleHudProfileCosmeticsFp } from './hudCosmeticsFp.js';
 import { profileCosmeticsRedisKey, syncProfileCosmeticsFromProfile } from './hudProfileCosmetics.js';
-import { hudRedisDel, hudRedisGet, isHudRedisConfigured } from './hudRedis.js';
+import { hudRedisDel, hudRedisGet, isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 
 function mockRes(): Response & { body?: unknown; statusCode?: number } {
   const res = {
@@ -93,7 +93,9 @@ test('handleHudProfileCosmeticsFp self-heals fingerprint from session cache', as
   });
 
   const { persistSessionCacheResult } = await import('./lapCompletedHudRefresh.js');
-  const { sessionRedisKey, buildSessionCacheKey } = await import('./hudCacheKeys.js');
+  const { sessionRedisKey, buildSessionCacheKey } = await import(
+    '@projectd/ac-data-shared/services/hud/hudCacheKeys.js'
+  );
   await persistSessionCacheResult(sessionRedisKey(buildSessionCacheKey({ steamId })), {
     ok: true,
     version: 'v-self-heal',
@@ -126,7 +128,7 @@ test('handleHudProfileCosmeticsFp self-heals fingerprint from session cache', as
     },
   });
 
-  const { hudRedisSet } = await import('./hudRedis.js');
+  const { hudRedisSet } = await import('@projectd/ac-data-shared/services/hud/hudRedis.js');
   await hudRedisSet(profileCosmeticsRedisKey(steamId), staleFp, 3600);
 
   const apiKey = process.env.HUD_API_KEY ?? '';

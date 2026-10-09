@@ -13,7 +13,7 @@ import {
   resetManagedServersForTests,
   updateManagedServersFromSnapshot,
 } from './hudManagedServers.js';
-import type { HudSessionOk } from './hudTypes.js';
+import type { HudSessionOk } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 const steamId = '76561199000000001';
 

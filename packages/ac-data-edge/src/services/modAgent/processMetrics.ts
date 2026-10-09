@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { listServerInstanceNames } from '../serverBranding.js';
+import { listServerInstanceNames } from '@projectd/ac-data-shared/services/serverBranding.js';
 import { getServerRuntime } from '../serverRuntime.js';
 
 const execFileAsync = promisify(execFile);

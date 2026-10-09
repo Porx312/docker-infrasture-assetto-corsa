@@ -2,7 +2,7 @@ import { getHubWorkerBaseUrl } from '@projectd/ac-data-shared/services/hubWorker
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { listServerInstanceNames } from './serverBranding.js';
+import { listServerInstanceNames } from '@projectd/ac-data-shared/services/serverBranding.js';
 import { getServerRuntime } from './serverRuntime.js';
 
 function workerSecret(): string {

@@ -90,4 +90,4 @@ Or send non-empty `servers[]` on agent register/heartbeat (`serverId`/`name` = f
 
 ## ProjectD BFF
 
-Use Next.js `/api/control/*` (Clerk + worker secret server-side) for **live** (and ensure if needed). Handoff: [examples/PROJECTD_BFF_INSTALL.md](./examples/PROJECTD_BFF_INSTALL.md). Host cutover: [CONTROL_API_HOST_CUTOVER.md](./CONTROL_API_HOST_CUTOVER.md). MVP web: [examples/PROJECTD_WEB_CONVEX_HUB_HANDOFF.md](./examples/PROJECTD_WEB_CONVEX_HUB_HANDOFF.md).
+Use Next.js `/api/control/*` (Clerk + worker secret server-side) for **live** (and ensure if needed). Handoff: [examples/PROJECTD_BFF_INSTALL.md](./examples/PROJECTD_BFF_INSTALL.md). MVP web: [examples/PROJECTD_WEB_CONVEX_HUB_HANDOFF.md](./examples/PROJECTD_WEB_CONVEX_HUB_HANDOFF.md). Live ingest: [HUD_HARDENING_CUTOVER.md](./HUD_HARDENING_CUTOVER.md).

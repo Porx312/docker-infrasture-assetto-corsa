@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Request, Response } from 'express';
 
-import { buildSessionCacheKey, sessionRedisKey, ssePresenceRedisKey } from './hudCacheKeys.js';
+import { buildSessionCacheKey, connPresenceRedisKey, sessionRedisKey } from '@projectd/ac-data-shared/services/hud/hudCacheKeys.js';
 import { buildHudSessionEvent, buildHudVersionEvent } from './hudPushHub.js';
 import { formatWsMessage } from './hudWsFormat.js';
 import { normalizeHudProfile } from './hudProfile.js';
@@ -13,11 +13,11 @@ import { resetHudConvexQueryStatsForTests, getHudConvexQueryStats } from './hudC
 import { resetManagedServersForTests, updateManagedServersFromSnapshot } from './hudManagedServers.js';
 import {
   buildPresenceRecordForTests,
-  registerBattleSsePresence,
-  resetBattleSsePresenceForTests,
+  registerBattleWsPresence,
+  resetBattleWsPresenceForTests,
 } from './hudPlayerPresence.js';
 import { clearHudConnPresence } from './hudConnPresence.js';
-import { HUD_SESSION_TTL_SEC, hudRedisDel, hudRedisGet, hudRedisSet, isHudRedisConfigured } from './hudRedis.js';
+import { HUD_SESSION_TTL_SEC, hudRedisDel, hudRedisGet, hudRedisSet, isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 import {
   resetConvexClientForTests,
   setConvexClientForTests,
@@ -119,7 +119,7 @@ test('handleHudSnapshot returns 404 with convex_unreachable when Convex fetch fa
     steamId,
     'ks_toyota_gt86',
   );
-  registerBattleSsePresence({
+  registerBattleWsPresence({
     steamId,
     ...record,
     serverType: 'testing',
@@ -159,7 +159,7 @@ test('handleHudSnapshot returns 404 with convex_unreachable when Convex fetch fa
     assert.deepEqual(body, { ok: false, reason: 'convex_unreachable' });
   } finally {
     resetConvexClientForTests();
-    resetBattleSsePresenceForTests();
+    resetBattleWsPresenceForTests();
     resetManagedServersForTests();
   }
 });
@@ -187,7 +187,7 @@ test('handleHudSnapshot sections=battle does not call Convex metadata queries', 
     steamId,
     'ks_toyota_gt86',
   );
-  registerBattleSsePresence({
+  registerBattleWsPresence({
     steamId,
     ...record,
     serverType: 'battle',
@@ -231,7 +231,7 @@ test('handleHudSnapshot sections=battle does not call Convex metadata queries', 
     assert.equal(stats.queries.fetchHudSession ?? 0, 0);
   } finally {
     resetConvexClientForTests();
-    resetBattleSsePresenceForTests();
+    resetBattleWsPresenceForTests();
     resetManagedServersForTests();
     resetHudConvexQueryStatsForTests();
   }
@@ -260,7 +260,7 @@ test('handleHudSnapshot marks overlay presence on successful poll', async () => 
     steamId,
     'ks_toyota_gt86',
   );
-  registerBattleSsePresence({
+  registerBattleWsPresence({
     steamId,
     ...record,
     serverType: 'battle',
@@ -289,7 +289,7 @@ test('handleHudSnapshot marks overlay presence on successful poll', async () => 
     HUD_SESSION_TTL_SEC,
   );
 
-  const sseKey = ssePresenceRedisKey(steamId);
+  const connKey = connPresenceRedisKey(steamId);
   await clearHudConnPresence(steamId);
 
   setConvexClientForTests({
@@ -331,10 +331,10 @@ test('handleHudSnapshot marks overlay presence on successful poll', async () => 
     await handleHudSnapshot(req, res);
     assert.equal(statusCode, 0);
     assert.equal(body?.ok, true);
-    assert.equal(await hudRedisGet(sseKey), '1');
+    assert.equal(await hudRedisGet(connKey), '1');
   } finally {
     resetConvexClientForTests();
-    resetBattleSsePresenceForTests();
+    resetBattleWsPresenceForTests();
     resetManagedServersForTests();
     await hudRedisDel(sessionKey);
     await clearHudConnPresence(steamId);

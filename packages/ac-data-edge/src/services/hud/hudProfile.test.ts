@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { isProfileInvalidated, mergeCosmeticFields, normalizeHudProfile, playerResultFromSession } from './hudProfile.js';
-import type { HudProfile } from './hudTypes.js';
+import type { HudProfile } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 const validProfile: HudProfile = {
   name: 'Alice',

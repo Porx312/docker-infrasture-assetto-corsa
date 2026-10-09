@@ -1,6 +1,6 @@
 /**
  * Shared security gate for hub and edge.
- * Edge with EDGE_ADMIN_PUBLIC=false skips ADMIN_* (hub proxy uses worker secret).
+ * Edge skips ADMIN_* (admin UI is hub-only; edge uses worker secret for /admin JSON).
  */
 
 function envBool(name: string, defaultValue: boolean): boolean {
@@ -37,10 +37,7 @@ export function assertSecurityConfiguration(
     errors.push('HUD_API_KEY is required (HUD routes must not accept unauthenticated requests)');
   }
 
-  const edgeAdminPublic = envBool('EDGE_ADMIN_PUBLIC', false);
-  const requireLocalAdmin = role === 'hub' || edgeAdminPublic;
-
-  if (requireLocalAdmin) {
+  if (role === 'hub') {
     const adminUser = (process.env.ADMIN_USER || '').trim();
     const adminPass = (process.env.ADMIN_PASS || '').trim();
     const adminJwt = (process.env.ADMIN_JWT_SECRET || '').trim();

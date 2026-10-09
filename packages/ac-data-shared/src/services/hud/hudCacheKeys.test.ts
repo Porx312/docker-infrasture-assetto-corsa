@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  battleRedisKey,
+  battleVersionRedisKey,
+  buildBattleCacheKey,
   buildBoardCacheKey,
   buildPlayerCacheKey,
   buildSessionCacheKey,
@@ -12,7 +15,6 @@ import {
   presenceRosterRedisKey,
   sessionRedisKey,
   connPresenceRedisKey,
-  ssePresenceRedisKey,
 } from './hudCacheKeys.js';
 import { HUD_PRESENCE_TTL_DEFAULT_SEC } from './hudTtl.js';
 import { httpsToWss } from './hudWsUrl.js';
@@ -36,7 +38,36 @@ test('player/session redis keys', () => {
   assert.equal(sessionRedisKey('1'), 'ac:hud:session:1');
   assert.equal(presenceRedisKey('1'), 'ac:hud:presence:1');
   assert.equal(connPresenceRedisKey('1'), 'ac:hud:conn:1');
-  assert.equal(ssePresenceRedisKey('1'), 'ac:hud:sse:1');
+});
+
+test('buildBoardCacheKey includes car filter id', () => {
+  assert.equal(
+    buildBoardCacheKey({
+      serverName: 'srv1',
+      track: 'pk_akina',
+      trackConfig: 'downhill',
+      car: 'ks_toyota_gt86',
+    }),
+    'srv1@pk_akina@downhill@ks_toyota_gt86',
+  );
+});
+
+test('buildBattleCacheKey normalizes server name and includes steamId', () => {
+  assert.equal(
+    buildBattleCacheKey({ serverName: 'Project D', steamId: '76561199000000001' }),
+    'project_d:76561199000000001',
+  );
+});
+
+test('battle redis key prefixes', () => {
+  assert.equal(
+    battleRedisKey('project_d:76561199000000001'),
+    'ac:hud:battle:project_d:76561199000000001',
+  );
+  assert.equal(
+    battleVersionRedisKey('project_d:76561199000000001'),
+    'ac:hud:ver:battle:project_d:76561199000000001',
+  );
 });
 
 test('presence roster key scoped by instance', () => {

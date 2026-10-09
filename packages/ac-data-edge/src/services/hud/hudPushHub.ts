@@ -1,7 +1,7 @@
 import { buildHudVersionForSession } from './hudClientVersion.js';
 import { isHudConvexConfigured } from './hudConvex.js';
 import { normalizeHudProfile, profileCosmeticsFingerprint } from './hudProfile.js';
-import { buildSessionCacheKey, sessionRedisKey } from './hudCacheKeys.js';
+import { buildSessionCacheKey, sessionRedisKey } from '@projectd/ac-data-shared/services/hud/hudCacheKeys.js';
 import { invalidateSessionCache } from './hudSessionCache.js';
 import { refreshPlayerJoinFromConvex } from './playerJoinContext.js';
 import {
@@ -14,10 +14,10 @@ import {
   peekSessionCache,
   sessionLeaderboardFingerprint,
 } from './lapCompletedHudRefresh.js';
-import { HUD_SESSION_TTL_SEC, hudRedisTouch } from './hudRedis.js';
+import { HUD_SESSION_TTL_SEC, hudRedisTouch } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 import { shouldFetchHudSession } from './hudSessionFetchPolicy.js';
 import { markUserInvalidated } from './hudUserInvalidation.js';
-import type { HudSessionResult, HudVersionOk, HudVersionResult } from './hudTypes.js';
+import type { HudSessionResult, HudVersionOk, HudVersionResult } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 export type HudPushReason =
   | 'lap_pb'

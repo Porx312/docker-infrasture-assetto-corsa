@@ -1,4 +1,4 @@
-import { createRedisClient, connectRedisClient, isRedisConfigured } from '../redisClient.js';
+import { createRedisClient, connectRedisClient, isRedisConfigured } from '@projectd/ac-data-shared/services/redisClient.js';
 
 let client: Awaited<ReturnType<typeof connectRedisClient>> | null = null;
 

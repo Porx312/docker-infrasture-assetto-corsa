@@ -2,8 +2,8 @@ import { Router } from 'express';
 import fs from 'fs';
 import multer from 'multer';
 import path from 'path';
-import { adminAuth } from '../middleware/adminAuth.js';
-import { adminLoginRateLimiter } from '../middleware/adminLoginRateLimiter.js';
+import { adminAuth } from '@projectd/ac-data-shared/middleware/adminAuth.js';
+import { adminLoginRateLimiter } from '@projectd/ac-data-shared/middleware/adminLoginRateLimiter.js';
 import {
     adminLogin,
     adminLogout,
@@ -39,7 +39,7 @@ import {
     getActivitySummaryHandler,
     getActivityTimelineHandler,
 } from '../controller/activityController.js';
-import { getAdminHealthHandler } from '../controller/healthController.js';
+import { getAdminHealthHandler } from '@projectd/ac-data-shared/controller/healthController.js';
 import { listFleetEdgesHandler, listMergedFleetServersHandler } from '../controller/fleetController.js';
 import modAdminRoutes from './modAdminRoutes.js';
 

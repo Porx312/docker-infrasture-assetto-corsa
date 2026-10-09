@@ -6,10 +6,10 @@ import {
   mapProfileToBattlePlayer,
   normalizeBattlePlayerSnapshot,
 } from './battleHudReader.js';
-import { buildPlayerCacheKey, buildSessionCacheKey, battleProfileRedisKey, playerRedisKey, sessionRedisKey } from './hudCacheKeys.js';
+import { buildPlayerCacheKey, buildSessionCacheKey, battleProfileRedisKey, playerRedisKey, sessionRedisKey } from '@projectd/ac-data-shared/services/hud/hudCacheKeys.js';
 import { setFetchHudSessionForTests } from './lapCompletedHudRefresh.js';
-import { HUD_BATTLE_PROFILE_TTL_SEC, HUD_SESSION_TTL_SEC, hudRedisDel, hudRedisGet, hudRedisSet, isHudRedisConfigured } from './hudRedis.js';
-import type { HudBattleSnapshotOk, HudProfile, HudSessionOk } from './hudTypes.js';
+import { HUD_BATTLE_PROFILE_TTL_SEC, HUD_SESSION_TTL_SEC, hudRedisDel, hudRedisGet, hudRedisSet, isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
+import type { HudBattleSnapshotOk, HudProfile, HudSessionOk } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 const profile: HudProfile = {
   name: 'Profile Name',

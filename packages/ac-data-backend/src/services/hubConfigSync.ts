@@ -2,7 +2,7 @@ import type { RedisClientType } from 'redis';
 
 import { publishConfigSnapshotToRedis } from '@projectd/ac-data-shared/services/config/configSnapshotRedis.js';
 import type { WorkerConfigSnapshotResult } from '@projectd/ac-data-shared/services/hud/workerConvexQueries.js';
-import { createRedisClient, isRedisConfigured } from './redisClient.js';
+import { createRedisClient, isRedisConfigured } from '@projectd/ac-data-shared/services/redisClient.js';
 
 let hubRedis: RedisClientType | null = null;
 

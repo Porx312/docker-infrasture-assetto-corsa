@@ -8,6 +8,14 @@ Node is split into **two apps** plus shared libraries:
 | `@projectd/ac-data-backend` | Hub or your PC | Convex ingest, HUD gateway (single public API), admin |
 | `@projectd/ac-data-shared` | (library) | Ingest auth, env, edge registry |
 
+### HUD ownership
+
+| Layer | Owns | Does not own |
+|-------|------|----------------|
+| **Edge** | Live HUD runtime: `/hud/ws`, snapshot, presence writes, Convex join, battle push, worker handlers that execute refresh | Player ZIP downloads; discovery for multi-VPS |
+| **Hub** | Control plane: `GET /hud/bootstrap`, steamId→edge routing, registry sync, Convex webhook fan-out, optional HTTP/WS proxy, `/client/hud/*` downloads + admin releases | Session push / AC-local Redis HUD cache |
+| **Shared** | Contracts: Redis keys/types, worker auth, registry sync client, query helpers, `projectdHudManager` | Express app wiring, process control |
+
 ## Backend-only VPS (sin clonar todo assetto-infra)
 
 No necesitas telemetry, edge, ni carpetas `server/` en el hub. Solo **dos paquetes** + un `package.json` mínimo:
@@ -146,14 +154,12 @@ Duplicate lobby `NAME=` on **different VPS** is OK (routing uses `instanceId` fr
 - **Per-server manage** (table **Manage**): lifecycle (start/stop/restart), lobby/`server_cfg.ini` fields, and CM branding. Admin calls `GET/POST /admin/servers/:name/{runtime|start|stop|restart}` and `PUT .../config` on the hub; the hub **proxies to the edge** using each row’s `fleetEdgeId` (same as config).
 - **Add instance**: `POST /admin/servers/provision` on the edge (proxied). Pick a **Region** in the header first in fleet mode; clones `server-templates/server-template` (or `servers/server`) to the next `server-N` folder with default ports.
 - **Bulk branding**: **Apply branding to servers…** (checkboxes) — unchanged.
-- **HUD downloads for players**: `GET /client/hud/latest` on the hub (`PROJECTD_HUD_PATH`, included in `ac-data-backend-hub` tarball).
+- **HUD downloads for players**: `GET /client/hud/latest` **only on the hub** (`PROJECTD_HUD_PATH`, included in `ac-data-backend-hub` tarball). Edge does not mount `/client/hud/*`.
 - **Mods**: upload ZIPs via admin **Cars / Tracks → Upload to VPS**; Sync/copy between edges uses peer pull (see [MOD_DISTRIBUTION.md](MOD_DISTRIBUTION.md)).
 
 Hub env: `FLEET_EDGE_REGISTRY`, `HUB_OWNS_CONTENT=true`, `CONTENT_PATH`, `CONVEX_WORKER_SECRET`.
 
-Each **edge** keeps `/admin/*` on a private address for proxied server operations.
-
-Edge env (default): `EDGE_ADMIN_PUBLIC=false` — do not expose edge admin to the Internet.
+Each **edge** keeps JSON `/admin/*` on a private address for proxied server operations (worker secret only). The admin HTML UI (`views/` / `public/`) lives exclusively on the hub.
 
 Firewall checklist:
 
@@ -188,7 +194,7 @@ Firewall checklist:
 ## Related
 
 - [CONTROL_API_V1.md](CONTROL_API_V1.md) — hub `/v1` live roster + mods inventory for ProjectD Host (no Convex live_players / manual mod catalogs)
-- [CONTROL_API_HOST_CUTOVER.md](CONTROL_API_HOST_CUTOVER.md) — ProjectD Actions BFF + `LIVE_INGEST_CONVEX=false`
+- [HUD_HARDENING_CUTOVER.md](HUD_HARDENING_CUTOVER.md) — WSS + `LIVE_INGEST_CONVEX=false`
 - [VPS_FLEET_SETUP.md](VPS_FLEET_SETUP.md) — production checklist, IDs, shared Redis, smoke tests
 - [AC_DATA.md](AC_DATA.md)
 

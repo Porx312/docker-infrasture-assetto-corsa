@@ -14,7 +14,7 @@ Follow-up to [archive/VPS_SECURITY_AUDIT_PHASE1.md](./archive/VPS_SECURITY_AUDIT
 | Redis AUTH script | `./scripts/apply-redis-local-auth.sh` (sudo, restarts Redis) |
 | Firewall audit | `./scripts/audit-firewall.sh` |
 | config.yml secrets | Removed from file; added to `.gitignore`; template `config.yml.example` |
-| Git history purge | `./scripts/purge-config-secrets-from-git-history.sh` (manual, force-push) |
+| Git history purge | `./scripts/archive/misc/purge-config-secrets-from-git-history.sh` (manual, force-push) |
 
 ## Manual steps (operator)
 
@@ -63,7 +63,7 @@ when running Server Manager, or use a local `config.yml` (gitignored).
 
 ```bash
 git rm --cached config.yml   # if still tracked
-./scripts/purge-config-secrets-from-git-history.sh
+./scripts/archive/misc/purge-config-secrets-from-git-history.sh
 # Coordinate force-push with team
 ```
 

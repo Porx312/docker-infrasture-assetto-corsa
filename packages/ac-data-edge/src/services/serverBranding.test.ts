@@ -5,7 +5,7 @@ import {
   MAX_LOADING_IMAGE_URLS,
   normalizeBranding,
   pickLoadingImageUrl,
-} from './serverBranding.js';
+} from '@projectd/ac-data-shared/services/serverBranding.js';
 
 test('normalizeBranding fills defaults and trims', () => {
   const branding = normalizeBranding({

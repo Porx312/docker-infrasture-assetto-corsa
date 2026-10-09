@@ -8,7 +8,7 @@ import {
   syncProfileCosmeticsFromProfile,
 } from './hudProfileCosmetics.js';
 import { peekSessionCache } from './lapCompletedHudRefresh.js';
-import { isHudRedisConfigured } from './hudRedis.js';
+import { isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 
 function requireQueryString(value: unknown): string | null {
   if (typeof value !== 'string') {

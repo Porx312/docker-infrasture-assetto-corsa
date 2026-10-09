@@ -3,9 +3,9 @@ import path from 'node:path';
 import { applyCmNameSuffix } from '@projectd/ac-data-shared/controller/cmWrapper.js';
 import { derivePortsFromFolderName } from '../controller/serverPorts.js';
 import { startServerCore } from '../controller/controller.js';
-import { listServerInstanceNames } from './serverBranding.js';
+import { listServerInstanceNames } from '@projectd/ac-data-shared/services/serverBranding.js';
 import { getServerRuntime, serverBinaryExists, type ServerRuntimeInfo } from './serverRuntime.js';
-import { readServerInstanceConfig } from './serverInstanceConfig.js';
+import { readServerInstanceConfig } from '@projectd/ac-data-shared/services/serverInstanceConfig.js';
 import '@projectd/ac-data-shared/config/loadEnv.js';
 
 function serversPath(): string {

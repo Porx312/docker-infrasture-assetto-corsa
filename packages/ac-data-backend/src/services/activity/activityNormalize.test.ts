@@ -9,7 +9,7 @@ import {
   normalizeStreamEntry,
   upsertUniquePlayerJoin,
 } from './activityNormalize.js';
-import { summarizeServers } from '../serverBranding.js';
+import { summarizeServers } from '@projectd/ac-data-shared/services/serverBranding.js';
 import type { ParsedStreamEntry } from './activityTypes.js';
 
 function entry(

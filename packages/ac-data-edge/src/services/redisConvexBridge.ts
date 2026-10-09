@@ -27,7 +27,7 @@ import {
   resolveChunkAckPlan,
   type IngestBatchResult,
 } from '@projectd/ac-data-shared/services/ingestBatchAck.js';
-import { connectRedisClient, createRedisClient, isRedisConfigured } from './redisClient.js';
+import { connectRedisClient, createRedisClient, isRedisConfigured } from '@projectd/ac-data-shared/services/redisClient.js';
 import { bindConfigSyncRedisClient, startConvexConfigPublisher } from './configSyncFromConvex.js';
 
 export { ingestBatchSucceeded } from '@projectd/ac-data-shared/services/ingestBatchAck.js';

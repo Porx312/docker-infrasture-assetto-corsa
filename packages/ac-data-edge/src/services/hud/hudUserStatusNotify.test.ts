@@ -10,7 +10,7 @@ import {
 import { setFetchPlayerJoinContextForTests, resetPlayerJoinDedupeForTests } from './playerJoinContext.js';
 import { setFetchHudSessionForTests, invalidateHudCachesForSteamId } from './lapCompletedHudRefresh.js';
 import { refreshHudUserStatusFromConvex } from './hudUserStatusNotify.js';
-import { isHudRedisConfigured } from './hudRedis.js';
+import { isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 import { clearUserInvalidated, readUserInvalidated } from './hudUserInvalidation.js';
 
 const steamId = '76561199000000888';

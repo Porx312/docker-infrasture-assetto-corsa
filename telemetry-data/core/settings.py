@@ -83,8 +83,10 @@ HUD_BATTLE_ARMING_PUBLISH_MIN_MS = _env_int("HUD_BATTLE_ARMING_PUBLISH_MIN_MS", 
 HUD_BATTLE_CLEAR_DELAY_SEC = _env_int("HUD_BATTLE_CLEAR_DELAY_SEC", "5")
 HUD_VER_TTL_SEC = _env_int("HUD_VER_TTL_SEC", "3600")
 
-# Require overlay SSE (/hud/stream) for battle matchmaking when true.
+# Require overlay WS presence for battle matchmaking when true.
 BATTLE_REQUIRE_HUD_SSE = _env_bool("BATTLE_REQUIRE_HUD_SSE", "false")
+HUD_CONN_REDIS_PREFIX = os.getenv("HUD_CONN_REDIS_PREFIX", "ac:hud:conn:").strip()
+# Legacy fallback while old dual-write keys may still exist.
 HUD_SSE_REDIS_PREFIX = os.getenv("HUD_SSE_REDIS_PREFIX", "ac:hud:sse:").strip()
 
 USER_PREFS_SAVE_TIME_PREFIX = os.getenv(

@@ -9,13 +9,12 @@ function setDistinctSecrets(): void {
   process.env.MOD_PEER_SECRET = 'mod-peer-secret-distinct-ok!!!';
 }
 
-test('edge without EDGE_ADMIN_PUBLIC skips ADMIN_* but still requires HUD_API_KEY in strict mode', () => {
+test('edge skips ADMIN_* but still requires HUD_API_KEY in strict mode', () => {
   const prev = { ...process.env };
   process.env.HUD_API_KEY = '';
   process.env.ALLOW_INSECURE_DEFAULTS = 'false';
   process.env.ASSETTO_ENV = 'dev';
   setDistinctSecrets();
-  delete process.env.EDGE_ADMIN_PUBLIC;
   delete process.env.ADMIN_USER;
   delete process.env.ADMIN_PASS;
   delete process.env.ADMIN_JWT_SECRET;
@@ -42,7 +41,6 @@ test('edge hub-proxy mode accepts missing ADMIN_* when HUD_API_KEY and distinct 
   process.env.ALLOW_INSECURE_DEFAULTS = 'false';
   process.env.ASSETTO_ENV = 'dev';
   setDistinctSecrets();
-  delete process.env.EDGE_ADMIN_PUBLIC;
   delete process.env.ADMIN_USER;
   delete process.env.ADMIN_PASS;
   delete process.env.ADMIN_JWT_SECRET;

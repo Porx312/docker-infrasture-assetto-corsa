@@ -2,9 +2,9 @@ import type { RedisClientType } from 'redis';
 
 import { isBattleScopeKey } from './hudBattleRooms.js';
 import { isHudUpdateScopeKey, parseBoardScopeKey, parsePlayerScopeKey } from './hudScopeKeys.js';
-import { isHudRedisConfigured } from './hudRedis.js';
+import { isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 import { HUD_UPDATES_CHANNEL } from './hudVersion.js';
-import { createRedisClient } from '../redisClient.js';
+import { createRedisClient } from '@projectd/ac-data-shared/services/redisClient.js';
 
 export type HudUpdateMessage = {
   scopeKey: string;

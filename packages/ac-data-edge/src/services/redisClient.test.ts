@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { getRedisClientOptions, getRedisSocketOptions, isRedisConfigured } from './redisClient.js';
+import { getRedisClientOptions, getRedisSocketOptions, isRedisConfigured } from '@projectd/ac-data-shared/services/redisClient.js';
 
 test('getRedisSocketOptions respects REDIS_SSL', () => {
   const prevHost = process.env.REDIS_HOST;

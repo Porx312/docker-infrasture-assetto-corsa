@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import os from 'node:os';
 import path from 'node:path';
-import { adminAuth } from '../middleware/adminAuth.js';
+import { adminAuth } from '@projectd/ac-data-shared/middleware/adminAuth.js';
 import {
   listModsHandler,
   listModArtifactsHandler,

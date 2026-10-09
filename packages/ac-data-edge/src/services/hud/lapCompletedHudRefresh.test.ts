@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildPlayerCacheKey, playerRedisKey, sessionRedisKey, buildSessionCacheKey } from './hudCacheKeys.js';
+import { buildPlayerCacheKey, playerRedisKey, sessionRedisKey, buildSessionCacheKey } from '@projectd/ac-data-shared/services/hud/hudCacheKeys.js';
 import { resetManagedServersForTests, updateManagedServersFromSnapshot } from './hudManagedServers.js';
 import {
-  registerBattleSsePresence,
-  resetBattleSsePresenceForTests,
+  registerBattleWsPresence,
+  resetBattleWsPresenceForTests,
 } from './hudPlayerPresence.js';
 import {
   getPlayerCached,
@@ -25,8 +25,8 @@ import {
   setFetchHudSessionForTests,
 } from './lapCompletedHudRefresh.js';
 import { USER_INVALIDATED_TTL_SEC } from './hudUserInvalidation.js';
-import { HUD_PLAYER_NOT_CONNECTED_TTL_SEC, HUD_PLAYER_TTL_SEC, HUD_SESSION_TTL_SEC, hudRedisDel, hudRedisGet, hudRedisSet, isHudRedisConfigured } from './hudRedis.js';
-import type { HudPlayerResult, HudSessionOk } from './hudTypes.js';
+import { HUD_PLAYER_NOT_CONNECTED_TTL_SEC, HUD_PLAYER_TTL_SEC, HUD_SESSION_TTL_SEC, hudRedisDel, hudRedisGet, hudRedisSet, isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
+import type { HudPlayerResult, HudSessionOk } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 const params = { steamId: '76561199000000001' };
 
@@ -371,11 +371,11 @@ test('refreshPlayerHudCache persists player cache derived from session after ret
   await hudRedisDel(sessionKey);
 
   resetManagedServersForTests();
-  resetBattleSsePresenceForTests();
+  resetBattleWsPresenceForTests();
   updateManagedServersFromSnapshot([
     { serverName: 'server', displayName: 'testing xd', type: 'time-attack' },
   ]);
-  registerBattleSsePresence({
+  registerBattleWsPresence({
     steamId,
     serverName: 'testing xd',
     track: 'pk_akina',
@@ -439,7 +439,7 @@ test('refreshPlayerHudCache persists player cache derived from session after ret
   assert.ok(cached?.includes('"elo":1180'));
 
   setFetchHudSessionForTests(null);
-  resetBattleSsePresenceForTests();
+  resetBattleWsPresenceForTests();
   resetManagedServersForTests();
   await hudRedisDel(playerKey);
   await hudRedisDel(sessionKey);

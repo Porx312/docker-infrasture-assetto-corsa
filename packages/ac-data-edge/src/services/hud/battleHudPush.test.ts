@@ -10,7 +10,7 @@ import {
   subscribeBattleHudRoom,
   unsubscribeBattleHudRoom,
 } from './battleHudPush.js';
-import type { HudBattleOk } from './hudTypes.js';
+import type { HudBattleOk } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 const ROOM = 'battle:testing:76561199000000001';
 
