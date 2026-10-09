@@ -1,8 +1,10 @@
 import { getHubWorkerBaseUrl, isHubWorkerMode } from './hubWorkerUrl.js';
 import type { HudWorkerPresenceArgs } from './hud/hudWorkerPresence.js';
 
+import { fleetEdgeSecret } from './secrets/fleetSecrets.js';
+
 function workerSecret(): string {
-  return (process.env.CONVEX_WORKER_SECRET || '').trim();
+  return fleetEdgeSecret();
 }
 
 export function isEdgeHubWorkerClientConfigured(): boolean {
@@ -16,7 +18,7 @@ async function postHubWorker<T>(path: string, body: Record<string, unknown>): Pr
     throw new Error('BACKEND_WORKER_URL or BACKEND_INGEST_URL missing');
   }
   if (!secret) {
-    throw new Error('CONVEX_WORKER_SECRET missing for hub worker client');
+    throw new Error('FLEET_EDGE_SECRET or CONVEX_WORKER_SECRET missing for hub worker client');
   }
 
   const url = `${baseUrl}${path.startsWith('/') ? path : `/${path}`}`;

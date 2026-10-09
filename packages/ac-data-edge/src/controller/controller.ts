@@ -1,10 +1,10 @@
 import { spawn, exec, execSync, ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs';
-import { resolveEnvFilePath } from '../config/loadEnv.js';
+import { resolveEnvFilePath } from '@projectd/ac-data-shared/config/loadEnv.js';
 import { getServerPorts } from './serverPorts.js';
 import { normalizeTrackConfigForIni } from './trackConfig.js';
-import { applyCmNameSuffix, readCmWrapperPort } from './cmWrapper.js';
+import { applyCmNameSuffix, readCmWrapperPort } from '@projectd/ac-data-shared/controller/cmWrapper.js';
 
 const _serversPath = process.env.SERVERS_PATH;
 if (!_serversPath) throw new Error(`SERVERS_PATH no definido en ${resolveEnvFilePath()}`);

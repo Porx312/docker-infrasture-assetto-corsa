@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import '../../config/loadEnv.js';
+import '@projectd/ac-data-shared/config/loadEnv.js';
 import { getHudRedisClient, isHudRedisConfigured } from '../hud/hudRedis.js';
 import {
   buildJoinNameIndex,

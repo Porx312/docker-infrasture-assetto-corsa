@@ -2,7 +2,7 @@
  * Hub → Convex Host catalog (`battle_cars` / `battle_tracks` / `servers`).
  * See docs/HOST_CATALOG_SYNC.md. Failures are logged; they do not fail hub ops.
  */
-import { ensureConvexClient } from '../convexClient.js';
+import { ensureConvexClient } from '@projectd/ac-data-shared/services/convexClient.js';
 import type { ModKind, ModManifest } from '@projectd/ac-data-shared/mods/types.js';
 import type { AgentServerSlot } from '../controlApi/agentPresence.js';
 import {

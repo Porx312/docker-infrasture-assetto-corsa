@@ -1,5 +1,5 @@
 import { lookupManagedServer } from './hud/hudManagedServers.js';
-import { normalizeHudServerName } from './hud/hudQueryNormalize.js';
+import { normalizeHudServerName } from '@projectd/ac-data-shared/services/hud/hudQueryNormalize.js';
 import { resolveServerFolder } from './serverPool.js';
 
 const FOLDER_SLUG_RE = /^server(-\d+)?$/i;

@@ -3,6 +3,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { getHubWorkerBaseUrl } from '@projectd/ac-data-shared/services/hubWorkerUrl.js';
+import { fleetEdgeSecret } from '@projectd/ac-data-shared/services/secrets/fleetSecrets.js';
 
 import { contentPoolPath, readAcModSidecar } from './modAgent/materialize.js';
 
@@ -42,7 +43,7 @@ function instanceId(): string {
 }
 
 function workerSecret(): string {
-  return (process.env.CONVEX_WORKER_SECRET || '').trim();
+  return fleetEdgeSecret();
 }
 
 async function listDirNames(dir: string): Promise<string[]> {

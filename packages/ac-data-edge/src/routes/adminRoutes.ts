@@ -29,12 +29,6 @@ import {
     downloadHudReleaseAdminHandler,
     deleteEmptyContentAdminHandler,
 } from '../controller/adminController.js';
-import {
-    getActivityFeedHandler,
-    getActivityServersHandler,
-    getActivitySummaryHandler,
-    getActivityTimelineHandler,
-} from '../controller/activityController.js';
 import { getAdminHealthHandler } from '../controller/healthController.js';
 
 import { fileURLToPath } from 'url';
@@ -133,10 +127,5 @@ router.get('/servers/:name/runtime', hubOrAdminAuth, getServerRuntimeHandler);
 router.post('/servers/:name/start', hubOrAdminAuth, startServerAdminHandler);
 router.post('/servers/:name/stop', hubOrAdminAuth, stopServerAdminHandler);
 router.post('/servers/:name/restart', hubOrAdminAuth, restartServerAdminHandler);
-
-router.get('/activity/servers', hubOrAdminAuth, getActivityServersHandler);
-router.get('/activity/feed', hubOrAdminAuth, getActivityFeedHandler);
-router.get('/activity/summary', hubOrAdminAuth, getActivitySummaryHandler);
-router.get('/activity/timeline', hubOrAdminAuth, getActivityTimelineHandler);
 
 export default router;

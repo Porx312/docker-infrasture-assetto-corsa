@@ -9,13 +9,6 @@ import {
   hideConfirm,
 } from './lib/modal.js';
 import {
-  closeContentDetail,
-  handleModDelete,
-  loadContent,
-  mountContentPanel,
-  openContentDetail,
-} from './panels/content.js';
-import {
   loadModCatalog,
   mountModCatalogPanel,
   openCatalogDistribution,
@@ -120,8 +113,6 @@ function renderActivePanel() {
     mountModDistributionPanel(container);
   } else if (tab.kind === 'mod-catalog') {
     mountModCatalogPanel(tab.id, container);
-  } else {
-    mountContentPanel(tab.id, container);
   }
 }
 
@@ -139,8 +130,6 @@ function loadActivePanel() {
     if (container) void loadModDistributionPanel(container);
   } else if (kind === 'mod-catalog') {
     void loadModCatalog(tab.id);
-  } else {
-    loadContent(currentTab);
   }
 }
 
@@ -148,13 +137,6 @@ function bindGlobalHandlers() {
   document.getElementById('logoutBtn')?.addEventListener('click', logout);
 
   bindConfirmModal();
-  bindModal({ id: 'modModal' }, closeContentDetail);
-  document.getElementById('modCloseBtn')?.addEventListener('click', closeContentDetail);
-
-  document.getElementById('modDeleteBtn')?.addEventListener('click', (e) => {
-    const btn = e.currentTarget;
-    handleModDelete(btn.dataset.delete, btn.dataset.name);
-  });
 
   initServerConfigModal();
   initGlobalBrandingModal();
@@ -202,12 +184,6 @@ function bindGlobalHandlers() {
           invSlug: catalogCard.dataset.invSlug,
         },
       );
-      return;
-    }
-
-    const modCard = e.target.closest('[data-open-mod]');
-    if (modCard) {
-      openContentDetail(modCard.dataset.openMod, modCard.dataset.name);
     }
   });
 
@@ -217,7 +193,6 @@ function bindGlobalHandlers() {
     { id: 'globalBrandingModal', close: closeGlobalBrandingModal },
     { id: 'serverProvisionModal', close: closeServerProvisionModal },
     { id: 'serverConfigModal', close: closeServerConfig },
-    { id: 'modModal', close: closeContentDetail },
   ]);
 
   window.addEventListener('fleet-edge-changed', () => {

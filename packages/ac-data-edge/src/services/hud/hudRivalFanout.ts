@@ -1,5 +1,5 @@
 import { isHudConvexConfigured } from './hudConvex.js';
-import { normalizeHudServerName } from './hudQueryNormalize.js';
+import { normalizeHudServerName } from '@projectd/ac-data-shared/services/hud/hudQueryNormalize.js';
 import {
   buildAuthorNameMap,
   observerNeedsConvexRefresh,

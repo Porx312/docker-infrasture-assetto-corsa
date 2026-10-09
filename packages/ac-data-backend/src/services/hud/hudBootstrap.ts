@@ -1,23 +1,16 @@
 import type { Request } from 'express';
 
 import { HUD_WS_PATH } from '@projectd/ac-data-shared/services/hud/hudQueryParams.js';
+import { httpsToWss } from '@projectd/ac-data-shared/services/hud/hudWsUrl.js';
 import {
   legacyServerNameFromQuery,
   resolveHudEdgeForSteamId,
 } from './hudPlayerRouting.js';
 
+export { httpsToWss };
+
 function trimTrailingSlash(url: string): string {
   return url.replace(/\/+$/, '');
-}
-
-export function httpsToWss(baseUrl: string): string {
-  if (baseUrl.toLowerCase().startsWith('https://')) {
-    return `wss://${baseUrl.slice(8)}`;
-  }
-  if (baseUrl.toLowerCase().startsWith('http://')) {
-    return `ws://${baseUrl.slice(7)}`;
-  }
-  return baseUrl;
 }
 
 function hubPublicBaseUrl(req: Request): string {

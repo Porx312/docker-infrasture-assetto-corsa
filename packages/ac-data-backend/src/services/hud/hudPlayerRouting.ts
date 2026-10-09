@@ -11,19 +11,15 @@ import {
   type HudEdgeRegistryEntry,
 } from '@projectd/ac-data-shared/services/hud/hudEdgeRegistry.js';
 import { readServerNameFromRequestQuery } from '@projectd/ac-data-shared/services/hud/hudQueryParams.js';
+import {
+  parseHudPresenceRecordJson,
+  type HudPresenceRecord,
+} from '@projectd/ac-data-shared/services/hud/hudPresenceRecord.js';
 import { presenceRedisKey } from './hudCacheKeys.js';
 import { hudRedisGet, isHudRedisConfigured } from './hudRedis.js';
 
-export type HubPlayerPresenceRecord = {
-  serverName: string;
-  track: string;
-  trackConfig: string;
-  carModel: string;
-  updatedAt: number;
-  name?: string;
-  instanceId?: string;
-  folderSlug?: string;
-};
+/** @deprecated Prefer HudPresenceRecord from ac-data-shared — alias kept for hub call sites. */
+export type HubPlayerPresenceRecord = HudPresenceRecord;
 
 export type HudPlayerRoutingResult =
   | {
@@ -50,14 +46,11 @@ export async function readPlayerPresenceFromRedis(
   if (!raw) {
     return null;
   }
-  try {
-    return JSON.parse(raw) as HubPlayerPresenceRecord;
-  } catch {
-    return null;
-  }
+  return parseHudPresenceRecordJson(raw);
 }
 
-function resolveEdgeFromPresence(
+/** Resolve fleet/dynamic edge from a presence record (no Redis). Exported for tests. */
+export function resolveEdgeFromPresence(
   presence: HubPlayerPresenceRecord,
   legacyServerName: string | null,
 ): HudEdgeRegistryEntry | null {
@@ -126,6 +119,16 @@ function publicBaseForEdge(entry: HudEdgeRegistryEntry, instanceId?: string): st
   return entry.publicBaseUrl?.trim() || entry.baseUrl;
 }
 
+function allowLegacyServerNameRouting(): boolean {
+  const raw = (process.env.HUD_ALLOW_LEGACY_SERVERNAME_ROUTING || '').trim().toLowerCase();
+  if (raw === 'true' || raw === '1') return true;
+  if (raw === 'false' || raw === '0') return false;
+  // Default: allow in non-prod / insecure lab only
+  const env = (process.env.ASSETTO_ENV || 'dev').trim().toLowerCase();
+  const allowInsecure = (process.env.ALLOW_INSECURE_DEFAULTS || '').trim().toLowerCase() === 'true';
+  return (env !== 'prod' && env !== 'production') || allowInsecure;
+}
+
 export async function resolveHudEdgeForSteamId(
   steamId: string,
   options?: { legacyServerName?: string | null },
@@ -137,6 +140,12 @@ export async function resolveHudEdgeForSteamId(
 
   if (!isHudRedisConfigured()) {
     const legacy = options?.legacyServerName?.trim();
+    if (legacy && !allowLegacyServerNameRouting()) {
+      console.warn(
+        '[hud-routing] legacy serverName routing disabled (set HUD_ALLOW_LEGACY_SERVERNAME_ROUTING=true to override)',
+      );
+      return { ok: false, reason: 'redis_unavailable' };
+    }
     if (legacy) {
       const edge = lookupHudEdgeByServerName(legacy);
       if (edge) {
@@ -163,7 +172,7 @@ export async function resolveHudEdgeForSteamId(
   const legacyServerName = options?.legacyServerName?.trim() ?? null;
 
   if (!presence) {
-    if (legacyServerName) {
+    if (legacyServerName && allowLegacyServerNameRouting()) {
       const edge = lookupHudEdgeByServerName(legacyServerName);
       if (edge) {
         const stub: HubPlayerPresenceRecord = {
@@ -181,6 +190,10 @@ export async function resolveHudEdgeForSteamId(
           publicBaseUrl: publicBaseForEdge(edge, edge.instanceId),
         };
       }
+    } else if (legacyServerName) {
+      console.warn(
+        '[hud-routing] ignoring legacy serverName — require Redis presence (HUD_ALLOW_LEGACY_SERVERNAME_ROUTING)',
+      );
     }
     return { ok: false, reason: 'player_not_connected' };
   }

@@ -1,7 +1,7 @@
 import { presenceRedisKey } from './hudCacheKeys.js';
 import { pickCarModelId } from './hudCarModel.js';
 import { lookupManagedServer } from './hudManagedServers.js';
-import { normalizeHudServerName } from './hudQueryNormalize.js';
+import { normalizeHudServerName } from '@projectd/ac-data-shared/services/hud/hudQueryNormalize.js';
 import { hudRedisGet } from './hudRedis.js';
 import { peekSessionCache } from './lapCompletedHudRefresh.js';
 import type { HudSessionOk, HudSessionResult, PlayerPresenceRecord } from './hudTypes.js';

@@ -17,10 +17,13 @@ el **overlay ProjectD-HUD** (Lua en el cliente) está haciendo HTTP poll al hub 
 
 ## Fixes en ac-data-edge (VPS)
 
-- `playerVersion` estable (no `Date.now()` en cada snapshot).
+- `playerVersion` estable (no `Date.now()` en cada snapshot) — hash de contenido en `buildHudVersionForSession`.
+- Redis `ac:hud:ver:*` / pubsub sigue usando timestamp solo para **invalidación interna**; el overlay debe dedupear con `playerVersion` del snapshot/WSS, no con el bump Redis.
 - Menos `refreshPlayerJoinFromConvex` si el mismo `folderSlug` de servidor.
 
 Reinicia **edge** tras `npm run build:edge`.
+
+Checklist operativo: [HUD_HARDENING_CUTOVER.md](./HUD_HARDENING_CUTOVER.md).
 
 ## Fixes en ProjectD-HUD (copiar al Content Manager / overlay)
 

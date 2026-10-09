@@ -100,7 +100,7 @@ Leave `LIVE_INGEST_CONVEX=true` until Host is switched — otherwise Convex dash
 **HUD dependency:** with `LIVE_INGEST_CONVEX=false`, join/leave no longer fill `live_players`. If Convex HUD session still keys off that table, `/hud/snapshot` returns `player_not_connected` (HTTP 404) even when Redis presence exists — profile overlay breaks. Keep ingest **on** until ProjectD accepts optional `presence` on `getPlayerJoinContext` / `getHudSession` and edge sends Redis presence.
 
 **Web handoff (paste into ProjectD):** [`examples/PROJECTD_HUD_PRESENCE_NO_LIVE_PLAYERS.md`](./examples/PROJECTD_HUD_PRESENCE_NO_LIVE_PLAYERS.md).  
-**Contract detail:** [`CONVEX_PLAYER_JOIN_CONTEXT.md`](./CONVEX_PLAYER_JOIN_CONTEXT.md).
+**Contract detail:** [`archive/CONVEX_PLAYER_JOIN_CONTEXT.md`](./archive/CONVEX_PLAYER_JOIN_CONTEXT.md).
 
 ### Cutover order (HUD + Host)
 

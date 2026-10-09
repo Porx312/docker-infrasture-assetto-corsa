@@ -17,15 +17,23 @@ type PersistedState = {
   entries: Record<string, PersistedEntry>;
 };
 
-function staleMs(): number {
+export function hudRegistryStaleMs(): number {
   return Number(process.env.HUD_REGISTRY_STALE_MS || 600_000);
 }
 
-function entriesMapFromRecord(record: Record<string, PersistedEntry>): Map<string, HudEdgeRegistryEntry> {
+/** Drop stale persisted entries (hub restart / Redis reload). Exported for tests. */
+export function entriesMapFromRecord(
+  record: Record<string, PersistedEntry>,
+  nowMs: number = Date.now(),
+  staleWindowMs: number = hudRegistryStaleMs(),
+): Map<string, HudEdgeRegistryEntry> {
   const map = new Map<string, HudEdgeRegistryEntry>();
-  const cutoff = Date.now() - staleMs();
+  const cutoff = nowMs - staleWindowMs;
   for (const [key, entry] of Object.entries(record)) {
-    if (entry.updatedAt < cutoff) {
+    if (typeof entry?.updatedAt !== 'number' || entry.updatedAt < cutoff) {
+      continue;
+    }
+    if (typeof entry.baseUrl !== 'string' || !entry.baseUrl.trim()) {
       continue;
     }
     map.set(key, {
@@ -96,6 +104,11 @@ export async function applyHudRegistrySync(
   const baseUrl = payload.baseUrl.trim();
   if (!instanceId || !baseUrl) {
     throw new Error('instanceId and baseUrl required');
+  }
+
+  // After hub restart, in-memory map may be empty if Redis load raced — refill once.
+  if (getDynamicHudEdgeRegistryForTests().size === 0) {
+    await loadHudDynamicRegistryFromRedis();
   }
 
   const updatedAt = Date.now();

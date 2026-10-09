@@ -1,4 +1,4 @@
-import '../config/loadEnv.js';
+import '@projectd/ac-data-shared/config/loadEnv.js';
 import type { RedisClientType } from 'redis';
 import {
   coalesceIngestBatch,
@@ -7,14 +7,14 @@ import {
   WORKER_INGEST_FLUSH_INTERVAL_MS,
   WORKER_INGEST_MAX_BATCH_SIZE,
   type PendingIngestMessage,
-} from './coalesceIngestBatch.js';
+} from '@projectd/ac-data-shared/services/coalesceIngestBatch.js';
 import {
   forwardIngestBatchToBackend,
   isBackendIngestForwardConfigured,
 } from '@projectd/ac-data-shared/services/edgeIngestForward.js';
-import { ensureConvexClient, isConvexConfigured } from './convexClient.js';
+import { ensureConvexClient, isConvexConfigured } from '@projectd/ac-data-shared/services/convexClient.js';
 import { buildIngestEvent } from './ingestEventBuilder.js';
-import { publishWorkerErrorEvent } from './activity/activityService.js';
+import { publishWorkerErrorEvent } from './workerErrorPublish.js';
 import {
   handleEventAfterIngest,
   handleEventBeforeIngest,
@@ -26,11 +26,11 @@ import {
   partitionIngestResults,
   resolveChunkAckPlan,
   type IngestBatchResult,
-} from './ingestBatchAck.js';
+} from '@projectd/ac-data-shared/services/ingestBatchAck.js';
 import { connectRedisClient, createRedisClient, isRedisConfigured } from './redisClient.js';
 import { bindConfigSyncRedisClient, startConvexConfigPublisher } from './configSyncFromConvex.js';
 
-export { ingestBatchSucceeded } from './ingestBatchAck.js';
+export { ingestBatchSucceeded } from '@projectd/ac-data-shared/services/ingestBatchAck.js';
 
 const REDIS_STREAM_KEY = process.env.REDIS_STREAM_KEY || 'ac:events';
 const AC_INSTANCE_ID = process.env.AC_INSTANCE_ID || 'default';

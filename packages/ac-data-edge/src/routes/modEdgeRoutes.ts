@@ -3,7 +3,7 @@ import multer from 'multer';
 import os from 'node:os';
 import path from 'node:path';
 import { hubOrAdminAuth } from '../middleware/hubOrAdminAuth.js';
-import { isWorkerRequestAuthorized } from '@projectd/ac-data-shared/services/hud/hudWorkerAuth.js';
+import { isModPeerRequestAuthorized } from '@projectd/ac-data-shared/services/hud/hudWorkerAuth.js';
 import {
   handleLocalModUpload,
   handleServeModBlob,
@@ -27,7 +27,7 @@ function workerAuth(
   res: import('express').Response,
   next: import('express').NextFunction,
 ): void {
-  if (!isWorkerRequestAuthorized(req)) {
+  if (!isModPeerRequestAuthorized(req)) {
     res.status(401).json({ ok: false, error: 'unauthorized' });
     return;
   }

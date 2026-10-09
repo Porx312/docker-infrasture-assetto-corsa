@@ -26,19 +26,20 @@ import {
 } from './hudPushHub.js';
 import { isHudRedisConfigured } from './hudRedis.js';
 import {
-  clearHudSsePresence,
-  markHudSseConnected,
-  renewHudSsePresence,
-} from './hudSsePresence.js';
+  clearHudConnPresence,
+  markHudConnConnected,
+  renewHudConnPresence,
+} from './hudConnPresence.js';
 import { writeWsEvent } from './hudWsFormat.js';
 import {
   refreshBattleRoomSubscription,
   type BattleRoomSubscription,
-} from './hudStreamSseBattleRoom.js';
+} from './hudBattleRoomSubscription.js';
 import { battleRoomFromParams } from './hudBattleRooms.js';
+import { HUD_WS_PATH } from '@projectd/ac-data-shared/services/hud/hudQueryParams.js';
 import type { ResolvedPlayerPresence } from './hudTypes.js';
 
-export const HUD_WS_PATH = '/hud/ws';
+export { HUD_WS_PATH };
 
 function wsKeepaliveMs(): number {
   return Number(process.env.HUD_WS_KEEPALIVE_MS || process.env.HUD_SSE_KEEPALIVE_MS || 30_000);
@@ -128,7 +129,7 @@ async function handleHudWsConnection(
   );
 
   registerBattleSsePresence(presence);
-  await markHudSseConnected(steamId);
+  await markHudConnConnected(steamId);
   initHudPushHub();
 
   const hudConn: HudPushConnection = {
@@ -156,7 +157,7 @@ async function handleHudWsConnection(
     if (ws.readyState === ws.OPEN) {
       ws.ping();
     }
-    void renewHudSsePresence(steamId);
+    void renewHudConnPresence(steamId);
     void (async () => {
       const cached = await peekSessionCache({ steamId });
       logKeepaliveCachePeek(steamId, cached);
@@ -184,7 +185,7 @@ async function handleHudWsConnection(
     clearInterval(keepalive);
     unregisterHud();
     unregisterBattleSsePresence(steamId);
-    void clearHudSsePresence(steamId);
+    void clearHudConnPresence(steamId);
     if (battleSubscription) {
       unsubscribeBattleHudRoom(battleSubscription.room, battleSubscription.listener);
     }

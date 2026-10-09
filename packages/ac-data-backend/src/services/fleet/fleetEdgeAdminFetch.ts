@@ -1,9 +1,10 @@
 import type { FleetEdge } from '@projectd/ac-data-shared/services/fleet/fleetRegistry.js';
+import { fleetEdgeSecret } from '@projectd/ac-data-shared/services/secrets/fleetSecrets.js';
 
 const PROXY_TIMEOUT_MS = Number(process.env.FLEET_ADMIN_PROXY_TIMEOUT_MS || 120_000);
 
 function workerSecret(): string {
-  return (process.env.CONVEX_WORKER_SECRET || '').trim();
+  return fleetEdgeSecret();
 }
 
 function buildAdminUrl(baseUrl: string, pathWithQuery: string): URL {
@@ -16,7 +17,12 @@ export async function fetchEdgeJson<T>(
 ): Promise<{ ok: boolean; status: number; data: T | null; error?: string }> {
   const secret = workerSecret();
   if (!secret) {
-    return { ok: false, status: 503, data: null, error: 'CONVEX_WORKER_SECRET missing' };
+    return {
+      ok: false,
+      status: 503,
+      data: null,
+      error: 'FLEET_EDGE_SECRET or CONVEX_WORKER_SECRET missing',
+    };
   }
   const url = buildAdminUrl(edge.baseUrl, pathWithQuery);
   try {

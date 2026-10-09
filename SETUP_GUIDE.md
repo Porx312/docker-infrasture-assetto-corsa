@@ -1,3 +1,5 @@
+> **Superseded for fleet:** use [docs/README.md](docs/README.md), [docs/VPS_FLEET_SETUP.md](docs/VPS_FLEET_SETUP.md), and [docs/MULTI_REGION_EDGE.md](docs/MULTI_REGION_EDGE.md). This guide describes an older Server Manager / monolithic layout.
+
 # Assetto Corsa Server Setup Guide
 
 ## Overview

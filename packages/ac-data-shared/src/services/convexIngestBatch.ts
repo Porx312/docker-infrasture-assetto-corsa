@@ -27,7 +27,7 @@ export async function submitPayloadsToConvexIngest(
   const { mutation } = ensureConvexClient();
   const raw = await mutation(CONVEX_MUTATION_BATCH, {
     ingestSecret: secret,
-    events: payloads.map(buildIngestEvent),
+    events: payloads.map((payload) => buildIngestEvent(payload)),
   });
   return parseIngestBatchResult(raw);
 }

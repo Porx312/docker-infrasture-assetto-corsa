@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { stripCmNameSuffix } from '../controller/cmWrapper.js';
+import { stripCmNameSuffix } from '@projectd/ac-data-shared/controller/cmWrapper.js';
 import { activeServers, stopServerCore } from '../controller/controller.js';
 
 const SERVERS_PATH = process.env.SERVERS_PATH || '';

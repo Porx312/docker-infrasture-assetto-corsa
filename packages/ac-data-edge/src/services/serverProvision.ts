@@ -1,12 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { applyCmNameSuffix } from '../controller/cmWrapper.js';
+import { applyCmNameSuffix } from '@projectd/ac-data-shared/controller/cmWrapper.js';
 import { derivePortsFromFolderName } from '../controller/serverPorts.js';
 import { startServerCore } from '../controller/controller.js';
 import { listServerInstanceNames } from './serverBranding.js';
 import { getServerRuntime, serverBinaryExists, type ServerRuntimeInfo } from './serverRuntime.js';
 import { readServerInstanceConfig } from './serverInstanceConfig.js';
-import '../config/loadEnv.js';
+import '@projectd/ac-data-shared/config/loadEnv.js';
 
 function serversPath(): string {
   const value = process.env.SERVERS_PATH?.trim();

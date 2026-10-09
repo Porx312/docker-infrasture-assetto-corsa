@@ -14,7 +14,7 @@ import {
   readInstanceIdFromWorkerRequest,
   readOptionalStringField,
   readSteamIdFromWorkerRequest,
-} from '../services/hud/hudWorkerAuth.js';
+} from '@projectd/ac-data-shared/services/hud/hudWorkerAuth.js';
 
 function acInstanceId(): string {
   return (process.env.AC_INSTANCE_ID || 'default').trim();

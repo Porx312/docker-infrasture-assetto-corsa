@@ -1,6 +1,6 @@
-import { readCmWrapperPort } from '../controller/cmWrapper.js';
+import { readCmWrapperPort } from '@projectd/ac-data-shared/controller/cmWrapper.js';
 import { assertValidServerName, readServerInstanceConfig } from './serverInstanceConfig.js';
-import '../config/loadEnv.js';
+import '@projectd/ac-data-shared/config/loadEnv.js';
 
 export type ServerRuntimeInfo = {
   serverName: string;

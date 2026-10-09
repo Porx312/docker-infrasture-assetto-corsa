@@ -1,6 +1,12 @@
 import { normalizeHudServerName } from './hud/hudQueryNormalize.js';
 
-function resolveIngestServerNameForBackend(serverName: string | undefined): string | undefined {
+export type IngestServerNameResolver = (
+  serverName: string | undefined,
+) => string | undefined;
+
+function defaultResolveIngestServerName(
+  serverName: string | undefined,
+): string | undefined {
   if (serverName === undefined) {
     return undefined;
   }
@@ -11,11 +17,14 @@ function resolveIngestServerNameForBackend(serverName: string | undefined): stri
   return normalizeHudServerName(trimmed) || undefined;
 }
 
-export function buildIngestEvent(payload: Record<string, unknown>) {
+export function buildIngestEvent(
+  payload: Record<string, unknown>,
+  resolveServerName: IngestServerNameResolver = defaultResolveIngestServerName,
+) {
   const event = String(payload.event || '');
   const data = payload.data as Record<string, unknown> | undefined;
   const rawServerName = typeof payload.serverName === 'string' ? payload.serverName : undefined;
-  const serverName = resolveIngestServerNameForBackend(rawServerName);
+  const serverName = resolveServerName(rawServerName);
 
   if (
     rawServerName &&

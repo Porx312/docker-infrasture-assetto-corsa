@@ -91,16 +91,12 @@ function scheduleBattleClear(room: string): void {
   clearTimers.set(room, timer);
 }
 
-export function isHudSseEnabled(): boolean {
-  return (process.env.HUD_SSE_ENABLED ?? 'false').trim().toLowerCase() === 'true';
-}
-
 export function isHudWsEnabled(): boolean {
   return (process.env.HUD_WS_ENABLED ?? 'true').trim().toLowerCase() !== 'false';
 }
 
 export function shouldStartHudPushHub(): boolean {
-  return isHudRedisConfigured() && (isHudWsEnabled() || isHudSseEnabled());
+  return isHudRedisConfigured() && isHudWsEnabled();
 }
 
 export function initHudPushHub(): void {

@@ -1,10 +1,14 @@
 import {
+  parseHudPresenceRecordJson,
+  serializeHudPresenceRecord,
+} from '@projectd/ac-data-shared/services/hud/hudPresenceRecord.js';
+import {
   presenceRedisKey,
   presenceRosterRedisKey,
 } from './hudCacheKeys.js';
 import { invalidateSessionCache } from './hudSessionCache.js';
 import { lookupManagedServer } from './hudManagedServers.js';
-import { normalizeHudServerName } from './hudQueryNormalize.js';
+import { normalizeHudServerName } from '@projectd/ac-data-shared/services/hud/hudQueryNormalize.js';
 import { pickCarModelId, readCarModelFromEventData } from './hudCarModel.js';
 import {
   HUD_PRESENCE_JOIN_TTL_SEC,
@@ -58,7 +62,8 @@ function parseEventData(payload: Record<string, unknown>): Record<string, unknow
   return (payload.data ?? {}) as Record<string, unknown>;
 }
 
-function resolveInstanceId(payload: Record<string, unknown>): string | undefined {
+/** Prefer event envelope instanceId so shared Redis consumer group cannot mis-route. */
+export function resolveInstanceId(payload: Record<string, unknown>): string | undefined {
   const fromPayload =
     typeof payload.instanceId === 'string' ? payload.instanceId.trim() : '';
   if (fromPayload) {
@@ -121,7 +126,7 @@ async function writePresence(
   if (!isHudRedisConfigured()) {
     return;
   }
-  await hudRedisSet(presenceRedisKey(steamId), JSON.stringify(record), ttlSec);
+  await hudRedisSet(presenceRedisKey(steamId), serializeHudPresenceRecord(record), ttlSec);
 }
 
 /** In-memory fallback while battle SSE is connected (Redis key may expire mid-session). */
@@ -197,11 +202,7 @@ async function readPresenceRecord(steamId: string): Promise<PlayerPresenceRecord
   if (!raw) {
     return null;
   }
-  try {
-    return JSON.parse(raw) as PlayerPresenceRecord;
-  } catch {
-    return null;
-  }
+  return parseHudPresenceRecordJson(raw);
 }
 
 /** Read live HUD presence from Redis (for leave race / session presence checks). */

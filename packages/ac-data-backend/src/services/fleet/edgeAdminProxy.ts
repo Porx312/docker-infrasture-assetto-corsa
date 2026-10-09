@@ -3,11 +3,12 @@ import type { Request, Response } from 'express';
 
 type MulterFile = NonNullable<Request['file']>;
 import { resolveFleetEdge } from '@projectd/ac-data-shared/services/fleet/fleetRegistry.js';
+import { fleetEdgeSecret } from '@projectd/ac-data-shared/services/secrets/fleetSecrets.js';
 
 const PROXY_TIMEOUT_MS = Number(process.env.FLEET_ADMIN_PROXY_TIMEOUT_MS || 120_000);
 
 function workerSecret(): string {
-  return (process.env.CONVEX_WORKER_SECRET || '').trim();
+  return fleetEdgeSecret();
 }
 
 function buildTargetUrl(baseUrl: string, originalUrl: string): URL {
@@ -75,7 +76,10 @@ export async function proxyAdminRequestToEdge(
   }
   const secret = workerSecret();
   if (!secret) {
-    res.status(503).json({ ok: false, message: 'CONVEX_WORKER_SECRET not configured on hub' });
+    res.status(503).json({
+      ok: false,
+      message: 'FLEET_EDGE_SECRET or CONVEX_WORKER_SECRET not configured on hub',
+    });
     return;
   }
 

@@ -21,11 +21,6 @@ import {
   openServerConfig,
 } from './panels/servers.js';
 import {
-  loadActivityPanel,
-  mountActivityPanel,
-  unmountActivityPanel,
-} from './panels/activity.js';
-import {
   loadHudReleasesPanel,
   mountHudReleasesPanel,
 } from './panels/hud-releases.js';
@@ -75,12 +70,8 @@ function renderTabs() {
 /** @param {string} tabId */
 function switchTab(tabId) {
   if (!tabId) return;
-  const prevKind = getTab(currentTab).kind;
   currentTab = tabId;
   persistTab(tabId);
-  if (prevKind === 'activity' && getTab(currentTab).kind !== 'activity') {
-    unmountActivityPanel();
-  }
   renderTabs();
   renderActivePanel();
   loadActivePanel();
@@ -93,8 +84,6 @@ function renderActivePanel() {
   const tab = getTab(currentTab);
   if (tab.kind === 'servers') {
     mountServersPanel(container);
-  } else if (tab.kind === 'activity') {
-    mountActivityPanel(container);
   } else if (tab.kind === 'hud') {
     mountHudReleasesPanel(container);
   } else {
@@ -106,8 +95,6 @@ function loadActivePanel() {
   const kind = getTab(currentTab).kind;
   if (kind === 'servers') {
     loadServersPanel();
-  } else if (kind === 'activity') {
-    loadActivityPanel();
   } else if (kind === 'hud') {
     loadHudReleasesPanel();
   } else {

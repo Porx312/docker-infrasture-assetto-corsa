@@ -1,6 +1,6 @@
 # VPS Security Hardening (Phase 2)
 
-Follow-up to [VPS_SECURITY_AUDIT_PHASE1.md](./VPS_SECURITY_AUDIT_PHASE1.md).
+Follow-up to [archive/VPS_SECURITY_AUDIT_PHASE1.md](./archive/VPS_SECURITY_AUDIT_PHASE1.md).
 
 ## Completed in repo
 

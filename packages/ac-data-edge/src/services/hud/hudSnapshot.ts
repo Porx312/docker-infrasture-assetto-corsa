@@ -26,7 +26,7 @@ import {
 } from './hudProfileCosmetics.js';
 import { parseHudSnapshotSections } from './hudSnapshotSections.js';
 import type { HudBattleErr, HudBattleOk, HudSessionResult, HudVersionOk } from './hudTypes.js';
-import { markHudSseConnected } from './hudSsePresence.js';
+import { markHudConnConnected } from './hudConnPresence.js';
 import { markUserInvalidated } from './hudUserInvalidation.js';
 
 function requireQueryString(value: unknown): string | null {
@@ -120,7 +120,7 @@ export async function handleHudBattleSnapshot(
   serverName: string,
 ): Promise<{ ok: true; steamId: string; sections: 'battle'; battle: HudBattleOk | HudBattleErr }> {
   const battle = await loadBattleSnapshotForPresence(serverName, steamId);
-  await markHudSseConnected(steamId);
+  await markHudConnConnected(steamId);
   return {
     ok: true,
     steamId,
@@ -192,7 +192,7 @@ export async function handleHudSnapshot(req: Request, res: Response): Promise<vo
     console.log(
       `[hud-snapshot] steamId=${steamId} sections=session presenceServer=${resolved.presence.serverName} managed=${managed?.folderSlug ?? '?'} session_ok=true context_server=${sessionContextServerName(payload.sessionResult)} version=${sessionVersion}`,
     );
-    await markHudSseConnected(steamId);
+    await markHudConnConnected(steamId);
     res.json({
       ok: true,
       steamId,
@@ -210,7 +210,7 @@ export async function handleHudSnapshot(req: Request, res: Response): Promise<vo
 
   const battle = await loadBattleSnapshotForPresence(resolved.presence.serverName, steamId);
 
-  await markHudSseConnected(steamId);
+  await markHudConnConnected(steamId);
 
   res.json({
     ok: true,

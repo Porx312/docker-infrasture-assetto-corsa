@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Request, Response } from 'express';
 
-import '../../config/loadEnv.js';
+import '@projectd/ac-data-shared/config/loadEnv.js';
 import { handleHudProfileCosmeticsFp } from './hudCosmeticsFp.js';
 import { profileCosmeticsRedisKey, syncProfileCosmeticsFromProfile } from './hudProfileCosmetics.js';
 import { hudRedisDel, hudRedisGet, isHudRedisConfigured } from './hudRedis.js';

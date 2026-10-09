@@ -1,5 +1,5 @@
-import '../../config/loadEnv.js';
-import { isConvexConfigured } from '../convexClient.js';
+import '@projectd/ac-data-shared/config/loadEnv.js';
+import { isConvexConfigured } from '@projectd/ac-data-shared/services/convexClient.js';
 import {
   hubFetchHudSession,
   hubFetchHudVersion,
@@ -122,6 +122,7 @@ export async function fetchPlayerJoinContext(steamId: string): Promise<PlayerJoi
     'reason' in typed.session &&
     typed.session.reason === 'player_not_connected'
   ) {
+    recordHudConvexQuery('convex_session_ignores_presence');
     console.warn(
       `[hud-convex] convex_session_ignores_presence steamId=${steamId.trim()} serverName=${presence.serverName}`,
     );

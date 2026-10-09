@@ -1,3 +1,5 @@
+> **Canonical ops:** [HUD_HARDENING_CUTOVER.md](../HUD_HARDENING_CUTOVER.md). Transport is **WSS** (`/hud/ws`), not SSE.
+
 # Handoff ProjectD: sesión HUD sin `live_players`
 
 **Where to implement:** ProjectD repo (Convex), **not** assetto-infra.  
@@ -5,7 +7,7 @@
 
 Edge (assetto-infra) sends Redis `presence` on join/session/version queries. After this Convex contract is live in production, ops can set `LIVE_INGEST_CONVEX=false`.
 
-Cross-links (assetto-infra): [CONVEX_PLAYER_JOIN_CONTEXT.md](../CONVEX_PLAYER_JOIN_CONTEXT.md), [CONTROL_API_HOST_CUTOVER.md](../CONTROL_API_HOST_CUTOVER.md), [CONVEX_PROFILE_COSMETICS.md](../CONVEX_PROFILE_COSMETICS.md).
+Cross-links (assetto-infra): [archive/CONVEX_PLAYER_JOIN_CONTEXT.md](../archive/CONVEX_PLAYER_JOIN_CONTEXT.md), [CONTROL_API_HOST_CUTOVER.md](../CONTROL_API_HOST_CUTOVER.md), [archive/CONVEX_PROFILE_COSMETICS.md](../archive/CONVEX_PROFILE_COSMETICS.md).
 
 ---
 
@@ -76,7 +78,7 @@ Response shape stays `{ user, session }` only — no separate `player` field.
 | `convex/lib/hudPlayerJoinContext.ts` | Pass presence into bundle |
 | `convex/workerPlayers.ts` | Optional `presence` validator on `getPlayerJoinContext` |
 | `convex/hud.ts` | Same on `getHudSession` |
-| `docs/CONVEX_PLAYER_JOIN_CONTEXT.md` | Document presence + resolution order |
+| `docs/archive/CONVEX_PLAYER_JOIN_CONTEXT.md` | Document presence + resolution order |
 | `docs/ac-data-hud-spec.md` / `docs/08-hud-api.md` | Note: join seed still ac-data; connected anchor = presence args |
 
 Ingest (`convex/live/players.ts`, `convex/ingest/workerRouter.ts`): **no required functional change**. When edge sets `LIVE_INGEST_CONVEX=false`, those mutations simply stop receiving join/status.

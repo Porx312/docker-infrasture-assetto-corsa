@@ -530,9 +530,12 @@ export async function modEdgeDeleteContentHandler(req: Request, res: Response): 
     res.status(400).json({ ok: false, message: 'kind and slug required' });
     return;
   }
-  const secret = (process.env.CONVEX_WORKER_SECRET || '').trim();
+  const { fleetEdgeSecret } = await import(
+    '@projectd/ac-data-shared/services/secrets/fleetSecrets.js'
+  );
+  const secret = fleetEdgeSecret();
   if (!secret) {
-    res.status(503).json({ ok: false, message: 'CONVEX_WORKER_SECRET missing' });
+    res.status(503).json({ ok: false, message: 'FLEET_EDGE_SECRET or CONVEX_WORKER_SECRET missing' });
     return;
   }
   try {
@@ -566,9 +569,12 @@ export async function modEdgeUploadHandler(req: Request, res: Response): Promise
     res.status(400).json({ ok: false, message: 'file required' });
     return;
   }
-  const secret = (process.env.CONVEX_WORKER_SECRET || '').trim();
+  const { fleetEdgeSecret } = await import(
+    '@projectd/ac-data-shared/services/secrets/fleetSecrets.js'
+  );
+  const secret = fleetEdgeSecret();
   if (!secret) {
-    res.status(503).json({ ok: false, message: 'CONVEX_WORKER_SECRET missing' });
+    res.status(503).json({ ok: false, message: 'FLEET_EDGE_SECRET or CONVEX_WORKER_SECRET missing' });
     return;
   }
   try {

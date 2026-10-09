@@ -16,12 +16,12 @@ import {
   registerBattleSsePresence,
   resetBattleSsePresenceForTests,
 } from './hudPlayerPresence.js';
-import { clearHudSsePresence } from './hudSsePresence.js';
+import { clearHudConnPresence } from './hudConnPresence.js';
 import { HUD_SESSION_TTL_SEC, hudRedisDel, hudRedisGet, hudRedisSet, isHudRedisConfigured } from './hudRedis.js';
 import {
   resetConvexClientForTests,
   setConvexClientForTests,
-} from '../convexClient.js';
+} from '@projectd/ac-data-shared/services/convexClient.js';
 
 test('snapshot JSON session field matches WSS hud_session event shape', () => {
   const steamId = '76561199000000001';
@@ -290,7 +290,7 @@ test('handleHudSnapshot marks overlay presence on successful poll', async () => 
   );
 
   const sseKey = ssePresenceRedisKey(steamId);
-  await clearHudSsePresence(steamId);
+  await clearHudConnPresence(steamId);
 
   setConvexClientForTests({
     query: async (_name: string, args: Record<string, unknown>) => {
@@ -337,6 +337,6 @@ test('handleHudSnapshot marks overlay presence on successful poll', async () => 
     resetBattleSsePresenceForTests();
     resetManagedServersForTests();
     await hudRedisDel(sessionKey);
-    await clearHudSsePresence(steamId);
+    await clearHudConnPresence(steamId);
   }
 });

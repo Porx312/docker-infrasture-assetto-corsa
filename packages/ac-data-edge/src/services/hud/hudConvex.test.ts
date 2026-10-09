@@ -4,7 +4,7 @@ import test from 'node:test';
 import {
   resetConvexClientForTests,
   setConvexClientForTests,
-} from '../convexClient.js';
+} from '@projectd/ac-data-shared/services/convexClient.js';
 import {
   fetchHudSession,
   fetchHudVersion,

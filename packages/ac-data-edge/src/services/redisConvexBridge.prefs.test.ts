@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { PendingIngestMessage } from './coalesceIngestBatch.js';
+import type { PendingIngestMessage } from '@projectd/ac-data-shared/services/coalesceIngestBatch.js';
 import { partitionCoalescedByIngestPrefs } from './ingestPrefPartition.js';
 
 function lapPending(id: string, steamId: string): PendingIngestMessage {

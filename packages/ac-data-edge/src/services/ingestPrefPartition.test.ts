@@ -18,6 +18,6 @@ test('shouldSkipLivePresenceConvexIngest forwards when flag true', () => {
   assert.equal(shouldSkipLivePresenceConvexIngest('server_status', true), false);
 });
 
-test('LIVE_INGEST_CONVEX default is enabled unless env says false', () => {
+test('LIVE_INGEST_CONVEX is a boolean (default false — fleet cutover)', () => {
   assert.equal(typeof LIVE_INGEST_CONVEX, 'boolean');
 });

@@ -1,4 +1,4 @@
-import '../config/loadEnv.js';
+import '@projectd/ac-data-shared/config/loadEnv.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { RedisClientType } from 'redis';

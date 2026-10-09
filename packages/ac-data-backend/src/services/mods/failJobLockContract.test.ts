@@ -35,18 +35,12 @@ test('failJob without locked_by force-releases', () => {
 });
 
 test('presence TTL default must exceed server_status heartbeat (300s)', async () => {
-  // Import after ensuring we read the module default (env may override in process).
-  const prev = process.env.HUD_PRESENCE_TTL_SEC;
-  delete process.env.HUD_PRESENCE_TTL_SEC;
-  // Dynamic import of the constant file — value is evaluated at load; check documented default via source contract:
-  // Default is 450 in hudRedis.ts. Heartbeat default is 300 in telemetry settings.py.
-  const HEARTBEAT_DEFAULT = 300;
-  const PRESENCE_TTL_DEFAULT = 450;
-  assert.ok(
-    PRESENCE_TTL_DEFAULT > HEARTBEAT_DEFAULT,
-    `HUD_PRESENCE_TTL_SEC default (${PRESENCE_TTL_DEFAULT}) must exceed heartbeat (${HEARTBEAT_DEFAULT})`,
+  const { HUD_PRESENCE_TTL_DEFAULT_SEC } = await import(
+    '@projectd/ac-data-shared/services/hud/hudTtl.js'
   );
-  if (prev !== undefined) {
-    process.env.HUD_PRESENCE_TTL_SEC = prev;
-  }
+  const HEARTBEAT_DEFAULT = 300;
+  assert.ok(
+    HUD_PRESENCE_TTL_DEFAULT_SEC > HEARTBEAT_DEFAULT,
+    `HUD_PRESENCE_TTL_SEC default (${HUD_PRESENCE_TTL_DEFAULT_SEC}) must exceed heartbeat (${HEARTBEAT_DEFAULT})`,
+  );
 });

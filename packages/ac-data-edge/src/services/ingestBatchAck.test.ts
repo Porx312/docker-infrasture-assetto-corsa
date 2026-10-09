@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { PendingIngestMessage } from './coalesceIngestBatch.js';
+import type { PendingIngestMessage } from '@projectd/ac-data-shared/services/coalesceIngestBatch.js';
 import {
   ingestBatchSucceeded,
   isNonRetryableIngestError,
   partitionIngestResults,
   resolveChunkAckPlan,
-} from './ingestBatchAck.js';
+} from '@projectd/ac-data-shared/services/ingestBatchAck.js';
 
 function pending(event: string, id: string, serverName = 'server-a'): PendingIngestMessage {
   return {

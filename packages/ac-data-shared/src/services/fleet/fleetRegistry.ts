@@ -10,6 +10,8 @@ export type FleetEdge = {
 };
 
 let cachedFleet: FleetEdge[] | null = null;
+/** Runtime overlay from Postgres `fleet_edges` (hub). Env registry remains bootstrap. */
+let runtimeDbFleet: FleetEdge[] | null = null;
 
 function trimTrailingSlash(url: string): string {
   return url.replace(/\/+$/, '');
@@ -129,26 +131,51 @@ function deriveFromHudEdgeRegistry(): FleetEdge[] {
   return [...byBase.values()];
 }
 
+function mergeFleetById(primary: FleetEdge[], secondary: FleetEdge[]): FleetEdge[] {
+  const byId = new Map<string, FleetEdge>();
+  for (const edge of secondary) {
+    byId.set(edge.id, edge);
+  }
+  for (const edge of primary) {
+    byId.set(edge.id, edge);
+  }
+  return [...byId.values()];
+}
+
 function loadFleetEdges(): FleetEdge[] {
   if (cachedFleet) {
     return cachedFleet;
   }
+  let fromEnv: FleetEdge[] = [];
   const fleetRaw = (process.env.FLEET_EDGE_REGISTRY || '').trim();
   if (fleetRaw) {
     try {
-      cachedFleet = parseFleetRegistryJson(fleetRaw);
+      fromEnv = parseFleetRegistryJson(fleetRaw);
     } catch (err) {
       console.error('[fleet-registry] failed to parse FLEET_EDGE_REGISTRY:', err);
-      cachedFleet = [];
+      fromEnv = [];
     }
-    return cachedFleet;
+  } else {
+    fromEnv = deriveFromHudEdgeRegistry();
   }
-  cachedFleet = deriveFromHudEdgeRegistry();
+  // Env/bootstrap wins on id collision; DB fills gaps when env omitted or incomplete.
+  cachedFleet = runtimeDbFleet ? mergeFleetById(fromEnv, runtimeDbFleet) : fromEnv;
   return cachedFleet;
+}
+
+/** Hub: seed/overlay from Postgres after migrate (env remains bootstrap source of truth for conflicts). */
+export function setRuntimeFleetEdgesFromDb(edges: FleetEdge[]): void {
+  runtimeDbFleet = edges.map((e) => ({
+    ...e,
+    id: normalizeFleetId(e.id),
+    baseUrl: trimTrailingSlash(e.baseUrl),
+  }));
+  cachedFleet = null;
 }
 
 export function resetFleetRegistryForTests(): void {
   cachedFleet = null;
+  runtimeDbFleet = null;
 }
 
 export function listFleetEdges(): FleetEdge[] {

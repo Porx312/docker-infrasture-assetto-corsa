@@ -1,4 +1,4 @@
-/** @typedef {{ id: string; label: string; hint: string; kind: 'content' | 'mod-catalog' | 'servers' | 'activity' | 'hud' | 'mods' }} TabConfig */
+/** @typedef {{ id: string; label: string; hint: string; kind: 'mod-catalog' | 'servers' | 'activity' | 'hud' | 'mods' }} TabConfig */
 
 /** @type {TabConfig[]} */
 export const TABS = [
@@ -13,12 +13,6 @@ export const TABS = [
     label: 'Tracks',
     hint: 'Tracks on the selected VPS. Upload ZIP here; open a card to sync to other VPS.',
     kind: 'mod-catalog',
-  },
-  {
-    id: 'weather',
-    label: 'Weather',
-    hint: 'Supported: .ini, .zip, folders',
-    kind: 'content',
   },
   {
     id: 'projectd-hud',

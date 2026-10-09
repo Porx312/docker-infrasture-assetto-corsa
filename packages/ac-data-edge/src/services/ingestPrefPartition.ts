@@ -1,13 +1,17 @@
-import type { PendingIngestMessage } from './coalesceIngestBatch.js';
+import type { PendingIngestMessage } from '@projectd/ac-data-shared/services/coalesceIngestBatch.js';
 import { shouldSkipLapCompletedIngest } from './eventHandlers/lapCompleted.js';
 import type { EventPayload } from './eventHandlers/types.js';
 
 export const INGEST_SKIP_EMPTY_SERVER_STATUS =
   (process.env.INGEST_SKIP_EMPTY_SERVER_STATUS ?? 'true').trim().toLowerCase() === 'true';
 
-/** When false, join/leave/server_status stay on Redis/HUD only (no Convex live_players). */
+/**
+ * When false, join/leave/server_status stay on Redis/HUD only (no Convex live_players).
+ * Default **false** (fleet cutover): requires ProjectD Convex to accept `presence` —
+ * see docs/HUD_HARDENING_CUTOVER.md. Set LIVE_INGEST_CONVEX=true only as deploy fallback.
+ */
 export const LIVE_INGEST_CONVEX =
-  (process.env.LIVE_INGEST_CONVEX ?? 'true').trim().toLowerCase() !== 'false';
+  (process.env.LIVE_INGEST_CONVEX ?? 'false').trim().toLowerCase() === 'true';
 
 const LIVE_PRESENCE_EVENTS = new Set(['player_join', 'player_leave', 'server_status']);
 

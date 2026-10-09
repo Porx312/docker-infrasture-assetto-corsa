@@ -2,7 +2,7 @@
  * Env for hub → Convex Host catalog sync (`CONVEX_HOST_CATALOG_*`).
  * Single place for flags and mutation path overrides.
  */
-import { isConvexConfigured } from '../convexClient.js';
+import { isConvexConfigured } from '@projectd/ac-data-shared/services/convexClient.js';
 
 function envFlagEnabled(name: string, defaultOn: boolean): boolean {
   const raw = (process.env[name] || '').trim().toLowerCase();

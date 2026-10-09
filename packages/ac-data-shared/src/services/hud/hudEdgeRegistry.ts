@@ -52,6 +52,9 @@ function loadRegistry(): Map<string, HudEdgeRegistryEntry> {
     cached = new Map();
     return cached;
   }
+  console.warn(
+    '[hud-edge-registry] HUD_EDGE_REGISTRY is deprecated — prefer dynamic sync + FLEET_EDGE_REGISTRY bootstrap',
+  );
   try {
     cached = parseRegistryJson(raw);
   } catch (err) {

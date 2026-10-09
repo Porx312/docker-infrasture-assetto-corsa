@@ -35,6 +35,11 @@ export async function bumpPlayerVersion(params: PlayerCacheParams): Promise<stri
   return bumpVersionKey(playerVersionKey(cacheKey), playerScopeKeyFromCacheKey(cacheKey));
 }
 
+/**
+ * Redis pub/sub invalidation token (monotonic wall clock).
+ * Client-facing `playerVersion` in snapshots/WSS is a content hash from
+ * `buildHudVersionForSession` (hudClientVersion.ts) — do not confuse the two.
+ */
 async function bumpVersionKey(redisKey: string, scopeKey: string): Promise<string> {
   const version = Date.now().toString();
   const redis = await getHudRedisClient();

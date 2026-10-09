@@ -1,4 +1,5 @@
 import { normalizeHudServerName } from '@projectd/ac-data-shared/services/hud/hudQueryNormalize.js';
+import { parseHudPresenceRecordJson } from '@projectd/ac-data-shared/services/hud/hudPresenceRecord.js';
 import {
   presenceRedisKey,
   presenceRosterRedisKey,
@@ -69,11 +70,7 @@ async function readPresence(steamId: string): Promise<HubPlayerPresenceRecord | 
   if (!raw) {
     return null;
   }
-  try {
-    return JSON.parse(raw) as HubPlayerPresenceRecord;
-  } catch {
-    return null;
-  }
+  return parseHudPresenceRecordJson(raw);
 }
 
 function parseSteamIdList(raw: string | null): string[] {

@@ -1,4 +1,5 @@
-import './config/loadEnv.js';
+import '@projectd/ac-data-shared/config/loadEnv.js';
+import { assertFleetBootGuards } from '@projectd/ac-data-shared/services/fleet/fleetBootGuards.js';
 import { assertSecurityConfiguration } from './config/securityStartup.js';
 import { createServer } from 'node:http';
 import express from 'express';
@@ -17,7 +18,7 @@ import { bootstrapManagedServersFromDisk } from './services/hud/hudManagedServer
 import { publishHudRegistryToHubIfConfigured } from './services/hud/edgeHudRegistryPublish.js';
 import { startServerPoolMonitor } from './services/serverPool.js';
 import { getPublicHealthHandler } from './controller/healthController.js';
-import { resolveEnvFilePath } from './config/loadEnv.js';
+import { resolveEnvFilePath } from '@projectd/ac-data-shared/config/loadEnv.js';
 import { attachHudWs } from './services/hud/hudWs.js';
 import { isBackendIngestForwardConfigured } from '@projectd/ac-data-shared/services/edgeIngestForward.js';
 import { startModAgentLoop } from './services/modAgent/modAgentLoop.js';
@@ -38,6 +39,7 @@ if (!SERVERS_PATH) {
 }
 
 assertSecurityConfiguration();
+assertFleetBootGuards('edge');
 
 process.on('unhandledRejection', (reason) => {
   console.error('[ac-data-edge] unhandledRejection:', reason);

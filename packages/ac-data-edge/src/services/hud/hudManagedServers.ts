@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { stripCmNameSuffix } from '../../controller/cmWrapper.js';
-import { normalizeHudServerName } from './hudQueryNormalize.js';
+import { stripCmNameSuffix } from '@projectd/ac-data-shared/controller/cmWrapper.js';
+import { normalizeHudServerName } from '@projectd/ac-data-shared/services/hud/hudQueryNormalize.js';
 
 export type ManagedServerType = 'unified' | 'time-attack' | 'battle' | string;
 

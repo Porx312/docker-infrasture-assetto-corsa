@@ -1,4 +1,4 @@
-import '../../config/loadEnv.js';
+import '@projectd/ac-data-shared/config/loadEnv.js';
 import pg from 'pg';
 
 const { Pool } = pg;

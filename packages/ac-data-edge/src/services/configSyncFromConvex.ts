@@ -1,7 +1,7 @@
-import '../config/loadEnv.js';
+import '@projectd/ac-data-shared/config/loadEnv.js';
 import type { RedisClientType } from 'redis';
 
-import { isConvexConfigured } from './convexClient.js';
+import { isConvexConfigured } from '@projectd/ac-data-shared/services/convexClient.js';
 import { publishConfigSnapshotToRedis } from '@projectd/ac-data-shared/services/config/configSnapshotRedis.js';
 import {
   queryWorkerConfigSnapshot,

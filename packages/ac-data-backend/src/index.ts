@@ -1,4 +1,5 @@
-import './config/loadEnv.js';
+import '@projectd/ac-data-shared/config/loadEnv.js';
+import { assertFleetBootGuards } from '@projectd/ac-data-shared/services/fleet/fleetBootGuards.js';
 import { assertSecurityConfiguration } from './config/securityStartup.js';
 import { createServer } from 'node:http';
 import express from 'express';
@@ -16,10 +17,11 @@ import hudRegistryRoutes from './routes/hudRegistryRoutes.js';
 import modAgentRoutes from './routes/modAgentRoutes.js';
 import controlApiRoutes from './routes/controlApiRoutes.js';
 import { runModMigrationsIfConfigured } from './services/mods/migrate.js';
+import { loadFleetRegistryFromDb } from './services/mods/loadFleetRegistryFromDb.js';
 import { getPublicHealthHandler } from './controller/healthController.js';
 import { attachHudGatewayWs } from './services/hud/hudGateway.js';
 import { loadHudDynamicRegistryFromRedis } from './services/hud/hudDynamicRegistry.js';
-import { resolveEnvFilePath } from './config/loadEnv.js';
+import { resolveEnvFilePath } from '@projectd/ac-data-shared/config/loadEnv.js';
 import { getPublicBrandingImageHandler } from './controller/brandingImagesController.js';
 import { getPublicModPreviewImageHandler } from './controller/modPreviewImagesController.js';
 import {
@@ -32,6 +34,7 @@ import {
 } from './services/mods/modPreviewImages.js';
 
 assertSecurityConfiguration();
+assertFleetBootGuards('hub');
 
 process.on('unhandledRejection', (reason) => {
   console.error('[ac-data-backend] unhandledRejection:', reason);
@@ -107,10 +110,12 @@ server.listen(PORT, BIND_HOST, () => {
       const message = err instanceof Error ? err.message : String(err);
       console.warn(`[mod-previews] mkdir failed (${resolveModPreviewImagesPath()}): ${message}`);
     });
-  void runModMigrationsIfConfigured().catch((err: unknown) => {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error('[mod-db] migration failed:', message);
-  });
+  void runModMigrationsIfConfigured()
+    .then(() => loadFleetRegistryFromDb())
+    .catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('[mod-db] migration failed:', message);
+    });
   void loadHudDynamicRegistryFromRedis();
   console.log(`ac-data-backend en http://${BIND_HOST}:${PORT} (env: ${resolveEnvFilePath()})`);
 });

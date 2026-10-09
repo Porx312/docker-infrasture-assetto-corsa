@@ -1,8 +1,6 @@
 import type { Request } from 'express';
 
-function workerSecretFromEnv(): string {
-  return (process.env.CONVEX_WORKER_SECRET || '').trim();
-}
+import { fleetEdgeSecret, modPeerSecret, secretsMatch } from '../secrets/fleetSecrets.js';
 
 export function readWorkerSecretFromRequest(req: Request): string {
   const header = req.headers['x-worker-secret'];
@@ -16,12 +14,14 @@ export function readWorkerSecretFromRequest(req: Request): string {
   return '';
 }
 
+/** Hub↔edge / agent / inventory auth (FLEET_EDGE_SECRET || CONVEX_WORKER_SECRET). */
 export function isWorkerRequestAuthorized(req: Request): boolean {
-  const expected = workerSecretFromEnv();
-  if (!expected) {
-    return false;
-  }
-  return readWorkerSecretFromRequest(req) === expected;
+  return secretsMatch(readWorkerSecretFromRequest(req), fleetEdgeSecret());
+}
+
+/** Edge↔edge peer blob auth (MOD_PEER_SECRET with fallbacks). */
+export function isModPeerRequestAuthorized(req: Request): boolean {
+  return secretsMatch(readWorkerSecretFromRequest(req), modPeerSecret());
 }
 
 export function readInstanceIdFromWorkerRequest(req: Request): string {

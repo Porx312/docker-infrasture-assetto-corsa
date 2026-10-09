@@ -8,10 +8,12 @@ import {
   readServerNameFromRequestQuery,
   readServerNameFromUrl,
 } from '@projectd/ac-data-shared/services/hud/hudQueryParams.js';
+import { httpsToWss } from '@projectd/ac-data-shared/services/hud/hudWsUrl.js';
 import { resolveHudEdgeBaseUrl } from '@projectd/ac-data-shared/services/hud/hudEdgeRegistry.js';
 import { resolveHudEdgeForSteamId } from './hudPlayerRouting.js';
 
 export { readServerNameFromRequestQuery, readServerNameFromUrl } from '@projectd/ac-data-shared/services/hud/hudQueryParams.js';
+export { httpsToWss };
 
 function requireQueryString(value: unknown): string | null {
   if (typeof value !== 'string') {
@@ -19,6 +21,37 @@ function requireQueryString(value: unknown): string | null {
   }
   const trimmed = value.trim();
   return trimmed || null;
+}
+
+/** Pure decision for hub WSS upgrade (testable without sockets). */
+export type HudGatewayWsDecision =
+  | { action: 'reject'; statusCode: number; message: string }
+  | {
+      action: 'proxy';
+      steamId: string;
+      serverName: string;
+      upstreamUrl: string;
+    };
+
+export function decideHudGatewayWsUpgrade(input: {
+  steamId: string | null;
+  routing: Awaited<ReturnType<typeof resolveHudEdgeForSteamId>>;
+  searchParams: URLSearchParams;
+}): HudGatewayWsDecision {
+  if (!input.steamId) {
+    return { action: 'reject', statusCode: 400, message: 'steamId required for HUD gateway' };
+  }
+  if (!input.routing.ok) {
+    const statusCode = input.routing.reason === 'redis_unavailable' ? 503 : 404;
+    return { action: 'reject', statusCode, message: input.routing.reason };
+  }
+  const edgeBase = input.routing.edge.baseUrl;
+  return {
+    action: 'proxy',
+    steamId: input.steamId,
+    serverName: input.routing.presence.serverName,
+    upstreamUrl: `${httpsToWss(edgeBase)}${HUD_WS_PATH}?${input.searchParams.toString()}`,
+  };
 }
 
 function gatewayMissingSteamId(res: Response): void {
@@ -147,16 +180,6 @@ export async function proxyHudProfileCosmeticsFpIfGateway(
   return proxyHudPathIfGateway(req, res, '/hud/profile-cosmetics-fp', 'profile-cosmetics-fp');
 }
 
-function httpsToWss(baseUrl: string): string {
-  if (baseUrl.toLowerCase().startsWith('https://')) {
-    return `wss://${baseUrl.slice(8)}`;
-  }
-  if (baseUrl.toLowerCase().startsWith('http://')) {
-    return `ws://${baseUrl.slice(7)}`;
-  }
-  return baseUrl;
-}
-
 function rejectUpgrade(socket: Socket | import('stream').Duplex, statusCode: number, message: string): void {
   const body = message;
   socket.write(
@@ -236,15 +259,18 @@ export function attachHudGatewayWs(server: HttpServer): WebSocketServer | null {
     const legacyServerName = readServerNameFromUrl(url);
 
     void resolveHudEdgeForSteamId(steamId, { legacyServerName }).then((routing) => {
-      if (!routing.ok) {
-        const code = routing.reason === 'redis_unavailable' ? 503 : 404;
-        rejectUpgrade(socket, code, routing.reason);
+      const decision = decideHudGatewayWsUpgrade({
+        steamId,
+        routing,
+        searchParams: url.searchParams,
+      });
+
+      if (decision.action === 'reject') {
+        rejectUpgrade(socket, decision.statusCode, decision.message);
         return;
       }
 
-      const edgeBase = routing.edge.baseUrl;
-      const serverName = routing.presence.serverName;
-      const upstreamUrl = `${httpsToWss(edgeBase)}${HUD_WS_PATH}?${url.searchParams.toString()}`;
+      const { serverName, upstreamUrl } = decision;
 
       wss.handleUpgrade(request, socket, head, (clientWs) => {
         wss.emit('connection', clientWs, request);
@@ -257,7 +283,7 @@ export function attachHudGatewayWs(server: HttpServer): WebSocketServer | null {
 
         upstream.on('open', () => {
           console.log(
-            `[hud-gateway-ws] proxy steamId=${steamId} serverName=${serverName} -> ${edgeBase}`,
+            `[hud-gateway-ws] proxy steamId=${steamId} serverName=${serverName} -> ${upstreamUrl}`,
           );
           pipeSockets(clientWs, upstream, steamId, serverName);
         });

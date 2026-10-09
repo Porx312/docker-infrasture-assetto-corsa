@@ -1,4 +1,4 @@
-import { normalizeHudServerName } from '../hud/hudQueryNormalize.js';
+import { normalizeHudServerName } from '@projectd/ac-data-shared/services/hud/hudQueryNormalize.js';
 import { summarizeServers } from '../serverBranding.js';
 import { formatLapMs, formatTrackLabel } from './activityFormat.js';
 import type {

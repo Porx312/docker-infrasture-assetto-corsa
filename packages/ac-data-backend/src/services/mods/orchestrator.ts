@@ -32,6 +32,8 @@ export { syncFleetEdgesToDb } from './fleetEdgeDb.js';
 const MAX_ATTEMPTS = Number(process.env.MOD_SYNC_MAX_ATTEMPTS || 5);
 /** Requeue `running` jobs whose started_at is older than this (dead agent / crash). */
 const RUNNING_STALE_MS = Number(process.env.MOD_SYNC_RUNNING_STALE_MS || 600_000);
+/** Cap concurrent running install/upgrade jobs per edge (peer-pull mesh). */
+const MAX_PEER_PULL_CONCURRENT = Number(process.env.MOD_PEER_PULL_MAX_CONCURRENT || 3);
 
 function assertLocalMasterBlobPresent(storageKey: string, sha256: string): void {
   if (isEdgeBlobStorageKey(storageKey)) {
@@ -401,6 +403,19 @@ export async function acquireJobForEdge(edgeId: string, agentId: string): Promis
   await reclaimStaleRunningJobs(edgeId);
 
   const pool = getModPool();
+  if (MAX_PEER_PULL_CONCURRENT > 0) {
+    const running = await pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM sync_jobs
+       WHERE edge_id = $1 AND state = 'running'
+         AND operation IN ('install', 'upgrade')`,
+      [edgeId],
+    );
+    const n = Number(running.rows[0]?.count || 0);
+    if (n >= MAX_PEER_PULL_CONCURRENT) {
+      return null;
+    }
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');

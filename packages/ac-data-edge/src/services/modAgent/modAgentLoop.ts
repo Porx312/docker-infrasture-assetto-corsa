@@ -13,6 +13,7 @@ import {
 } from './hubModClient.js';
 import { collectHostMetrics } from './hostMetrics.js';
 import { downloadWithResume } from './downloadArtifact.js';
+import { modPeerSecret } from '@projectd/ac-data-shared/services/secrets/fleetSecrets.js';
 import {
   materializeManifestToPool,
   removeFromPool,
@@ -66,7 +67,7 @@ async function processJob(job: ModAgentJobPayload): Promise<void> {
     await fsp.mkdir(tmpDir, { recursive: true });
     zipPath = path.join(tmpDir, `${job.sha256}.zip`);
 
-    const secret = (process.env.CONVEX_WORKER_SECRET || '').trim();
+    const secret = modPeerSecret();
     const downloadHeaders = secret ? { 'X-Worker-Secret': secret } : undefined;
     const url =
       typeof job.downloadUrl === 'string' && job.downloadUrl.trim()

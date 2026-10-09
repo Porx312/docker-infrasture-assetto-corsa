@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { activeServers } from '../controller/controller.js';
-import { readCmWrapperPort } from '../controller/cmWrapper.js';
+import { readCmWrapperPort } from '@projectd/ac-data-shared/controller/cmWrapper.js';
 import { getServerPorts } from '../controller/serverPorts.js';
 import { assertValidServerName, readServerInstanceConfig } from './serverInstanceConfig.js';
-import '../config/loadEnv.js';
+import '@projectd/ac-data-shared/config/loadEnv.js';
 
 export type ServerRuntimeInfo = {
   serverName: string;
