@@ -4,7 +4,7 @@ import { parseBattleScopeKey } from './hudBattleRooms.js';
 import { parsePlayerScopeKey } from './hudScopeKeys.js';
 import { isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 import { pushHudUpdateForSteamId } from './hudPushHub.js';
-import { startHudUpdatesSubscriber } from './hudUpdatesSubscriber.js';
+import { startHudUpdatesSubscriber, stopHudUpdatesSubscriber } from './hudUpdatesSubscriber.js';
 import type { HudBattleErr, HudBattleOk } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 export type BattleHudPushEvent = 'battle';
@@ -182,7 +182,7 @@ export async function sendInitialBattleSnapshot(
   }
 }
 
-/** Test hook: reset hub state. */
+/** Test hook: reset hub state and stop Redis pub/sub so the test runner can exit. */
 export function resetBattleHudPushForTests(): void {
   for (const timer of clearTimers.values()) {
     clearTimeout(timer);
@@ -192,6 +192,9 @@ export function resetBattleHudPushForTests(): void {
   battleSnapshotFetcher = (params) => getBattleCachedFast(params, { enrich: true });
   battleInitialSnapshotFetcher = (params) => getBattleCachedFast(params, { enrich: true });
   hubStarted = false;
+  void stopHudUpdatesSubscriber().catch(() => {
+    // ignore teardown errors
+  });
 }
 
 /** Test hook: inject battle snapshot fetcher for live pushes. */

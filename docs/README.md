@@ -46,4 +46,4 @@ Fallback to one secret only with `ALLOW_INSECURE_DEFAULTS=true` outside producti
 
 - Scripts: [`../scripts/README.md`](../scripts/README.md)  
 - Overlay: [`../ProjectD-HUD/`](../ProjectD-HUD/) (`./scripts/verify-requires.sh`)  
-- Ship hub: `npm run sync:hub-repo` / `npm run package:hub`
+- Ship hub: `npm run sync:hub-repo` / `npm run package:hub` / `npm run verify:hub-package` (pack + content checks + isolated build)

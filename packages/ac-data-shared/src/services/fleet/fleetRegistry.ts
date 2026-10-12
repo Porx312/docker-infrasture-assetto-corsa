@@ -178,6 +178,24 @@ export function resetFleetRegistryForTests(): void {
   runtimeDbFleet = null;
 }
 
+/** Test hook: replace runtime DB overlay (and clear env cache) for proxy SSRF tests. */
+export function setFleetRegistryOverlayForTests(
+  edges: Record<string, { label: string; baseUrl: string; instanceId?: string }> | null,
+): void {
+  if (!edges) {
+    runtimeDbFleet = null;
+    cachedFleet = null;
+    return;
+  }
+  runtimeDbFleet = Object.entries(edges).map(([id, row]) => ({
+    id: normalizeFleetId(id),
+    label: row.label,
+    baseUrl: trimTrailingSlash(row.baseUrl),
+    instanceId: row.instanceId,
+  }));
+  cachedFleet = null;
+}
+
 export function listFleetEdges(): FleetEdge[] {
   return loadFleetEdges();
 }

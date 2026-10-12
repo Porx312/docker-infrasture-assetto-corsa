@@ -67,12 +67,13 @@ pgrep -a acServer
 # Status check
 ./start.sh status   # Show running services
 
-# Logs
-tail -f ac-data.log         # ac-data-edge logs (legacy filename)
-tail -f telemetry-data.log   # telemetry logs (dev)
-redis-cli xlen ac:events     # Check Redis events
+# Logs (under logs/; override with LOG_DIR=...)
+tail -f logs/ac-data-edge.log
+tail -f logs/ac-data-backend.log
+tail -f logs/telemetry-data.log   # telemetry (dev / host)
+redis-cli xlen ac:events          # Check Redis events
 
-# Log rotation (prevents ac-data.log filling the disk)
+# Log rotation (prevents logs filling the disk)
 # Preferred (no sudo): cron runs scripts/rotate-assetto-logs.sh every 30m
 #   crontab -l | grep rotate-assetto-logs
 # Optional system logrotate:
@@ -140,8 +141,8 @@ https://acstuff.club/s/q:race/online/join?ip=YOUR_IP&httpPort=8083
 # Check if ports are available
 netstat -tlnp | grep -E "9600|9610|9620"
 
-# Check ac-data logs
-tail -f ac-data.log
+# Check ac-data-edge logs
+tail -f logs/ac-data-edge.log
 ```
 
 ### Cars showing as "empty slots"
@@ -164,12 +165,18 @@ The hub exposes a **Control API** for ProjectD Host (mods inventory, live lobbie
 
 ## CI/CD
 
-Push to `main` → GitHub Actions deploys telemetry-data (`docker-compose.prod.yml`, `.env.production` on VPS) via SSH and verifies the container is running.
+Push to `main` → GitHub Actions deploys **edge (infra) VPS** in parallel (see [`deploy/fleet.json`](deploy/fleet.json)): each target SSHs in, runs [`scripts/deploy-from-main.sh`](scripts/deploy-from-main.sh) (`git reset --hard origin/main`, `npm ci`, build, `./stop.sh` + `./start.sh prod …`), then health-checks. **Does not** overwrite `.env.production` / `.env.local`.
+
+The **hub/backend** is deployed separately via **Dokploy** (not this workflow).
+
+Workflow: develop/test on **vps-test** → push/merge to `main` → Actions updates prod edges. Do not edit code by hand on prod edge VPS hosts.
 
 Required GitHub Secrets:
-- `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`
-- `CONVEX_DEPLOYMENT_URL`, `CONVEX_PRODUCT_KEY`
-- `CONVEX_WORKER_SECRET`, `CONVEX_INGEST_SECRET`
+- `VPS_USER`, `VPS_SSH_KEY` (shared deploy user/key)
+- One host secret per fleet entry (default: `VPS_HOST_EDGE_EU`)
+- Optional legacy: `VPS_HOST` if a fleet entry uses `hostSecret: "VPS_HOST"`
+
+To add an edge VPS: append a row to `deploy/fleet.json`, add the matching `VPS_HOST_*` secret, and a `case` branch in [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) (Actions cannot resolve secret names dynamically).
 
 ## Known Gotchas
 

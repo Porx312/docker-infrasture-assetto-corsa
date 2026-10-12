@@ -163,13 +163,14 @@ function buildBattleSnapshot(state: HudBattleSnapshotOk['state']): HudBattleSnap
 }
 
 test('enrichBattleWithProfiles prep state does not call Convex on cache miss', async () => {
-  if (isHudRedisConfigured()) {
-    const snapshot = buildBattleSnapshot('arming');
-    await hudRedisDel(playerRedisKey(buildPlayerCacheKey({ steamId: snapshot.player1.steamId })));
-    await hudRedisDel(playerRedisKey(buildPlayerCacheKey({ steamId: snapshot.player2.steamId })));
-    await hudRedisDel(sessionRedisKey(buildSessionCacheKey({ steamId: snapshot.player1.steamId })));
-    await hudRedisDel(sessionRedisKey(buildSessionCacheKey({ steamId: snapshot.player2.steamId })));
+  if (!isHudRedisConfigured()) {
+    return;
   }
+  const snapshot = buildBattleSnapshot('arming');
+  await hudRedisDel(playerRedisKey(buildPlayerCacheKey({ steamId: snapshot.player1.steamId })));
+  await hudRedisDel(playerRedisKey(buildPlayerCacheKey({ steamId: snapshot.player2.steamId })));
+  await hudRedisDel(sessionRedisKey(buildSessionCacheKey({ steamId: snapshot.player1.steamId })));
+  await hudRedisDel(sessionRedisKey(buildSessionCacheKey({ steamId: snapshot.player2.steamId })));
 
   let fetchCalls = 0;
   setFetchHudSessionForTests(async () => {

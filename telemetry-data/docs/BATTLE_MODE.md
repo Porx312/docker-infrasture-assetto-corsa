@@ -6,7 +6,7 @@ Documentación del modo touge/batallas tal como está implementado en `telemetry
 
 Una instancia de AC solo ejecuta lógica de batallas si su modo en la snapshot de Convex es `battle`:
 
-- Convex → bridge Node (`ac-data`) → stream Redis `ac:config` → `core/runtime_config.py`
+- Convex → bridge Node (`ac-data-edge` / hub) → stream Redis `ac:config` → `core/runtime_config.py`
 - En cada paquete de telemetría, `core/packet_processor.py` resuelve el modo y llama `battle_manager.set_server_mode(server_mode == "battle")`
 - Si no hay snapshot Redis aún, el modo es `None` y **no hay batallas** hasta que llegue la config
 
@@ -31,14 +31,14 @@ flowchart TB
   PM2 --> SM
   SM --> HudRedis[Redis ac:hud:battle]
   SM --> Webhook[battle_update / battle_finished]
-  HudRedis --> AcData[ac-data SSE /hud/battle/stream]
+  HudRedis --> AcData[ac-data-edge WSS /hud/ws]
 ```
 
-Con `BATTLE_HUD_ENABLED=true` (default), el estado en vivo se publica en Redis para pilotos con overlay ProjectD. Con `BATTLE_CHAT_ENABLED=true` (default), los pilotos **sin** clave `ac:hud:sse:{steamId}` reciben las mismas transiciones por chat ACSP privado (consola in-game). Ambos canales son independientes: el chat no sustituye al HUD ni viceversa.
+Con `BATTLE_HUD_ENABLED=true` (default), el estado en vivo se publica en Redis para pilotos con overlay ProjectD. Con `BATTLE_CHAT_ENABLED=true` (default), los pilotos **sin** clave `ac:hud:conn:{steamId}` reciben las mismas transiciones por chat ACSP privado (consola in-game). Ambos canales son independientes: el chat no sustituye al HUD ni viceversa.
 
-ac-data renueva `ac:hud:sse:{steamId}` en **`GET /hud/stream`** (SSE) y en **`GET /hud/snapshot`** (poll HTTP, fallback CSP sin TCP/TLS). telemetry-data usa esa clave en `has_hud_overlay_connected()` para omitir chat a pilotos con overlay activo.
+**ac-data-edge** escribe `ac:hud:conn:{steamId}` al conectar el overlay a **`WSS /hud/ws`** (renovación en keepalive). telemetry-data usa esa clave en `has_hud_overlay_connected()` (fallback legacy `ac:hud:sse:*` si existe). Env `BATTLE_REQUIRE_HUD_SSE` conserva el nombre por compat; el runtime lee **conn** primero.
 
-- Overlay: `EventSource` a `/hud/battle/stream` vía `ac-data`
+- Overlay: WebSocket a `/hud/ws` vía ac-data-edge
 - Chat fallback: `engines/battlesystem/chat.py` → `session_manager.handle_chat_message` → ACSP 202 privado
 
 - `engines/battlesystem/orchestrator.py` (`BattleManager`): caché global de `CarState` por GUID, **matchmaking** y un `PairBattleManager` por pareja
@@ -53,7 +53,7 @@ En cada `update()` de telemetría (`orchestrator._try_matchmake`):
 2. Se emparejan si están a **≤ 15 m** (`BATTLE_ARM_MAX_GAP_METERS`) y ambos van a **> 40 km/h** (`BATTLE_ARM_MIN_SPEED_KMH`)
 3. Algoritmo **greedy nearest-neighbor**: el par más cercano que cumple condiciones se bloquea primero; se repite hasta agotar candidatos
 4. Un jugador solo puede estar en **una** batalla a la vez (`guid_to_pair`). Si la pareja queda separada en IDLE **10 s** (`BATTLE_PAIR_IDLE_SEPARATED_RELEASE_SEC`) o sin llegar a ACTIVE en **120 s** (`BATTLE_PAIR_MAX_PREACTIVE_LOCK_SEC`), el lock se disuelve y pueden emparejarse con otros
-5. Con `BATTLE_REQUIRE_HUD_SSE=true`, solo entran candidatos con overlay conectado (`ac:hud:sse:{steamId}` escrito por ac-data en `GET /hud/stream` o renovado en `GET /hud/snapshot`). Si un jugador pierde el overlay durante una batalla, la pareja se disuelve con `cancelReason: hud_disconnected`. Con `BATTLE_REQUIRE_HUD_SSE=false` (recomendado para mezcla HUD/vanilla), el emparejamiento no exige overlay; el chat fallback cubre a quien no tenga clave activa.
+5. Con `BATTLE_REQUIRE_HUD_SSE=true`, solo entran candidatos con overlay conectado (`ac:hud:conn:{steamId}` escrito por ac-data-edge en `WSS /hud/ws`). Si un jugador pierde el overlay durante una batalla, la pareja se disuelve con `cancelReason: hud_disconnected`. Con `BATTLE_REQUIRE_HUD_SSE=false` (recomendado para mezcla HUD/vanilla), el emparejamiento no exige overlay; el chat fallback cubre a quien no tenga clave activa.
 6. Solo entran candidatos con **`acceptBattle` activo** (pref Redis `ac:user:prefs:accept_battle:{steamId}` ausente o distinto de `"0"`). Con `acceptBattle=false` el piloto conduce con normalidad pero no se empareja; el rival puede buscar otra pareja. Si un jugador con batallas activas se acerca (≤15 m, ambos >40 km/h) a otro con `acceptBattle=false`, recibe chat privado: `{player} don't accept battles.` (`BATTLE_DECLINED_OPPONENT_MESSAGE`), con cooldown `BATTLE_DECLINED_NOTIFY_COOLDOWN_SEC` (default 30 s).
 
 ## Máquina de estados por pareja

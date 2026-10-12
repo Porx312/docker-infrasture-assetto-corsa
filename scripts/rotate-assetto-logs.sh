@@ -7,12 +7,17 @@
 #
 # Or rely on start.sh truncate-if-huge + system logrotate if installed:
 #   sudo cp scripts/logrotate-assetto.conf /etc/logrotate.d/assetto-infra
+#
+# Override location: LOG_DIR=/path/to/logs ./scripts/rotate-assetto-logs.sh
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LOG_DIR="${LOG_DIR:-$ROOT/logs}"
 MAX_BYTES=$((100 * 1024 * 1024))
 KEEP=5
+
+mkdir -p "$LOG_DIR"
 
 rotate_one() {
   local log="$1"
@@ -39,6 +44,13 @@ rotate_one() {
   done
 }
 
+# Current layout under LOG_DIR
+rotate_one "$LOG_DIR/ac-data-edge.log"
+rotate_one "$LOG_DIR/ac-data-backend.log"
+rotate_one "$LOG_DIR/telemetry-data.log"
+
+# Legacy filenames (pre-centralization) still under LOG_DIR or repo root
+rotate_one "$LOG_DIR/ac-data.log"
 rotate_one "$ROOT/ac-data.log"
 rotate_one "$ROOT/ac-data-backend.log"
 rotate_one "$ROOT/telemetry-data.log"

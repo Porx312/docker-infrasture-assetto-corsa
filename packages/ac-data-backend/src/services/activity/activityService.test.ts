@@ -41,10 +41,12 @@ test('parseStreamRow parses Redis stream message fields', () => {
   const parsed = parseStreamRow('1700000000000-0', {
     event: 'player_join',
     serverName: 'Main Touge',
+    instanceId: 'vps-eu-2',
     ts: '1700000000000',
     payload: JSON.stringify({
       event: 'player_join',
       serverName: 'Main Touge',
+      instanceId: 'vps-eu-2',
       ts: 1700000000000,
       data: { name: 'Grego', steamId: '76561199150078952' },
     }),
@@ -53,6 +55,7 @@ test('parseStreamRow parses Redis stream message fields', () => {
   assert.ok(parsed);
   assert.equal(parsed!.event, 'player_join');
   assert.equal(parsed!.serverName, 'Main Touge');
+  assert.equal(parsed!.instanceId, 'vps-eu-2');
   assert.equal(parsed!.ts, 1700000000000);
 });
 

@@ -30,6 +30,8 @@ For production/Dokploy you can instead ship a tarball (same sources, no duplicat
 
 ```bash
 ./scripts/package-backend-hub.sh
+# Before upload: regenerate + assert no obsolete modules + isolated npm ci/build
+npm run verify:hub-package
 ```
 
 Upload `dist/ac-data-backend-hub.tar.gz` to your backend VPS.
@@ -96,11 +98,13 @@ On each **game VPS** (edge), set (hub-centric — no Convex SDK keys on edge):
 ```bash
 BACKEND_INGEST_URL=https://THIS_HUB_HOSTNAME
 REDIS_CONFIG_SYNC_ON_EDGE=false
-CONVEX_WORKER_SECRET=...  # same as hub (X-Worker-Secret only)
+FLEET_EDGE_SECRET=...  # same as hub FLEET_EDGE_SECRET (X-Worker-Secret); must differ from CONVEX_WORKER_SECRET in prod
 EDGE_REGISTRY_BASE_URL=http://PRIVATE_IP:3000
 EDGE_PUBLIC_BASE_URL=https://REGIONAL_PUBLIC_HOST
 ```
 
-Convex webhooks `refresh-user` / `refresh-config` should target **this hub** (`POST /hud/worker/refresh-user` with `instanceId`). The hub forwards to the matching edge in `FLEET_EDGE_REGISTRY`.
+Convex webhooks `refresh-user` / `refresh-config` should target **this hub** (`POST /hud/worker/refresh-user` with `instanceId`). The hub forwards to the matching edge in `FLEET_EDGE_REGISTRY` using `FLEET_EDGE_SECRET`.
+
+Do not ship a tarball from `npm run package:hub` alone — run `npm run verify:hub-package` (also enforced in CI) before upload.
 
 See [docs/MULTI_REGION_EDGE.md](../../docs/MULTI_REGION_EDGE.md).

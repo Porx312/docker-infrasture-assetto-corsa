@@ -1,17 +1,14 @@
 import { getHubWorkerBaseUrl, isHubWorkerMode } from '../hubWorkerUrl.js';
+import { fleetEdgeSecret } from '../secrets/fleetSecrets.js';
 import type { HudRegistrySyncPayload } from './hudDynamicRegistryTypes.js';
 
-function workerSecret(): string {
-  return (process.env.CONVEX_WORKER_SECRET || '').trim();
-}
-
 export function isEdgeHudRegistrySyncConfigured(): boolean {
-  return isHubWorkerMode() && Boolean(workerSecret());
+  return isHubWorkerMode() && Boolean(fleetEdgeSecret());
 }
 
 export async function syncHudRegistryToHub(payload: HudRegistrySyncPayload): Promise<void> {
   const baseUrl = getHubWorkerBaseUrl();
-  const secret = workerSecret();
+  const secret = fleetEdgeSecret();
   if (!baseUrl || !secret) {
     return;
   }
@@ -23,7 +20,7 @@ export async function syncHudRegistryToHub(payload: HudRegistrySyncPayload): Pro
       'Content-Type': 'application/json',
       'x-worker-secret': secret,
     },
-    body: JSON.stringify({ workerSecret: secret, ...payload }),
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {

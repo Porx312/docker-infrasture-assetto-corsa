@@ -1,23 +1,30 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import assert from 'node:assert/strict';
+import test from 'node:test';
 
-describe('isHudApiKeyValid', () => {
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
+import { isHudApiKeyValid, requireHudApiKeyFromQuery } from './hudBattleAuth.js';
 
-  it('rejects all requests when HUD_API_KEY is unset', async () => {
-    vi.stubEnv('HUD_API_KEY', '');
-    const { isHudApiKeyValid } = await import('./hudBattleAuth.js');
-    expect(isHudApiKeyValid(undefined)).toBe(false);
-    expect(isHudApiKeyValid('any-key')).toBe(false);
-  });
+test('isHudApiKeyValid rejects all requests when HUD_API_KEY is unset', () => {
+  const prev = process.env.HUD_API_KEY;
+  try {
+    delete process.env.HUD_API_KEY;
+    assert.equal(isHudApiKeyValid(undefined), false);
+    assert.equal(isHudApiKeyValid('any-key'), false);
+  } finally {
+    if (prev === undefined) delete process.env.HUD_API_KEY;
+    else process.env.HUD_API_KEY = prev;
+  }
+});
 
-  it('accepts matching key when configured', async () => {
-    vi.stubEnv('HUD_API_KEY', 'test-hud-key');
-    const { isHudApiKeyValid, requireHudApiKeyFromQuery } = await import('./hudBattleAuth.js');
-    expect(isHudApiKeyValid('test-hud-key')).toBe(true);
-    expect(isHudApiKeyValid('wrong')).toBe(false);
-    expect(requireHudApiKeyFromQuery(undefined, 'test-hud-key').ok).toBe(true);
-    expect(requireHudApiKeyFromQuery('test-hud-key', undefined).ok).toBe(true);
-  });
+test('isHudApiKeyValid accepts matching key when configured', () => {
+  const prev = process.env.HUD_API_KEY;
+  try {
+    process.env.HUD_API_KEY = 'test-hud-key';
+    assert.equal(isHudApiKeyValid('test-hud-key'), true);
+    assert.equal(isHudApiKeyValid('wrong'), false);
+    assert.equal(requireHudApiKeyFromQuery(undefined, 'test-hud-key').ok, true);
+    assert.equal(requireHudApiKeyFromQuery('test-hud-key', undefined).ok, true);
+  } finally {
+    if (prev === undefined) delete process.env.HUD_API_KEY;
+    else process.env.HUD_API_KEY = prev;
+  }
 });

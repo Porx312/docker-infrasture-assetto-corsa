@@ -31,8 +31,13 @@ import type {
   WorkerSyncVersionResult,
 } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
-const CONVEX_WORKER_SECRET = (process.env.CONVEX_WORKER_SECRET || '').trim();
-const AC_INSTANCE_ID = process.env.AC_INSTANCE_ID || 'default';
+function convexWorkerSecret(): string {
+  return (process.env.CONVEX_WORKER_SECRET || '').trim();
+}
+
+function acInstanceId(): string {
+  return process.env.AC_INSTANCE_ID || 'default';
+}
 
 async function runHudConvexQuery<T>(
   label: string,
@@ -52,7 +57,7 @@ export function isHudConvexConfigured(): boolean {
   if (isEdgeHubWorkerClientConfigured()) {
     return true;
   }
-  return Boolean(CONVEX_WORKER_SECRET) && isConvexConfigured();
+  return Boolean(convexWorkerSecret()) && isConvexConfigured();
 }
 
 function useHubWorker(): boolean {
@@ -76,13 +81,13 @@ async function resolvePresenceArgs(steamId: string): Promise<HudWorkerPresenceAr
 export async function fetchWorkerSyncVersion(): Promise<WorkerSyncVersionResult> {
   const result = await runHudConvexQuery('fetchWorkerSyncVersion', async () => {
     if (useHubWorker()) {
-      const body = (await hubFetchWorkerSyncVersion(AC_INSTANCE_ID)) as {
+      const body = (await hubFetchWorkerSyncVersion(acInstanceId())) as {
         ok?: boolean;
         sync?: WorkerSyncVersionResult;
       };
       return body.sync ?? DEFAULT_WORKER_SYNC;
     }
-    return queryWorkerSyncVersion(AC_INSTANCE_ID);
+    return queryWorkerSyncVersion(acInstanceId());
   });
 
   if (!('ok' in result)) {

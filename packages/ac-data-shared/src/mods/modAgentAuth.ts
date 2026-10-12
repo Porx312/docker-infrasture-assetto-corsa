@@ -1,5 +1,6 @@
 import type { Request } from 'express';
 import { isWorkerRequestAuthorized, readWorkerSecretFromRequest } from '../services/hud/hudWorkerAuth.js';
+import { fleetEdgeSecret } from '../services/secrets/fleetSecrets.js';
 
 export function readEdgeIdFromRequest(req: Request): string {
   const header = req.headers['x-edge-id'];
@@ -19,8 +20,9 @@ export function isModAgentRequestAuthorized(req: Request): boolean {
   return Boolean(readEdgeIdFromRequest(req));
 }
 
+/** Outbound edge → hub mod-agent headers (FLEET_EDGE_SECRET). */
 export function modAgentAuthHeaders(edgeId: string): Record<string, string> {
-  const secret = (process.env.CONVEX_WORKER_SECRET || '').trim();
+  const secret = fleetEdgeSecret();
   return {
     'Content-Type': 'application/json',
     'X-Worker-Secret': secret,

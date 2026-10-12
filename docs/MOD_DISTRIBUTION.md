@@ -2,6 +2,8 @@
 
 **Preferred model (edge-only blobs):** ZIP bytes live on game VPS nodes. The hub keeps **catalog metadata** only (`mod_packages`, `mod_artifacts`, inventory, sync jobs). Copy between VPS is **peer pull** (worker secret), not hub→edge re-upload.
 
+Unified catalog only: cars/tracks share `mod_packages` (no `mod_car_packages` / `mod_track_packages`). Migration `009_drop_unused_mod_split.sql` drops the abandoned split tables and unused upload-session table.
+
 Leftover hub master blobs (`storage_origin=hub`, `MOD_STORAGE_MODE`) are **read/delete only** — new uploads go **Cars / Tracks → Upload to VPS**. There is no hub ZIP upload API.
 
 ## Architecture

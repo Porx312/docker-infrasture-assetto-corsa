@@ -31,6 +31,7 @@ test.beforeEach(() => {
   resetConfigSyncStateForTests();
   bindFakeRedisClient();
   process.env.CONVEX_DEPLOYMENT_URL = 'https://example.convex.cloud';
+  process.env.CONVEX_PRODUCT_KEY = 'test-product-key';
   process.env.CONVEX_WORKER_SECRET = 'test-worker-secret';
   setConfigSyncTestHooks({
     fetchWorkerSyncVersion: async () => ({

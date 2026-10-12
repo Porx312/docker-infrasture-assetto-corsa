@@ -1,6 +1,7 @@
 import { postToEdgeWorker } from '@projectd/ac-data-shared/services/fleet/edgeWorkerForward.js';
 import { resolveFleetEdgeByInstanceId } from '@projectd/ac-data-shared/services/fleet/fleetRegistry.js';
 import type { WorkerConfigSnapshotResult } from '@projectd/ac-data-shared/services/hud/workerConvexQueries.js';
+import { fleetEdgeSecret } from '@projectd/ac-data-shared/services/secrets/fleetSecrets.js';
 import { applyDesiredConfig } from './desiredConfig.js';
 import {
   getServerSlotById,
@@ -17,7 +18,7 @@ import { isModDbConfigured } from '../mods/db.js';
 const PROXY_TIMEOUT_MS = Number(process.env.FLEET_ADMIN_PROXY_TIMEOUT_MS || 120_000);
 
 function workerSecret(): string {
-  return (process.env.CONVEX_WORKER_SECRET || '').trim();
+  return fleetEdgeSecret();
 }
 
 type ConfigServerShape = {
@@ -125,7 +126,7 @@ async function postEdgeAdmin(
 ): Promise<{ ok: boolean; status: number; data: unknown }> {
   const secret = workerSecret();
   if (!secret) {
-    return { ok: false, status: 503, data: { error: 'CONVEX_WORKER_SECRET_missing' } };
+    return { ok: false, status: 503, data: { error: 'FLEET_EDGE_SECRET_missing' } };
   }
   const base = edgeBaseUrl.replace(/\/+$/, '');
   const path = adminPath.startsWith('/') ? adminPath : `/${adminPath}`;

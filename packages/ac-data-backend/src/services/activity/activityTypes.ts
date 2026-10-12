@@ -83,6 +83,7 @@ export type ParsedStreamEntry = {
   streamId: string;
   event: string;
   serverName: string;
+  instanceId?: string;
   ts: number;
   payload: RedisStreamEnvelope;
 };

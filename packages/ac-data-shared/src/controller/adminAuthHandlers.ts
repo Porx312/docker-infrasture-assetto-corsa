@@ -3,8 +3,9 @@ import {
   generateToken,
   getAdminCredentials,
   verifyToken,
-  ADMIN_TOKEN_COOKIE_OPTIONS,
+  getAdminTokenCookieOptions,
 } from '../middleware/adminAuth.js';
+import { secretsMatch } from '../services/secrets/fleetSecrets.js';
 
 export async function adminLogin(req: Request, res: Response): Promise<void> {
   const { username, password } = req.body;
@@ -23,22 +24,24 @@ export async function adminLogin(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  if (username !== creds.username || password !== creds.password) {
+  if (!secretsMatch(String(username), creds.username) || !secretsMatch(String(password), creds.password)) {
     res.status(401).json({ error: 'Unauthorized', message: 'Invalid credentials' });
     return;
   }
 
   const token = generateToken(username);
-  res.cookie('admin_token', token, ADMIN_TOKEN_COOKIE_OPTIONS);
-  res.json({ ok: true, message: 'Login successful', token });
+  res.cookie('admin_token', token, getAdminTokenCookieOptions());
+  // Cookie-only session — do not return JWT in JSON (XSS / extension leakage).
+  res.json({ ok: true, message: 'Login successful' });
 }
 
 export async function adminLogout(_req: Request, res: Response): Promise<void> {
+  const opts = getAdminTokenCookieOptions();
   res.clearCookie('admin_token', {
-    httpOnly: ADMIN_TOKEN_COOKIE_OPTIONS.httpOnly,
-    secure: ADMIN_TOKEN_COOKIE_OPTIONS.secure,
-    sameSite: ADMIN_TOKEN_COOKIE_OPTIONS.sameSite,
-    path: ADMIN_TOKEN_COOKIE_OPTIONS.path,
+    httpOnly: opts.httpOnly,
+    secure: opts.secure,
+    sameSite: opts.sameSite,
+    path: opts.path,
   });
   res.json({ ok: true, message: 'Logged out' });
 }

@@ -58,3 +58,35 @@ test('hubOrAdminAuth rejects without secret', () => {
   assert.equal(nextCalled, false);
   assert.equal(out.statusCode, 403);
 });
+
+test('hubOrAdminAuth rejects empty configured secrets', () => {
+  process.env.CONVEX_WORKER_SECRET = '   ';
+  process.env.FLEET_EDGE_SECRET = '';
+  const req = {
+    headers: { 'x-worker-secret': 'anything' },
+    body: {},
+  } as unknown as Request;
+  const out = mockRes();
+  let nextCalled = false;
+  hubOrAdminAuth(req, out.res, () => {
+    nextCalled = true;
+  });
+  assert.equal(nextCalled, false);
+  assert.equal(out.statusCode, 403);
+});
+
+test('hubOrAdminAuth with FLEET set rejects CONVEX-only header', () => {
+  process.env.FLEET_EDGE_SECRET = 'fleet-only-secret-value-32chars!!!!';
+  process.env.CONVEX_WORKER_SECRET = 'convex-other-secret-value-32chars!!';
+  const req = {
+    headers: { 'x-worker-secret': 'convex-other-secret-value-32chars!!' },
+    body: {},
+  } as unknown as Request;
+  const out = mockRes();
+  let nextCalled = false;
+  hubOrAdminAuth(req, out.res, () => {
+    nextCalled = true;
+  });
+  assert.equal(nextCalled, false);
+  assert.equal(out.statusCode, 403);
+});

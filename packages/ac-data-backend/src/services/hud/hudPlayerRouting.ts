@@ -123,10 +123,10 @@ function allowLegacyServerNameRouting(): boolean {
   const raw = (process.env.HUD_ALLOW_LEGACY_SERVERNAME_ROUTING || '').trim().toLowerCase();
   if (raw === 'true' || raw === '1') return true;
   if (raw === 'false' || raw === '0') return false;
-  // Default: allow in non-prod / insecure lab only
+  // Default: allow in non-prod only. Prod must opt in via HUD_ALLOW_LEGACY_SERVERNAME_ROUTING
+  // (ALLOW_INSECURE_DEFAULTS must not reopen lobby-name routing — AUD2-11).
   const env = (process.env.ASSETTO_ENV || 'dev').trim().toLowerCase();
-  const allowInsecure = (process.env.ALLOW_INSECURE_DEFAULTS || '').trim().toLowerCase() === 'true';
-  return (env !== 'prod' && env !== 'production') || allowInsecure;
+  return env !== 'prod' && env !== 'production';
 }
 
 export async function resolveHudEdgeForSteamId(

@@ -2,14 +2,9 @@ import type { Request, Response } from 'express';
 import { getActivityFeed, getActivitySummary, getActivityTimeline } from '../services/activity/activityService.js';
 import { isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 import { summarizeServers } from '@projectd/ac-data-shared/services/serverBranding.js';
+import { isFleetModeEnabled } from '@projectd/ac-data-shared/services/fleet/fleetRegistry.js';
 import type { ActivityCategory } from '../services/activity/activityTypes.js';
-import {
-  fetchMergedActivityFeed,
-  fetchMergedActivityServers,
-  fetchMergedActivitySummary,
-  fetchMergedActivityTimeline,
-  shouldUseFleetActivityMerge,
-} from '../services/fleet/activityFleetMerge.js';
+import { fetchMergedFleetServers } from '../services/fleet/fleetServersMerge.js';
 
 const VALID_CATEGORIES = new Set<string>([
   'all',
@@ -36,13 +31,34 @@ function parseDay(raw: unknown): string | undefined {
   return value;
 }
 
-export async function getActivityServersHandler(req: Request, res: Response): Promise<void> {
+function parseTzOffset(raw: unknown): number | undefined {
+  if (typeof raw !== 'string' || !raw.trim()) return undefined;
+  const value = Number.parseInt(raw.trim(), 10);
+  if (!Number.isFinite(value)) return undefined;
+  if (value < -840 || value > 840) return undefined;
+  return value;
+}
+
+export async function getActivityServersHandler(_req: Request, res: Response): Promise<void> {
   try {
-    if (shouldUseFleetActivityMerge()) {
-      const merged = await fetchMergedActivityServers(req);
-      res.json(merged);
+    if (isFleetModeEnabled()) {
+      const merged = await fetchMergedFleetServers();
+      res.json({
+        ok: true,
+        fleetMode: true,
+        servers: merged.servers.map((s) => ({
+          name: s.name,
+          displayName: s.displayName,
+          wrapperPort: s.wrapperPort,
+          fleetEdgeId: s.fleetEdgeId,
+          fleetLabel: s.fleetLabel,
+          instanceId: s.instanceId,
+        })),
+        warnings: merged.warnings,
+      });
       return;
     }
+
     if (!isHudRedisConfigured()) {
       res.status(503).json({ ok: false, message: 'Redis not configured' });
       return;
@@ -61,21 +77,8 @@ export async function getActivityServersHandler(req: Request, res: Response): Pr
   }
 }
 
-function parseTzOffset(raw: unknown): number | undefined {
-  if (typeof raw !== 'string' || !raw.trim()) return undefined;
-  const value = Number.parseInt(raw.trim(), 10);
-  if (!Number.isFinite(value)) return undefined;
-  if (value < -840 || value > 840) return undefined;
-  return value;
-}
-
 export async function getActivityFeedHandler(req: Request, res: Response): Promise<void> {
   try {
-    if (shouldUseFleetActivityMerge()) {
-      const merged = await fetchMergedActivityFeed(req);
-      res.json(merged);
-      return;
-    }
     if (!isHudRedisConfigured()) {
       res.status(503).json({ ok: false, message: 'Redis not configured' });
       return;
@@ -109,11 +112,6 @@ export async function getActivityFeedHandler(req: Request, res: Response): Promi
 
 export async function getActivitySummaryHandler(req: Request, res: Response): Promise<void> {
   try {
-    if (shouldUseFleetActivityMerge()) {
-      const merged = await fetchMergedActivitySummary(req);
-      res.json(merged);
-      return;
-    }
     if (!isHudRedisConfigured()) {
       res.status(503).json({ ok: false, message: 'Redis not configured' });
       return;
@@ -132,11 +130,6 @@ export async function getActivitySummaryHandler(req: Request, res: Response): Pr
 
 export async function getActivityTimelineHandler(req: Request, res: Response): Promise<void> {
   try {
-    if (shouldUseFleetActivityMerge()) {
-      const merged = await fetchMergedActivityTimeline(req);
-      res.json(merged);
-      return;
-    }
     if (!isHudRedisConfigured()) {
       res.status(503).json({ ok: false, message: 'Redis not configured' });
       return;

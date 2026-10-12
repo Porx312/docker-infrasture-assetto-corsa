@@ -16,8 +16,12 @@ import {
 import { publishHudRegistryToHubIfConfigured } from './hud/edgeHudRegistryPublish.js';
 
 const REDIS_CONFIG_STREAM_KEY = process.env.REDIS_CONFIG_STREAM_KEY || 'ac:config';
-const AC_INSTANCE_ID = process.env.AC_INSTANCE_ID || 'default';
-const CONVEX_WORKER_SECRET = (process.env.CONVEX_WORKER_SECRET || '').trim();
+function acInstanceId(): string {
+  return process.env.AC_INSTANCE_ID || 'default';
+}
+function convexWorkerSecret(): string {
+  return (process.env.CONVEX_WORKER_SECRET || '').trim();
+}
 const CONVEX_WORKER_SYNC_QUERY =
   process.env.CONVEX_WORKER_SYNC_QUERY || 'workerSync:getWorkerInstanceSyncVersion';
 export const REDIS_CONFIG_SYNC_INTERVAL_MS = Number(
@@ -66,10 +70,10 @@ async function fetchConfigSnapshot(): Promise<WorkerConfigSnapshotResult> {
   if (testHooks?.fetchSnapshot) {
     return testHooks.fetchSnapshot();
   }
-  if (!isConvexConfigured() || !CONVEX_WORKER_SECRET) {
+  if (!isConvexConfigured() || !convexWorkerSecret()) {
     throw new Error('Convex worker env missing for config snapshot');
   }
-  return queryWorkerConfigSnapshot(AC_INSTANCE_ID);
+  return queryWorkerConfigSnapshot(acInstanceId());
 }
 
 async function publishSnapshot(
@@ -98,10 +102,16 @@ export function getLastConfigVersionForTests(): string {
 }
 
 /** Fetch Convex server configs and publish to Redis when version changed. */
+function hasConfigSyncTestHooks(): boolean {
+  return Boolean(
+    testHooks?.fetchWorkerSyncVersion && testHooks?.fetchSnapshot && testHooks?.publishSnapshot,
+  );
+}
+
 export async function refreshConfigFromConvex(
   options?: RefreshConfigFromConvexOptions,
 ): Promise<RefreshConfigFromConvexResult> {
-  if (!isConvexConfigured() || !CONVEX_WORKER_SECRET) {
+  if (!hasConfigSyncTestHooks() && (!isConvexConfigured() || !convexWorkerSecret())) {
     throw new Error('Convex worker env missing');
   }
   if (!configSyncClient) {
@@ -166,8 +176,8 @@ export async function publishConfigSnapshotFromHub(
   if (!configSyncClient) {
     throw new Error('Config sync Redis client not initialized');
   }
-  if (snapshot.instanceId !== AC_INSTANCE_ID) {
-    throw new Error(`instance_mismatch expected=${AC_INSTANCE_ID} got=${snapshot.instanceId}`);
+  if (snapshot.instanceId !== acInstanceId()) {
+    throw new Error(`instance_mismatch expected=${acInstanceId()} got=${snapshot.instanceId}`);
   }
   updateManagedServersFromSnapshot((snapshot.servers ?? []) as ManagedServerRow[]);
   await publishSnapshot(configSyncClient, snapshot);
@@ -189,7 +199,7 @@ export async function startConvexConfigPublisher(client: RedisClientType): Promi
     return;
   }
 
-  if (!isConvexConfigured() || !CONVEX_WORKER_SECRET) {
+  if (!isConvexConfigured() || !convexWorkerSecret()) {
     console.log('[redis-config-sync] missing convex env, publisher disabled');
     return;
   }
@@ -206,7 +216,7 @@ export async function startConvexConfigPublisher(client: RedisClientType): Promi
   }
 
   console.log(
-    `[redis-config-sync] enabled instance=${AC_INSTANCE_ID} fallback=${REDIS_CONFIG_SYNC_FALLBACK_ENABLED} interval=${pollIntervalMs}ms stream=${REDIS_CONFIG_STREAM_KEY} syncQuery=${CONVEX_WORKER_SYNC_QUERY}`,
+    `[redis-config-sync] enabled instance=${acInstanceId()} fallback=${REDIS_CONFIG_SYNC_FALLBACK_ENABLED} interval=${pollIntervalMs}ms stream=${REDIS_CONFIG_STREAM_KEY} syncQuery=${CONVEX_WORKER_SYNC_QUERY}`,
   );
 
   try {

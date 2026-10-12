@@ -2,6 +2,10 @@ import type { Request } from 'express';
 
 import { fleetEdgeSecret, modPeerSecret, secretsMatch } from '../secrets/fleetSecrets.js';
 
+/**
+ * Prefer `x-worker-secret` / `X-Worker-Secret` header.
+ * Body `workerSecret` is accepted only for legacy clients (outbound callers no longer send it).
+ */
 export function readWorkerSecretFromRequest(req: Request): string {
   const header = req.headers['x-worker-secret'];
   if (typeof header === 'string' && header.trim()) {

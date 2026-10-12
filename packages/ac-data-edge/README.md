@@ -1,8 +1,10 @@
-# ac-data
+# ac-data-edge
 
-Node.js **host control plane** for Assetto Corsa: Redis↔Convex bridge, HUD API, admin UI, AC server lifecycle.
+Node.js **region edge** for Assetto Corsa: Redis↔Convex bridge, live HUD WS, AC server lifecycle, and hub-proxied `/admin/*` JSON.
 
-**Full architecture, env vars, and deploy checklist:** [`docs/AC_DATA.md`](../docs/AC_DATA.md)
+**Full architecture, env vars, and deploy checklist:** [`docs/AC_DATA.md`](../../docs/AC_DATA.md)
+
+Admin UI, Activity feed, and player ZIP downloads run on the **hub** (`ac-data-backend`), not on the edge.
 
 ## Quick start
 
@@ -11,28 +13,27 @@ Node.js **host control plane** for Assetto Corsa: Redis↔Convex bridge, HUD API
 ./start.sh dev
 
 # Or manually
-cd ac-data && npm run build && npm start
+cd packages/ac-data-edge && npm run build && npm start
 ```
 
-After code changes: **always rebuild + restart ac-data** (see deploy checklist in `docs/AC_DATA.md`).
+After code changes: **always rebuild + restart the edge** (see deploy checklist in `docs/AC_DATA.md`).
 
 ## Purpose
 
 - Consumes `ac:events` from Redis → forwards to Convex; HUD/pool side effects via event handlers
 - Publishes Convex config snapshots to `ac:config` → applies INI + restart
 - Spawns native 32-bit AC server processes (must run on host, not Docker)
-- Live HUD runtime (`/hud/ws`, snapshot, presence) — player ZIP downloads and admin UI live on the **hub**
+- Live HUD runtime (`/hud/ws`, snapshot, presence)
 - JSON `/admin/*` for hub proxy (worker secret); see [`docs/MULTI_REGION_EDGE.md`](../../docs/MULTI_REGION_EDGE.md)
 
 ## Architecture
 
 ```
-Convex ──────► Redis (ac:config) ──────► ac-data ──────► AC Servers
-telemetry ───► Redis (ac:events) ──────► ac-data ──────► Convex ingest
+Convex ──────► Redis (ac:config) ──────► ac-data-edge ──────► AC Servers
+telemetry ───► Redis (ac:events) ──────► ac-data-edge ──────► Convex ingest
                           │
-                          └──► HUD cache / SSE / Admin Activity
+                          └──► HUD WS / cache (Activity UI on hub)
 ```
-
 ## Health
 
 ```bash
@@ -63,7 +64,7 @@ export AC_INSTANCE_ID=vps-eu-2
 export SERVERS_PATH=/home/jose/assetto-install/assetto/server
 export RESTART_ON_BOOT=false
 
-exec node dist/index.js >> /home/jose/assetto-infra/ac-data.log 2>&1
+exec node dist/index.js >> /home/jose/assetto-infra/logs/ac-data-edge.log 2>&1
 ```
 
 ### Build
@@ -157,7 +158,7 @@ Only the affected server is restarted - other servers continue running.
 
 ## Logs
 
-- Process logs: `/home/jose/assetto-infra/ac-data.log`
+- Process logs: `/home/jose/assetto-infra/logs/ac-data-edge.log` (or `$LOG_DIR/ac-data-edge.log`)
 - Server logs: Visible in the same log file (stdout from AC server processes)
 
 ## Troubleshooting

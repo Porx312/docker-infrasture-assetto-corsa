@@ -33,7 +33,9 @@ const MAX_ATTEMPTS = Number(process.env.MOD_SYNC_MAX_ATTEMPTS || 5);
 /** Requeue `running` jobs whose started_at is older than this (dead agent / crash). */
 const RUNNING_STALE_MS = Number(process.env.MOD_SYNC_RUNNING_STALE_MS || 600_000);
 /** Cap concurrent running install/upgrade jobs per edge (peer-pull mesh). */
-const MAX_PEER_PULL_CONCURRENT = Number(process.env.MOD_PEER_PULL_MAX_CONCURRENT || 3);
+function maxPeerPullConcurrent(): number {
+  return Number(process.env.MOD_PEER_PULL_MAX_CONCURRENT || 3);
+}
 
 function assertLocalMasterBlobPresent(storageKey: string, sha256: string): void {
   if (isEdgeBlobStorageKey(storageKey)) {
@@ -86,6 +88,7 @@ function peerBlobDownloadUrl(sourceEdgeId: string, sha256: string): string {
 
 /**
  * Idempotent enqueue: same edge + artifact + active (queued|running) job → reuse.
+ * Atomic via partial unique index + ON CONFLICT (AUD2-07).
  * Returns job id (existing or newly created).
  */
 export async function enqueueJob(
@@ -94,28 +97,34 @@ export async function enqueueJob(
   operation: SyncJobOperation,
 ): Promise<string> {
   const pool = getModPool();
+  const jobId = randomUUID();
+  const inserted = await pool.query<{ id: string }>(
+    `INSERT INTO sync_jobs (id, edge_id, artifact_id, operation, state)
+     VALUES ($1, $2, $3, $4, 'queued')
+     ON CONFLICT (edge_id, artifact_id) WHERE state IN ('queued', 'running') DO NOTHING
+     RETURNING id`,
+    [jobId, edgeId, artifactId, operation],
+  );
+  if (inserted.rows[0]) {
+    await pool.query(
+      `INSERT INTO sync_job_events (job_id, level, message) VALUES ($1, 'info', $2)`,
+      [inserted.rows[0].id, `Job queued: ${operation}`],
+    );
+    await pool.query(
+      `UPDATE edge_artifact_inventory SET status = 'PENDING', updated_at = NOW()
+       WHERE edge_id = $1 AND artifact_id = $2`,
+      [edgeId, artifactId],
+    );
+    return inserted.rows[0].id;
+  }
   const existing = await pool.query<{ id: string }>(
     `SELECT id FROM sync_jobs WHERE edge_id = $1 AND artifact_id = $2 AND state IN ('queued', 'running') LIMIT 1`,
     [edgeId, artifactId],
   );
-  if (existing.rows[0]) {
-    return existing.rows[0].id;
+  if (!existing.rows[0]) {
+    throw new Error('enqueueJob race: active job missing after conflict');
   }
-  const jobId = randomUUID();
-  await pool.query(
-    `INSERT INTO sync_jobs (id, edge_id, artifact_id, operation, state) VALUES ($1, $2, $3, $4, 'queued')`,
-    [jobId, edgeId, artifactId, operation],
-  );
-  await pool.query(
-    `INSERT INTO sync_job_events (job_id, level, message) VALUES ($1, 'info', $2)`,
-    [jobId, `Job queued: ${operation}`],
-  );
-  await pool.query(
-    `UPDATE edge_artifact_inventory SET status = 'PENDING', updated_at = NOW()
-     WHERE edge_id = $1 AND artifact_id = $2`,
-    [edgeId, artifactId],
-  );
-  return jobId;
+  return existing.rows[0].id;
 }
 
 /**
@@ -149,15 +158,13 @@ export async function ensureArtifactOnEdge(
   await assignArtifactToEdges(artifactId, art.package_id, [normalizedEdge]);
 
   const pool = getModPool();
-  const existing = await pool.query<{ id: string }>(
+  const before = await pool.query<{ id: string }>(
     `SELECT id FROM sync_jobs WHERE edge_id = $1 AND artifact_id = $2 AND state IN ('queued', 'running') LIMIT 1`,
     [normalizedEdge, artifactId],
   );
-  if (existing.rows[0]) {
-    return { jobId: existing.rows[0].id, created: false };
-  }
   const jobId = await enqueueJob(normalizedEdge, artifactId, 'install');
-  return { jobId, created: true };
+  // Best-effort: true when no active job existed before this call (enqueue is the atomic path).
+  return { jobId, created: !before.rows[0] };
 }
 
 export async function distributeArtifact(
@@ -336,12 +343,6 @@ export async function forceDeleteModPackage(packageId: string): Promise<{
   }
 
   await pool.query(`DELETE FROM mod_packages WHERE id = $1`, [packageId]);
-  // Split tables use the same UUID as mod_packages (migration 002); clean orphans.
-  if (pkg.kind === 'car') {
-    await pool.query(`DELETE FROM mod_car_packages WHERE id = $1`, [packageId]).catch(() => undefined);
-  } else if (pkg.kind === 'track') {
-    await pool.query(`DELETE FROM mod_track_packages WHERE id = $1`, [packageId]).catch(() => undefined);
-  }
 
   await syncHostCatalogDelete({
     kind: pkg.kind,
@@ -403,22 +404,27 @@ export async function acquireJobForEdge(edgeId: string, agentId: string): Promis
   await reclaimStaleRunningJobs(edgeId);
 
   const pool = getModPool();
-  if (MAX_PEER_PULL_CONCURRENT > 0) {
-    const running = await pool.query<{ count: string }>(
-      `SELECT count(*)::text AS count FROM sync_jobs
-       WHERE edge_id = $1 AND state = 'running'
-         AND operation IN ('install', 'upgrade')`,
-      [edgeId],
-    );
-    const n = Number(running.rows[0]?.count || 0);
-    if (n >= MAX_PEER_PULL_CONCURRENT) {
-      return null;
-    }
-  }
-
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    // Serialize per-edge acquire so MOD_PEER_PULL_MAX_CONCURRENT cannot race (AUD2-07).
+    await client.query(`SELECT id FROM fleet_edges WHERE id = $1 FOR UPDATE`, [edgeId]);
+
+    const peerPullCap = maxPeerPullConcurrent();
+    if (peerPullCap > 0) {
+      const running = await client.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM sync_jobs
+         WHERE edge_id = $1 AND state = 'running'
+           AND operation IN ('install', 'upgrade')`,
+        [edgeId],
+      );
+      const n = Number(running.rows[0]?.count || 0);
+      if (n >= peerPullCap) {
+        await client.query('COMMIT');
+        return null;
+      }
+    }
+
     const jobResult = await client.query<{
       id: string;
       artifact_id: string;

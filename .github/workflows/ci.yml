@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - develop
+
+jobs:
+  packages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: assetto
+          POSTGRES_PASSWORD: assetto
+          POSTGRES_DB: assetto_mods
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U assetto -d assetto_mods"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://assetto:assetto@localhost:5432/assetto_mods
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test shared
+        run: npm run test:shared
+
+      - name: Test edge
+        # Unit suite isolates .env.local (NODE_ENV=test + SKIP_ASSETTO_ENV_LOAD). Short safety net only.
+        run: timeout 90 npm run test:edge
+
+      - name: Test backend
+        run: npm run test:backend
+
+      # Gate release artifact: pack + content asserts + isolated npm install/build.
+      # Prefer this over bare `npm run package:hub` before uploading dist tarballs.
+      - name: Verify hub package
+        run: npm run verify:hub-package
+
+  telemetry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Optional gate: some battlesystem matchmaking tests currently fail offline.
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: telemetry-data
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: telemetry-data/requirements.txt
+
+      - name: Install
+        run: pip install -r requirements.txt
+
+      - name: Pytest
+        run: pytest -q

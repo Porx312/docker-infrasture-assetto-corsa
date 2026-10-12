@@ -55,6 +55,27 @@ fi
 # Export env for child processes (ac-data, start-telemetry.sh)
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export ASSETTO_ENV_FILE="$ROOT_DIR/$ENV_FILE"
+# Process stdout redirects land here (override with LOG_DIR=...).
+LOG_DIR="${LOG_DIR:-$ROOT_DIR/logs}"
+mkdir -p "$LOG_DIR"
+EDGE_LOG="$LOG_DIR/ac-data-edge.log"
+BACKEND_LOG="$LOG_DIR/ac-data-backend.log"
+TELEMETRY_LOG="$LOG_DIR/telemetry-data.log"
+
+# One-shot: move legacy root-level logs into LOG_DIR when destination is empty/missing.
+migrate_legacy_log() {
+    local legacy="$1"
+    local dest="$2"
+    [[ -f "$legacy" ]] || return 0
+    if [[ ! -f "$dest" ]] || [[ ! -s "$dest" ]]; then
+        echo -e "${YELLOW}Moving legacy $(basename "$legacy") → $dest${NC}"
+        mv -f "$legacy" "$dest" || true
+    fi
+}
+migrate_legacy_log "$ROOT_DIR/ac-data.log" "$EDGE_LOG"
+migrate_legacy_log "$ROOT_DIR/ac-data-backend.log" "$BACKEND_LOG"
+migrate_legacy_log "$ROOT_DIR/telemetry-data.log" "$TELEMETRY_LOG"
+
 case "$ENV_MODE" in
     prod|production) export ASSETTO_ENV=prod ;;
     *) export ASSETTO_ENV=dev ;;
@@ -77,9 +98,9 @@ rotate_log_if_huge() {
         : > "$log_path" || truncate -s 0 "$log_path" || true
     fi
 }
-rotate_log_if_huge "$ROOT_DIR/ac-data.log"
-rotate_log_if_huge "$ROOT_DIR/ac-data-backend.log"
-rotate_log_if_huge "$ROOT_DIR/telemetry-data.log"
+rotate_log_if_huge "$EDGE_LOG"
+rotate_log_if_huge "$BACKEND_LOG"
+rotate_log_if_huge "$TELEMETRY_LOG"
 
 # Function to check if a process is running
 is_running() {
@@ -137,8 +158,8 @@ if [ "$ENV_MODE" = "dev" ]; then
     if pgrep -f "python3 main.py" > /dev/null 2>&1; then
         echo -e "${GREEN}telemetry-data is already running${NC}"
     else
-        nohup ./start-telemetry.sh > telemetry-data.log 2>&1 &
-        echo -e "${GREEN}telemetry-data started (host)${NC}"
+        nohup ./start-telemetry.sh > "$TELEMETRY_LOG" 2>&1 &
+        echo -e "${GREEN}telemetry-data started (host; log: $TELEMETRY_LOG)${NC}"
     fi
 else
     if sg docker -c "docker ps -a --filter name=assetto-telemetry-data --format '{{.Names}}'" 2>/dev/null | grep -q assetto-telemetry-data; then
@@ -168,8 +189,8 @@ start_ac_data_edge() {
         return
     fi
     nohup env ASSETTO_ENV="$ASSETTO_ENV" ASSETTO_ENV_FILE="$ASSETTO_ENV_FILE" \
-        npm run dev -w @projectd/ac-data-edge > "$ROOT_DIR/ac-data.log" 2>&1 &
-    echo -e "${GREEN}ac-data-edge started (log: ac-data.log)${NC}"
+        npm run dev -w @projectd/ac-data-edge > "$EDGE_LOG" 2>&1 &
+    echo -e "${GREEN}ac-data-edge started (log: $EDGE_LOG)${NC}"
 }
 
 start_ac_data_backend() {
@@ -179,8 +200,8 @@ start_ac_data_backend() {
         return
     fi
     nohup env ASSETTO_ENV="$ASSETTO_ENV" ASSETTO_ENV_FILE="$ASSETTO_ENV_FILE" \
-        npm run dev -w @projectd/ac-data-backend > "$ROOT_DIR/ac-data-backend.log" 2>&1 &
-    echo -e "${GREEN}ac-data-backend started (log: ac-data-backend.log)${NC}"
+        npm run dev -w @projectd/ac-data-backend > "$BACKEND_LOG" 2>&1 &
+    echo -e "${GREEN}ac-data-backend started (log: $BACKEND_LOG)${NC}"
 }
 
 case "$AC_DATA_TARGET" in
@@ -220,9 +241,10 @@ echo "  - ac-data-edge: $(pgrep -f 'ac-data-edge' >/dev/null 2>&1 && echo 'runni
 echo "  - ac-data-backend: $(pgrep -f 'ac-data-backend' >/dev/null 2>&1 && echo 'running' || echo 'stopped')"
 echo "  - Redis: $REDIS_SUMMARY"
 echo ""
-echo "Logs:"
-echo "  - telemetry-data: tail -f telemetry-data.log"
-echo "  - ac-data: tail -f ac-data.log"
+echo "Logs (LOG_DIR=$LOG_DIR):"
+echo "  - telemetry-data: tail -f $TELEMETRY_LOG"
+echo "  - ac-data-edge:   tail -f $EDGE_LOG"
+echo "  - ac-data-backend: tail -f $BACKEND_LOG"
 echo "  - Redis events: redis-cli -h ${REDIS_HOST:-127.0.0.1} xlen ac:events"
 echo ""
 echo "Access:"

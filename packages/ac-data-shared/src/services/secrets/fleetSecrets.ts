@@ -9,6 +9,7 @@
  * outside production-like ASSETTO_ENV.
  */
 
+import crypto from 'node:crypto';
 import { allowSecretFallback } from '../../config/env.js';
 
 export function convexWorkerSecret(): string {
@@ -33,6 +34,10 @@ export function modPeerSecret(): string {
   return '';
 }
 
+/** Constant-time compare of secret strings (hashes first so lengths need not match). */
 export function secretsMatch(provided: string, expected: string): boolean {
-  return Boolean(expected) && provided === expected;
+  if (!expected) return false;
+  const a = crypto.createHash('sha256').update(provided, 'utf8').digest();
+  const b = crypto.createHash('sha256').update(expected, 'utf8').digest();
+  return crypto.timingSafeEqual(a, b);
 }

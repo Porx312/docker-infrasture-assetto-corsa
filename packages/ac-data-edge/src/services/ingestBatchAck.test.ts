@@ -84,6 +84,20 @@ test('partition: missing results retries whole batch', () => {
   assert.equal(partitioned.retry.length, 1);
 });
 
+test('partition: ok true with empty results never XACKs (AUD2-01-R1)', () => {
+  const coalesced = [pending('player_join', '1'), pending('lap_completed', '2')];
+  const partitioned = partitionIngestResults(coalesced, {
+    ok: true,
+    processed: 2,
+    failed: 0,
+    results: [],
+  });
+  assert.equal(partitioned.unsafeMissingResults, true);
+  assert.equal(partitioned.doneIndices.length, 0);
+  assert.equal(partitioned.retry.length, 2);
+  assert.equal(ingestBatchSucceeded({ ok: true, results: [] }), false);
+});
+
 test('resolveChunkAckPlan acks dropped server_status when kept status is done', () => {
   const chunk = [
     pending('server_status', '1'),

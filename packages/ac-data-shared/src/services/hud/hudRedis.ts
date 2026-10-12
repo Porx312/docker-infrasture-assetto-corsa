@@ -57,23 +57,56 @@ export async function getHudRedisClient(): Promise<RedisClientType> {
 }
 
 export async function hudRedisGet(key: string): Promise<string | null> {
+  if (!isRedisConfigured()) {
+    return null;
+  }
   const redis = await getHudRedisClient();
   return redis.get(key);
 }
 
 export async function hudRedisSet(key: string, value: string, ttlSec: number): Promise<void> {
+  if (!isRedisConfigured()) {
+    return;
+  }
   const redis = await getHudRedisClient();
   await redis.set(key, value, { EX: ttlSec });
 }
 
 export async function hudRedisDel(key: string): Promise<void> {
+  if (!isRedisConfigured()) {
+    return;
+  }
   const redis = await getHudRedisClient();
   await redis.del(key);
 }
 
 /** Extend TTL when key exists; no-op if missing or Redis unavailable. */
 export async function hudRedisTouch(key: string, ttlSec: number): Promise<boolean> {
+  if (!isRedisConfigured()) {
+    return false;
+  }
   const redis = await getHudRedisClient();
   const result = await redis.expire(key, ttlSec);
   return result === 1;
+}
+
+/** Quit singleton Redis client so the Node test runner can exit. */
+export async function closeHudRedisForTests(): Promise<void> {
+  connectPromise = null;
+  if (!client) {
+    return;
+  }
+  const current = client;
+  client = null;
+  try {
+    if (current.isOpen) {
+      await current.quit();
+    }
+  } catch {
+    try {
+      current.disconnect();
+    } catch {
+      // ignore disconnect errors during test teardown
+    }
+  }
 }

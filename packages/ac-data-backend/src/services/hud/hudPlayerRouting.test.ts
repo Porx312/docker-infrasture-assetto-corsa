@@ -52,3 +52,46 @@ test('resolveHudEdgeForSteamId without presence or legacy fails', { skip: isHudR
     assert.equal(routing.reason, 'redis_unavailable');
   }
 });
+
+test('prod + ALLOW_INSECURE_DEFAULTS does not reopen legacy routing (AUD2-11)', async () => {
+  resetHudEdgeRegistryForTests();
+  const prevRedis = process.env.REDIS_HOST;
+  const prevEnv = process.env.ASSETTO_ENV;
+  const prevInsecure = process.env.ALLOW_INSECURE_DEFAULTS;
+  const prevLegacy = process.env.HUD_ALLOW_LEGACY_SERVERNAME_ROUTING;
+  delete process.env.REDIS_HOST;
+  process.env.ASSETTO_ENV = 'production';
+  process.env.ALLOW_INSECURE_DEFAULTS = 'true';
+  delete process.env.HUD_ALLOW_LEGACY_SERVERNAME_ROUTING;
+
+  const entries = buildDynamicEntriesForSync(
+    {
+      instanceId: 'vps-eu',
+      baseUrl: 'http://10.0.0.2:3000',
+      publicBaseUrl: 'https://eu.example.com',
+      servers: [{ displayName: 'EU Lobby', serverName: 'server-1' }],
+    },
+    Date.now(),
+  );
+  setDynamicHudEdgeRegistry(mergeDynamicRegistryMaps(new Map(), 'vps-eu', entries));
+
+  try {
+    const routing = await resolveHudEdgeForSteamId('76561199000000001', {
+      legacyServerName: 'EU Lobby',
+    });
+    assert.equal(routing.ok, false);
+    if (!routing.ok) {
+      assert.equal(routing.reason, 'redis_unavailable');
+    }
+  } finally {
+    resetHudEdgeRegistryForTests();
+    if (prevRedis === undefined) delete process.env.REDIS_HOST;
+    else process.env.REDIS_HOST = prevRedis;
+    if (prevEnv === undefined) delete process.env.ASSETTO_ENV;
+    else process.env.ASSETTO_ENV = prevEnv;
+    if (prevInsecure === undefined) delete process.env.ALLOW_INSECURE_DEFAULTS;
+    else process.env.ALLOW_INSECURE_DEFAULTS = prevInsecure;
+    if (prevLegacy === undefined) delete process.env.HUD_ALLOW_LEGACY_SERVERNAME_ROUTING;
+    else process.env.HUD_ALLOW_LEGACY_SERVERNAME_ROUTING = prevLegacy;
+  }
+});

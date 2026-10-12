@@ -41,11 +41,12 @@ export function isNonRetryableIngestError(error: unknown): boolean {
   return normalized.length > 0 && NON_RETRYABLE_INGEST_ERRORS.has(normalized);
 }
 
-/** True when every event in the batch succeeded (or the batch is empty). */
+/** True when every event in the batch succeeded (requires per-event results). */
 export function ingestBatchSucceeded(result: IngestBatchResult): boolean {
   const results = result.results ?? [];
   if (results.length === 0) {
-    return result.ok !== false && (result.failed ?? 0) === 0;
+    // Empty results are never batch success — avoids silent XACK without evidence.
+    return false;
   }
   return results.every((r) => r.ok === true);
 }
@@ -64,15 +65,7 @@ export function partitionIngestResults(
   }
 
   if (results.length === 0) {
-    // No per-event detail: only treat as done when the batch itself succeeded.
-    if (ingestBatchSucceeded(result)) {
-      return {
-        doneIndices: coalesced.map((_, i) => i),
-        retry: [],
-        nonRetryableCount: 0,
-        unsafeMissingResults: false,
-      };
-    }
+    // No per-event detail: never treat as done (even if batch ok:true).
     return {
       doneIndices: [],
       retry: [...coalesced],

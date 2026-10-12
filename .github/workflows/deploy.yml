@@ -1,4 +1,4 @@
-name: Deploy to VPS
+name: Deploy fleet to VPS
 
 on:
   push:
@@ -6,40 +6,88 @@ on:
       - main
 
 jobs:
-  deploy:
+  prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy to VPS via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          script: |
-            cd /home/jose/assetto-infra
-            git pull origin main
-            npm ci
-            npm run build:edge
-            docker compose -f docker-compose.prod.yml build telemetry-data redis
-            docker compose -f docker-compose.prod.yml up -d telemetry-data redis
-
-      - name: Health check
+      - name: Load fleet matrix
+        id: set
         run: |
-          sleep 10
-          curl -f https://dev-api.projectd.touge.com/api/health || \
-            curl -f http://${{ secrets.VPS_HOST }}:3000/api/health || exit 1
+          MATRIX="$(jq -c '.' deploy/fleet.json)"
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "Fleet targets: $MATRIX"
 
-      - name: Verify telemetry-data container
+  deploy:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.prepare.outputs.matrix) }}
+
+    steps:
+      - name: Resolve VPS host
+        id: host
+        run: |
+          case "${{ matrix.hostSecret }}" in
+            VPS_HOST_EDGE_EU)
+              HOST='${{ secrets.VPS_HOST_EDGE_EU }}'
+              ;;
+            VPS_HOST_HUB)
+              HOST='${{ secrets.VPS_HOST_HUB }}'
+              ;;
+            VPS_HOST)
+              # Backward-compatible single-host secret
+              HOST='${{ secrets.VPS_HOST }}'
+              ;;
+            *)
+              echo "Unknown hostSecret: ${{ matrix.hostSecret }}"
+              echo "Add a case branch in .github/workflows/deploy.yml when extending deploy/fleet.json"
+              exit 1
+              ;;
+          esac
+          if [ -z "$HOST" ]; then
+            echo "Secret ${{ matrix.hostSecret }} is empty. Set it in repo Settings → Secrets."
+            exit 1
+          fi
+          echo "value=$HOST" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy ${{ matrix.id }} (${{ matrix.role }})
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.VPS_HOST }}
+          host: ${{ steps.host.outputs.value }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
+            set -euo pipefail
+            cd "${{ matrix.path }}"
+            chmod +x scripts/deploy-from-main.sh
+            ./scripts/deploy-from-main.sh "${{ matrix.role }}"
+
+      - name: Health check (${{ matrix.id }})
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ steps.host.outputs.value }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            sleep 8
+            curl -fsS "${{ matrix.healthUrl }}"
+
+      - name: Verify telemetry-data container (edge only)
+        if: matrix.role == 'edge'
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ steps.host.outputs.value }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -euo pipefail
             docker ps --filter name=assetto-telemetry-data --format '{{.Status}}' | grep -q Up
             docker logs assetto-telemetry-data --tail 30 2>&1 | grep -qE 'listener started|event server'

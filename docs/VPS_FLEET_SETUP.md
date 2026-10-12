@@ -126,6 +126,16 @@ HUD / live ingest: [HUD_HARDENING_CUTOVER.md](./HUD_HARDENING_CUTOVER.md).
 
 ---
 
+## Deploy from GitHub `main`
+
+Prod **edges (infra)** update via GitHub Actions on push to `main` ([`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml), inventory [`deploy/fleet.json`](../deploy/fleet.json)). Remote script: [`scripts/deploy-from-main.sh`](../scripts/deploy-from-main.sh).
+
+The **hub/backend** is deployed via **Dokploy**, not this workflow.
+
+- Edit/test on **vps-test**; merge to `main`; do not hand-edit code on prod edges.
+- Env files stay on each VPS — deploy never writes `.env.*`.
+- Add an edge: new `fleet.json` entry + `VPS_HOST_*` secret + matching `case` in the workflow.
+
 ## Smoke tests
 
 Run after deploy (replace URLs/secrets).

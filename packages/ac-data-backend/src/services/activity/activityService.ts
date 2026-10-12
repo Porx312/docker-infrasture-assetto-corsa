@@ -1,8 +1,7 @@
-import crypto from 'node:crypto';
 import '@projectd/ac-data-shared/config/loadEnv.js';
+import { resolveFleetEdgeByInstanceId } from '@projectd/ac-data-shared/services/fleet/fleetRegistry.js';
 import { getHudRedisClient, isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 import {
-  buildJoinNameIndex,
   categoryForSummary,
   matchesCategory,
   matchesPlayerJoin,
@@ -104,6 +103,7 @@ function parseStreamRow(streamId: string, fields: Record<string, string>): Parse
 
   const payload = parsePayload(fields.payload);
   const serverName = (fields.serverName ?? payload.serverName ?? '').trim();
+  const instanceId = (fields.instanceId ?? payload.instanceId ?? '').trim() || undefined;
   const tsRaw = fields.ts ?? String(payload.ts ?? '');
   const ts = Number.parseInt(tsRaw, 10);
 
@@ -111,14 +111,23 @@ function parseStreamRow(streamId: string, fields: Record<string, string>): Parse
     streamId,
     event,
     serverName,
+    instanceId,
     ts: Number.isFinite(ts) ? ts : Date.now(),
     payload: {
       ...payload,
       event: payload.event ?? event,
       serverName: payload.serverName ?? serverName,
+      instanceId: payload.instanceId ?? instanceId,
       ts: payload.ts ?? (Number.isFinite(ts) ? ts : undefined),
     },
   };
+}
+
+function attachFleetMeta(item: ActivityItem, entry: ParsedStreamEntry): ActivityItem {
+  if (!entry.instanceId) return item;
+  const edge = resolveFleetEdgeByInstanceId(entry.instanceId);
+  if (!edge) return item;
+  return { ...item, fleetEdgeId: edge.id, fleetLabel: edge.label };
 }
 
 async function fetchStreamBatch(
@@ -225,7 +234,10 @@ function accumulateSummaryEntry(
     return;
   }
   if (entry.event === 'worker_error') {
-    acc.errors += 1;
+    const item = normalizeStreamEntry(entry);
+    if (item && matchesServer(item, serverFilter)) {
+      acc.errors += 1;
+    }
   }
 }
 
@@ -294,7 +306,8 @@ function tryNormalizeTimelineEntry(
   }
 
   if (!item) return null;
-  if (item.category !== 'errors' && !matchesServer(item, query.server)) return null;
+  item = attachFleetMeta(item, entry);
+  if (!matchesServer(item, query.server)) return null;
   if (!matchesSearch(item, query.q)) return null;
   return item;
 }
@@ -398,7 +411,8 @@ export async function getActivityFeed(query: ActivityFeedQuery): Promise<Activit
 
   let items = timelineCandidates.map(({ entry, item }) => {
     if (item.kind === 'leave') {
-      return normalizeStreamEntry(entry, joinNames) ?? item;
+      const refreshed = normalizeStreamEntry(entry, joinNames) ?? item;
+      return attachFleetMeta(refreshed, entry);
     }
     return item;
   });
@@ -444,81 +458,9 @@ export async function getActivitySummary(query: ActivitySummaryQuery): Promise<A
   return feed.summary;
 }
 
-/** @deprecated Use getActivityFeed — kept for tests. */
-export async function scanDayJoinNamesForTests(since: number, until: number): Promise<Map<string, string>> {
-  const joinEntries: ParsedStreamEntry[] = [];
-  let cursor = '';
-  let rawFetched = 0;
-
-  while (rawFetched < ACTIVITY_RAW_SCAN_MAX) {
-    const batchSize = Math.min(ACTIVITY_FETCH_BATCH, ACTIVITY_RAW_SCAN_MAX - rawFetched);
-    const batch = await fetchStreamBatch(cursor, batchSize);
-    if (batch.length === 0) break;
-
-    rawFetched += batch.length;
-    cursor = batch[batch.length - 1]?.streamId ?? cursor;
-
-    let stoppedEarly = false;
-    for (const entry of batch) {
-      if (entry.ts >= until) continue;
-      if (entry.ts < since) {
-        stoppedEarly = true;
-        break;
-      }
-      if (entry.event === 'player_join') joinEntries.push(entry);
-    }
-
-    if (stoppedEarly) break;
-    if (batch.length < batchSize) break;
-  }
-
-  return buildJoinNameIndex(joinEntries);
-}
-
 export function clearActivityCachesForTests(): void {
   dayContextCache.clear();
   feedCache.clear();
-}
-
-/** Publish admin-visible worker error (does not affect Convex ack flow). */
-export async function publishWorkerErrorEvent(details: {
-  error: string;
-  failed: number;
-  eventTypes: string[];
-}): Promise<void> {
-  if (!isHudRedisConfigured()) return;
-
-  const client = await getHudRedisClient();
-  const eventId = crypto.randomUUID();
-  const ts = Date.now();
-  const envelope = {
-    eventId,
-    schemaVersion: '1',
-    event: 'worker_error',
-    serverName: 'worker',
-    instanceId: process.env.AC_INSTANCE_ID || 'default',
-    ts,
-    data: {
-      error: details.error,
-      failed: details.failed,
-      eventTypes: details.eventTypes,
-    },
-  };
-
-  await client.xAdd(
-    REDIS_STREAM_KEY,
-    '*',
-    {
-      event: 'worker_error',
-      eventId,
-      schemaVersion: '1',
-      instanceId: process.env.AC_INSTANCE_ID || 'default',
-      serverName: 'worker',
-      ts: String(ts),
-      payload: JSON.stringify(envelope),
-    },
-    { TRIM: { strategy: 'MAXLEN', strategyModifier: '~', threshold: Number(process.env.REDIS_STREAM_MAXLEN || 200_000) } },
-  );
 }
 
 export { categoryForSummary, parseStreamRow };

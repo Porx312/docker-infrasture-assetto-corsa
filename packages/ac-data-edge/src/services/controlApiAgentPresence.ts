@@ -1,4 +1,5 @@
 import { getHubWorkerBaseUrl } from '@projectd/ac-data-shared/services/hubWorkerUrl.js';
+import { fleetEdgeSecret } from '@projectd/ac-data-shared/services/secrets/fleetSecrets.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -6,7 +7,7 @@ import { listServerInstanceNames } from '@projectd/ac-data-shared/services/serve
 import { getServerRuntime } from './serverRuntime.js';
 
 function workerSecret(): string {
-  return (process.env.CONVEX_WORKER_SECRET || process.env.WORKER_INGEST_SECRET || '').trim();
+  return fleetEdgeSecret();
 }
 
 function instanceId(): string {
@@ -119,7 +120,7 @@ export function startControlApiAgentPresenceLoop(): void {
     return;
   }
   if (!workerSecret()) {
-    console.log('[control-api-agent] skipped (no CONVEX_WORKER_SECRET)');
+    console.log('[control-api-agent] skipped (no FLEET_EDGE_SECRET)');
     return;
   }
 

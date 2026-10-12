@@ -1,6 +1,9 @@
 /**
  * Fleet/hub-centric startup guards. Fail closed in production-like mode.
+ * Hub↔edge auth readiness must match runtime: fleetEdgeSecret().
  */
+
+import { fleetEdgeSecret } from '../secrets/fleetSecrets.js';
 
 function envBool(name: string, defaultValue: boolean): boolean {
   const raw = process.env[name];
@@ -32,7 +35,7 @@ export type FleetBootGuardResult = {
 /**
  * Validate fleet topology before binding HTTP.
  * - Hub-centric edges must not use localhost Redis (shared Redis required).
- * - BACKEND_INGEST/WORKER requires CONVEX_WORKER_SECRET (or FLEET_EDGE_SECRET).
+ * - BACKEND_INGEST/WORKER requires fleetEdgeSecret() (FLEET_EDGE_SECRET, or CONVEX fallback only when allowSecretFallback).
  * - CONVEX_DIRECT_ON_EDGE is lab-only in strict mode.
  * - Hub with empty FLEET_EDGE_REGISTRY warns (DB overlay may fill later).
  */
@@ -43,11 +46,7 @@ export function collectFleetBootGuards(role: FleetBootRole): FleetBootGuardResul
   const backendIngest = (process.env.BACKEND_INGEST_URL || '').trim();
   const backendWorker = (process.env.BACKEND_WORKER_URL || '').trim();
   const hubCentric = Boolean(backendIngest || backendWorker);
-  const workerSecret = (
-    process.env.FLEET_EDGE_SECRET ||
-    process.env.CONVEX_WORKER_SECRET ||
-    ''
-  ).trim();
+  const workerSecret = fleetEdgeSecret();
   const directConvex = envBool('CONVEX_DIRECT_ON_EDGE', false);
   const fleetRaw = (process.env.FLEET_EDGE_REGISTRY || '').trim();
 
@@ -61,7 +60,7 @@ export function collectFleetBootGuards(role: FleetBootRole): FleetBootGuardResul
     }
     if (!workerSecret) {
       errors.push(
-        'FLEET_EDGE_SECRET or CONVEX_WORKER_SECRET required when BACKEND_INGEST_URL/BACKEND_WORKER_URL is set',
+        'FLEET_EDGE_SECRET is required when BACKEND_INGEST_URL/BACKEND_WORKER_URL is set (CONVEX_WORKER_SECRET fallback only with ALLOW_INSECURE_DEFAULTS outside prod)',
       );
     }
     if (directConvex) {
@@ -80,7 +79,9 @@ export function collectFleetBootGuards(role: FleetBootRole): FleetBootGuardResul
       errors.push('REDIS_HOST is required on the hub');
     }
     if (!workerSecret) {
-      errors.push('FLEET_EDGE_SECRET or CONVEX_WORKER_SECRET is required on the hub');
+      errors.push(
+        'FLEET_EDGE_SECRET is required on the hub (CONVEX_WORKER_SECRET fallback only with ALLOW_INSECURE_DEFAULTS outside prod)',
+      );
     }
     if (!fleetRaw) {
       warnings.push(

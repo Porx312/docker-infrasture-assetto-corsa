@@ -42,11 +42,6 @@ export function fleetEdgeRegistryRaw(): string {
   return envString('FLEET_EDGE_REGISTRY');
 }
 
-/** @deprecated Static lobby map — prefer dynamic registry + FLEET_EDGE_REGISTRY bootstrap. */
-export function hudEdgeRegistryRaw(): string {
-  return envString('HUD_EDGE_REGISTRY');
-}
-
 export function backendIngestUrl(): string {
   return envString('BACKEND_INGEST_URL');
 }
@@ -61,8 +56,4 @@ export function isHubCentricEdge(): boolean {
 
 export function liveIngestConvex(): boolean {
   return envBool('LIVE_INGEST_CONVEX', false);
-}
-
-export function hudAllowLegacyServerNameRouting(): boolean {
-  return envBool('HUD_ALLOW_LEGACY_SERVERNAME_ROUTING', false);
 }

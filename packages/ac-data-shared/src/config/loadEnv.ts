@@ -64,9 +64,17 @@ export function resolveEnvFilePath(): string {
   return path.join(REPO_ROOT, fileName);
 }
 
+/** Skip reading .env.local/.env.production even when the file exists (unit tests). */
+export function shouldSkipEnvFileLoad(): boolean {
+  return (
+    process.env.SKIP_ASSETTO_ENV_LOAD === '1' ||
+    (process.env.NODE_ENV || '').trim().toLowerCase() === 'test'
+  );
+}
+
 /** True when deploy platforms inject env (Railway/Nixpacks/Dokploy) or production mode. */
 function allowMissingEnvFile(): boolean {
-  if (process.env.NODE_ENV === 'test' || process.env.SKIP_ASSETTO_ENV_LOAD === '1') {
+  if (shouldSkipEnvFileLoad()) {
     return true;
   }
   const assettoEnv = (process.env.ASSETTO_ENV || '').trim().toLowerCase();
@@ -91,6 +99,15 @@ function allowMissingEnvFile(): boolean {
 /** Load repo env file once (idempotent). */
 export function loadEnv(): void {
   if (loaded) return;
+
+  // Unit tests / CI isolation: never pull REDIS_HOST etc. from a developer .env.local.
+  if (shouldSkipEnvFileLoad()) {
+    loaded = true;
+    if (process.env.ASSETTO_ENV_DEBUG === '1') {
+      console.info('[loadEnv] skipped file load (NODE_ENV=test or SKIP_ASSETTO_ENV_LOAD=1)');
+    }
+    return;
+  }
 
   const envPath = resolveEnvFilePath();
   if (!fs.existsSync(envPath)) {
@@ -121,6 +138,11 @@ export function loadEnv(): void {
   }
 
   loaded = true;
+}
+
+/** Test hook: allow calling loadEnv() again after changing SKIP/NODE_ENV. */
+export function resetLoadEnvForTests(): void {
+  loaded = false;
 }
 
 loadEnv();

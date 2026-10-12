@@ -57,6 +57,7 @@ test('shouldRefreshJoinContextForPresence returns false when cache hit and serve
 
   setHudSessionPresenceTestHooks({
     peekSessionCache: async () => session,
+    readPresenceCarModel: async () => '',
   });
   try {
     assert.equal(await shouldRefreshJoinContextForPresence(steamId, 'Gunsai Testing'), false);
@@ -94,6 +95,7 @@ test('shouldRefreshJoinContextForPresence returns true when presence server diff
 
   setHudSessionPresenceTestHooks({
     peekSessionCache: async () => session,
+    readPresenceCarModel: async () => '',
   });
   try {
     assert.equal(await shouldRefreshJoinContextForPresence(steamId, 'Battle'), true);
@@ -142,6 +144,7 @@ test('shouldBypassSessionCacheForPresence returns false when servers match', asy
 
   setHudSessionPresenceTestHooks({
     peekSessionCache: async () => session,
+    readPresenceCarModel: async () => '',
   });
   try {
     assert.equal(await shouldBypassSessionCacheForPresence(steamId, 'Gunsai Testing'), false);
@@ -179,6 +182,7 @@ test('shouldBypassSessionCacheForPresence returns true when presence server diff
 
   setHudSessionPresenceTestHooks({
     peekSessionCache: async () => session,
+    readPresenceCarModel: async () => '',
   });
   try {
     assert.equal(await shouldBypassSessionCacheForPresence(steamId, 'Battle'), true);
@@ -246,6 +250,7 @@ test('shouldRefreshJoinContextForPresence returns true when presence car differs
 
   setHudSessionPresenceTestHooks({
     peekSessionCache: async () => session,
+    readPresenceCarModel: async () => '',
   });
   try {
     assert.equal(
@@ -335,6 +340,7 @@ test('shouldRefreshJoinContextForPresence returns false when names differ but fo
 
   setHudSessionPresenceTestHooks({
     peekSessionCache: async () => session,
+    readPresenceCarModel: async () => '',
   });
   try {
     assert.equal(

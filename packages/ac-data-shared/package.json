@@ -7,8 +7,8 @@
     "./*": "./dist/*"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "test": "tsx --test src/**/*.test.ts"
+    "build": "rimraf ./dist && tsc -p tsconfig.build.json",
+    "test": "bash -c \"export NODE_ENV=test SKIP_ASSETTO_ENV_LOAD=1; shopt -s globstar && tsx --test src/**/*.test.ts\""
   },
   "dependencies": {
     "convex": "^1.29.1",
@@ -17,6 +17,7 @@
     "express-rate-limit": "^8.5.2",
     "jsonwebtoken": "^9.0.3",
     "redis": "^5.10.0",
+    "rimraf": "^6.1.3",
     "unzipper": "^0.12.3"
   },
   "devDependencies": {

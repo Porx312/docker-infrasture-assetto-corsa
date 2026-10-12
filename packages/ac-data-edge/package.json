@@ -7,7 +7,9 @@
     "dev": "tsx watch src/index.ts",
     "build": "rimraf ./dist && tsc -p tsconfig.build.json && node scripts/write-build-info.mjs",
     "start": "node dist/index.js",
-    "test": "bash -c \"shopt -s globstar && tsx --test src/**/*.test.ts\""
+    "test": "bash -c 'export NODE_ENV=test SKIP_ASSETTO_ENV_LOAD=1; unset REDIS_HOST REDIS_URL REDIS_PASSWORD REDIS_PORT REDIS_USERNAME REDIS_DB BACKEND_WORKER_URL BACKEND_INGEST_URL FLEET_EDGE_SECRET CONVEX_DEPLOYMENT_URL CONVEX_URL CONVEX_SELF_HOSTED_URL CONVEX_WORKER_SECRET CONVEX_INGEST_SECRET; mapfile -t files < <(find src -name \"*.test.ts\" ! -name \"*.integration.test.ts\" | sort); exec tsx --test \"${files[@]}\"'",
+    "test:unit": "npm run test",
+    "test:integration": "bash -c 'mapfile -t files < <(find src -name \"*.integration.test.ts\" | sort); if [ ${#files[@]} -eq 0 ]; then echo \"No integration tests\"; exit 0; fi; exec tsx --test \"${files[@]}\"'"
   },
   "keywords": [],
   "author": "",

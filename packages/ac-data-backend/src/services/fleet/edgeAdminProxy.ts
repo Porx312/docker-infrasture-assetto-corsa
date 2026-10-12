@@ -11,10 +11,44 @@ function workerSecret(): string {
   return fleetEdgeSecret();
 }
 
-function buildTargetUrl(baseUrl: string, originalUrl: string): URL {
-  const url = new URL(originalUrl, baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`);
-  url.searchParams.delete('fleetEdge');
-  return url;
+/** Absolute or protocol-relative request-targets must not override the fleet edge host (AUD2-08). */
+function isUnsafeOriginalUrl(originalUrl: string): boolean {
+  const trimmed = originalUrl.trim();
+  if (!trimmed.startsWith('/')) {
+    return true;
+  }
+  if (trimmed.startsWith('//')) {
+    return true;
+  }
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Build proxy target pinned to the registry edge origin.
+ * Rejects absolute-form / protocol-relative `originalUrl` (SSRF).
+ */
+export function buildTargetUrl(baseUrl: string, originalUrl: string): URL {
+  if (isUnsafeOriginalUrl(originalUrl)) {
+    throw new Error('invalid_proxy_target: absolute or protocol-relative URL rejected');
+  }
+
+  const base = new URL(baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`);
+  const target = new URL(originalUrl, base);
+  target.searchParams.delete('fleetEdge');
+
+  if (target.origin !== base.origin) {
+    throw new Error('invalid_proxy_target: origin mismatch');
+  }
+  if (!target.pathname.startsWith('/admin')) {
+    throw new Error('invalid_proxy_target: path must start with /admin');
+  }
+  if (target.protocol !== 'http:' && target.protocol !== 'https:') {
+    throw new Error('invalid_proxy_target: scheme not allowed');
+  }
+  return target;
 }
 
 function headersForProxy(req: Request): Record<string, string> {
@@ -83,7 +117,15 @@ export async function proxyAdminRequestToEdge(
     return;
   }
 
-  const targetUrl = buildTargetUrl(edge.baseUrl, req.originalUrl);
+  let targetUrl: URL;
+  try {
+    targetUrl = buildTargetUrl(edge.baseUrl, req.originalUrl);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'invalid_proxy_target';
+    res.status(400).json({ ok: false, reason: 'invalid_proxy_target', message });
+    return;
+  }
+
   const method = req.method.toUpperCase();
 
   try {
@@ -97,6 +139,7 @@ export async function proxyAdminRequestToEdge(
       method,
       headers,
       body,
+      redirect: 'manual',
       signal: AbortSignal.timeout(PROXY_TIMEOUT_MS),
     });
 

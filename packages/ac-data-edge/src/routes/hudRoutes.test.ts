@@ -8,7 +8,13 @@ import {
   resetConfigSyncStateForTests,
   setConfigSyncTestHooks,
 } from '../services/configSyncFromConvex.js';
-import { setFetchPlayerJoinContextForTests } from '../services/hud/playerJoinContext.js';
+import {
+  resetPlayerJoinDedupeForTests,
+  setFetchPlayerJoinContextForTests,
+  setJoinContextRetryDelayMsForTests,
+} from '../services/hud/playerJoinContext.js';
+import { setRefreshHudUserStatusForTests } from '../services/hud/hudUserStatusNotify.js';
+import { closeHudRedisForTests } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 
 const originalSecret = process.env.CONVEX_WORKER_SECRET;
 const originalInstanceId = process.env.AC_INSTANCE_ID;
@@ -94,6 +100,12 @@ test.before(() => {
   process.env.CONVEX_WORKER_SECRET = 'test-worker-secret';
   process.env.AC_INSTANCE_ID = 'default';
   process.env.CONVEX_DEPLOYMENT_URL = 'https://example.convex.cloud';
+  process.env.CONVEX_PRODUCT_KEY = 'test-product-key';
+  // Prevent accidental hub registry sync from config publish (AUD2-06).
+  delete process.env.BACKEND_WORKER_URL;
+  delete process.env.BACKEND_INGEST_URL;
+  delete process.env.FLEET_EDGE_SECRET;
+  setJoinContextRetryDelayMsForTests(-1);
   bindConfigSyncRedisClient({ xAdd: async () => '1-0' } as never);
   setConfigSyncTestHooks({
     fetchWorkerSyncVersion: async () => ({
@@ -113,13 +125,17 @@ test.before(() => {
   });
 });
 
-test.after(() => {
+test.after(async () => {
   process.env.CONVEX_WORKER_SECRET = originalSecret;
   process.env.AC_INSTANCE_ID = originalInstanceId;
   process.env.CONVEX_DEPLOYMENT_URL = originalConvexUrl;
   setFetchPlayerJoinContextForTests(null);
+  setRefreshHudUserStatusForTests(null);
+  resetPlayerJoinDedupeForTests();
+  setJoinContextRetryDelayMsForTests(null);
   setConfigSyncTestHooks(null);
   resetConfigSyncStateForTests();
+  await closeHudRedisForTests();
 });
 
 test('POST /hud/worker/refresh-user rejects unauthorized requests', async () => {
@@ -142,7 +158,7 @@ test('POST /hud/worker/refresh-user requires steamId', async () => {
 });
 
 test('POST /hud/worker/refresh-user returns 503 when Convex refresh fails', async () => {
-  setFetchPlayerJoinContextForTests(async () => {
+  setRefreshHudUserStatusForTests(async () => {
     throw new Error('convex down');
   });
 
@@ -158,10 +174,8 @@ test('POST /hud/worker/refresh-user returns 503 when Convex refresh fails', asyn
 });
 
 test('POST /hud/worker/refresh-user returns ok on success', async () => {
-  setFetchPlayerJoinContextForTests(async () => ({
-    ok: true,
-    user: { steamId: '76561199000000001', isInvalidated: false },
-  }));
+  // Avoid live Redis/Convex apply path in HTTP auth/route unit tests (AUD2-06).
+  setRefreshHudUserStatusForTests(async () => {});
 
   const { status, json } = await postRefreshUser({
     steamId: '76561199000000001',

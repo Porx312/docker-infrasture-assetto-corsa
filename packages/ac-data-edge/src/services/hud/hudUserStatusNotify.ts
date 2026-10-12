@@ -38,11 +38,28 @@ function pushReasonForWorkerReason(reason: string): HudPushReason | undefined {
   return undefined;
 }
 
+type RefreshHudUserStatusFn = (
+  steamId: string,
+  options?: RefreshHudUserStatusOptions,
+) => Promise<void>;
+
+let refreshHudUserStatusImpl: RefreshHudUserStatusFn | null = null;
+
+/** Test hook: replace Convex refresh path (avoids live Redis in HTTP route tests). */
+export function setRefreshHudUserStatusForTests(fn: RefreshHudUserStatusFn | null): void {
+  refreshHudUserStatusImpl = fn;
+}
+
 /** Fetch Convex join context (ban + session cache), then push SSE to connected HUD clients. */
 export async function refreshHudUserStatusFromConvex(
   steamId: string,
   options?: RefreshHudUserStatusOptions,
 ): Promise<void> {
+  if (refreshHudUserStatusImpl) {
+    await refreshHudUserStatusImpl(steamId, options);
+    return;
+  }
+
   const trimmed = steamId.trim();
   if (!trimmed || trimmed.startsWith('unknown_')) {
     return;

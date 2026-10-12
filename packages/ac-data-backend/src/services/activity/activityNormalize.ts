@@ -1,10 +1,10 @@
+import { resolveFleetEdgeByInstanceId } from '@projectd/ac-data-shared/services/fleet/fleetRegistry.js';
 import { normalizeHudServerName } from '@projectd/ac-data-shared/services/hud/hudQueryNormalize.js';
 import { summarizeServers } from '@projectd/ac-data-shared/services/serverBranding.js';
 import { formatLapMs, formatTrackLabel } from './activityFormat.js';
 import type {
   ActivityCategory,
   ActivityItem,
-  ActivityKind,
   ActivityPlayerJoin,
   ParsedStreamEntry,
 } from './activityTypes.js';
@@ -304,12 +304,14 @@ export function upsertUniquePlayerJoin(
   const name = typeof data.name === 'string' && data.name.trim() ? data.name.trim() : 'Player';
   const steamId = typeof data.steamId === 'string' ? data.steamId.trim() : '';
   const carModel = typeof data.carModel === 'string' ? data.carModel.trim() : '';
+  const edge = entry.instanceId ? resolveFleetEdgeByInstanceId(entry.instanceId) : null;
   const candidate: ActivityPlayerJoin = {
     steamId,
     name,
     firstJoinTs: entry.ts,
     serverName: entry.serverName,
     carModel,
+    ...(edge ? { fleetEdgeId: edge.id, fleetLabel: edge.label } : {}),
   };
   const existing = map.get(key);
   if (!existing || entry.ts < existing.firstJoinTs) {

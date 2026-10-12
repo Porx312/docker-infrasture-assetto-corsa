@@ -8,6 +8,17 @@ import { countHudPushListeners } from './hudPushHub.js';
 import { refreshHudForRivalLapObservers, type LapAuthorPb } from './hudRivalFanout.js';
 import { isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 
+/** Unit tests: allow queueing without live Redis/Convex (AUD2-06). */
+let allowScheduleWithoutInfraForTests = false;
+
+export function setAllowHudRefreshScheduleWithoutInfraForTests(enabled: boolean): void {
+  allowScheduleWithoutInfraForTests = enabled;
+}
+
+function refreshInfraReady(): boolean {
+  return allowScheduleWithoutInfraForTests || (isHudRedisConfigured() && isHudConvexConfigured());
+}
+
 const HUD_LAP_REFRESH_DEBOUNCE_MS = Number(process.env.HUD_LAP_REFRESH_DEBOUNCE_MS || 1500);
 const HUD_LAP_REFRESH_DELAY_MS = Number(process.env.HUD_LAP_REFRESH_DELAY_MS || 800);
 const HUD_BATTLE_REFRESH_DELAY_MS = Number(process.env.HUD_BATTLE_REFRESH_DELAY_MS || 400);
@@ -86,7 +97,7 @@ export function scheduleHudRefreshAfterLap(payload: Record<string, unknown>): vo
   if (!isHudLapAcDataRefreshEnabled()) {
     return;
   }
-  if (!isHudRedisConfigured() || !isHudConvexConfigured()) {
+  if (!refreshInfraReady()) {
     return;
   }
 
@@ -132,7 +143,7 @@ export function scheduleHudRefreshAfterBattleFinished(payload: Record<string, un
 }
 
 function queueBattlePlayersFromPayload(payload: Record<string, unknown>): void {
-  if (!isHudRedisConfigured() || !isHudConvexConfigured()) {
+  if (!refreshInfraReady()) {
     return;
   }
 

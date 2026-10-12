@@ -164,6 +164,15 @@ test('matchesServer compares display names loosely', () => {
   assert.equal(matchesServer(item, 'Main Touge'), true);
 });
 
+test('matchesServer filters foreign worker_error (AUD2-04)', () => {
+  const item = normalizeStreamEntry(
+    entry('worker_error', { message: 'boom' }, { serverName: 'Other Lobby' }),
+  )!;
+  assert.equal(item.category, 'errors');
+  assert.equal(matchesServer(item, 'Main Touge'), false);
+  assert.equal(matchesServer(item, 'Other Lobby'), true);
+});
+
 test('matchesServer resolves folder id to ini display name', () => {
   const item = normalizeStreamEntry(
     entry('lap_completed', { name: 'Minty', lapTime: 120_000, trackName: 'pk_akina' }, { serverName: 'Porx' }),

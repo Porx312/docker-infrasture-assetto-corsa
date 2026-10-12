@@ -7,28 +7,40 @@ import {
   resetHudRefreshSchedulerForTests,
   scheduleHudRefreshAfterBattleFinished,
   scheduleHudRefreshAfterLap,
+  setAllowHudRefreshScheduleWithoutInfraForTests,
 } from './hudRefreshScheduler.js';
 import { setRivalFanoutHandlerForTests } from './hudRivalFanout.js';
 import { setFetchHudSessionForTests } from './lapCompletedHudRefresh.js';
+
+function withSchedulerEnv(fn: () => void): void {
+  setAllowHudRefreshScheduleWithoutInfraForTests(true);
+  try {
+    fn();
+  } finally {
+    setAllowHudRefreshScheduleWithoutInfraForTests(false);
+  }
+}
 
 test('scheduleHudRefreshAfterLap queues board and player without top10', () => {
   resetHudRefreshSchedulerForTests();
   process.env.HUD_LAP_AC_DATA_REFRESH_ENABLED = 'true';
 
   try {
-    scheduleHudRefreshAfterLap({
-    serverName: 'testing',
-    data: {
-      trackName: 'pk_akina',
-      trackConfig: 'downhill',
-      carModel: 'ks_toyota_gt86',
-      steamId: '76561199000000001',
-    },
-  });
+    withSchedulerEnv(() => {
+      scheduleHudRefreshAfterLap({
+        serverName: 'testing',
+        data: {
+          trackName: 'pk_akina',
+          trackConfig: 'downhill',
+          carModel: 'ks_toyota_gt86',
+          steamId: '76561199000000001',
+        },
+      });
 
-  const { players, boards } = getHudRefreshQueueSizeForTests();
-  assert.equal(players, 1);
-  assert.equal(boards, 1);
+      const { players, boards } = getHudRefreshQueueSizeForTests();
+      assert.equal(players, 1);
+      assert.equal(boards, 1);
+    });
   } finally {
     delete process.env.HUD_LAP_AC_DATA_REFRESH_ENABLED;
   }
@@ -39,11 +51,13 @@ test('scheduleHudRefreshAfterLap ignores incomplete lap payload', () => {
   process.env.HUD_LAP_AC_DATA_REFRESH_ENABLED = 'true';
 
   try {
-    scheduleHudRefreshAfterLap({ serverName: 'testing', data: {} });
+    withSchedulerEnv(() => {
+      scheduleHudRefreshAfterLap({ serverName: 'testing', data: {} });
 
-  const { players, boards } = getHudRefreshQueueSizeForTests();
-  assert.equal(players, 0);
-  assert.equal(boards, 0);
+      const { players, boards } = getHudRefreshQueueSizeForTests();
+      assert.equal(players, 0);
+      assert.equal(boards, 0);
+    });
   } finally {
     delete process.env.HUD_LAP_AC_DATA_REFRESH_ENABLED;
   }
@@ -54,17 +68,19 @@ test('scheduleHudRefreshAfterLap is no-op when HUD_LAP_AC_DATA_REFRESH_ENABLED=f
   process.env.HUD_LAP_AC_DATA_REFRESH_ENABLED = 'false';
 
   try {
-    scheduleHudRefreshAfterLap({
-      serverName: 'testing',
-      data: {
-        trackName: 'pk_akina',
-        steamId: '76561199000000001',
-      },
-    });
+    withSchedulerEnv(() => {
+      scheduleHudRefreshAfterLap({
+        serverName: 'testing',
+        data: {
+          trackName: 'pk_akina',
+          steamId: '76561199000000001',
+        },
+      });
 
-    const { players, boards } = getHudRefreshQueueSizeForTests();
-    assert.equal(players, 0);
-    assert.equal(boards, 0);
+      const { players, boards } = getHudRefreshQueueSizeForTests();
+      assert.equal(players, 0);
+      assert.equal(boards, 0);
+    });
   } finally {
     delete process.env.HUD_LAP_AC_DATA_REFRESH_ENABLED;
   }
@@ -73,37 +89,41 @@ test('scheduleHudRefreshAfterLap is no-op when HUD_LAP_AC_DATA_REFRESH_ENABLED=f
 test('scheduleHudRefreshAfterBattleFinished queues both players', () => {
   resetHudRefreshSchedulerForTests();
 
-  scheduleHudRefreshAfterBattleFinished({
-    serverName: 'ProjectD',
-    data: {
-      track: 'pk_akina',
-      trackConfig: 'downhill',
-      player1SteamId: '76561199000000001',
-      player2SteamId: '76561199000000002',
-      player1Car: 'ks_toyota_gt86',
-      player2Car: 'ks_toyota_gt86',
-    },
-  });
+  withSchedulerEnv(() => {
+    scheduleHudRefreshAfterBattleFinished({
+      serverName: 'ProjectD',
+      data: {
+        track: 'pk_akina',
+        trackConfig: 'downhill',
+        player1SteamId: '76561199000000001',
+        player2SteamId: '76561199000000002',
+        player1Car: 'ks_toyota_gt86',
+        player2Car: 'ks_toyota_gt86',
+      },
+    });
 
-  const { players, boards } = getHudRefreshQueueSizeForTests();
-  assert.equal(players, 2);
-  assert.equal(boards, 0);
+    const { players, boards } = getHudRefreshQueueSizeForTests();
+    assert.equal(players, 2);
+    assert.equal(boards, 0);
+  });
 });
 
 test('scheduleHudRefreshAfterBattleFinished ignores unknown steam ids', () => {
   resetHudRefreshSchedulerForTests();
 
-  scheduleHudRefreshAfterBattleFinished({
-    serverName: 'ProjectD',
-    data: {
-      track: 'pk_akina',
-      player1SteamId: 'unknown_0',
-      player2SteamId: '',
-    },
-  });
+  withSchedulerEnv(() => {
+    scheduleHudRefreshAfterBattleFinished({
+      serverName: 'ProjectD',
+      data: {
+        track: 'pk_akina',
+        player1SteamId: 'unknown_0',
+        player2SteamId: '',
+      },
+    });
 
-  const { players } = getHudRefreshQueueSizeForTests();
-  assert.equal(players, 0);
+    const { players } = getHudRefreshQueueSizeForTests();
+    assert.equal(players, 0);
+  });
 });
 
 test('flushHudRefreshQueueForTests skips battle session refresh without ws listeners', async () => {
@@ -117,16 +137,18 @@ test('flushHudRefreshQueueForTests skips battle session refresh without ws liste
   process.env.HUD_BATTLE_REFRESH_DELAY_MS = '0';
 
   try {
-    scheduleHudRefreshAfterBattleFinished({
-      serverName: 'ProjectD',
-      data: {
-        track: 'pk_akina',
-        trackConfig: 'downhill',
-        player1SteamId: '76561199000000001',
-        player2SteamId: '76561199000000002',
-        player1Car: 'ks_toyota_gt86',
-        player2Car: 'ks_mazda_rx7',
-      },
+    withSchedulerEnv(() => {
+      scheduleHudRefreshAfterBattleFinished({
+        serverName: 'ProjectD',
+        data: {
+          track: 'pk_akina',
+          trackConfig: 'downhill',
+          player1SteamId: '76561199000000001',
+          player2SteamId: '76561199000000002',
+          player1Car: 'ks_toyota_gt86',
+          player2Car: 'ks_mazda_rx7',
+        },
+      });
     });
 
     await flushHudRefreshQueueForTests();
@@ -154,16 +176,18 @@ test('flushHudRefreshQueueForTests invokes rival fan-out for lap boards', async 
   process.env.HUD_LAP_AC_DATA_REFRESH_ENABLED = 'true';
 
   try {
-    scheduleHudRefreshAfterLap({
-      serverName: 'Akina TA',
-      data: {
-        trackName: 'pk_akina',
-        trackConfig: 'akina_downhill',
-        carModel: 'ks_mazda_gt86',
-        steamId: '76561199000000001',
-        lapTime: 272150,
-        isPersonalBest: true,
-      },
+    withSchedulerEnv(() => {
+      scheduleHudRefreshAfterLap({
+        serverName: 'Akina TA',
+        data: {
+          trackName: 'pk_akina',
+          trackConfig: 'akina_downhill',
+          carModel: 'ks_mazda_gt86',
+          steamId: '76561199000000001',
+          lapTime: 272150,
+          isPersonalBest: true,
+        },
+      });
     });
 
     await flushHudRefreshQueueForTests();
@@ -195,16 +219,18 @@ test('flushHudRefreshQueueForTests skips rival fan-out for non-PB laps', async (
   process.env.HUD_LAP_AC_DATA_REFRESH_ENABLED = 'true';
 
   try {
-    scheduleHudRefreshAfterLap({
-      serverName: 'Akina TA',
-      data: {
-        trackName: 'pk_akina',
-        trackConfig: 'akina_downhill',
-        carModel: 'ks_mazda_gt86',
-        steamId: '76561199000000001',
-        lapTime: 281_000,
-        isPersonalBest: false,
-      },
+    withSchedulerEnv(() => {
+      scheduleHudRefreshAfterLap({
+        serverName: 'Akina TA',
+        data: {
+          trackName: 'pk_akina',
+          trackConfig: 'akina_downhill',
+          carModel: 'ks_mazda_gt86',
+          steamId: '76561199000000001',
+          lapTime: 281_000,
+          isPersonalBest: false,
+        },
+      });
     });
 
     await flushHudRefreshQueueForTests();

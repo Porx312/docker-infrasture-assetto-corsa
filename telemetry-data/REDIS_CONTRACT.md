@@ -1,15 +1,17 @@
-# Redis Contract (AC scripts ↔ ac-data bridge ↔ Convex)
+# Redis Contract (AC scripts ↔ ac-data-edge bridge ↔ hub / Convex)
 
 The Python AC scripts publish telemetry/battle events into Redis Streams. The
-Node.js bridge (`ac-data`) consumes those streams and forwards them to Convex
-via direct admin mutations.
+Node.js edge package (`@projectd/ac-data-edge`) consumes those streams and
+forwards them to the hub (`@projectd/ac-data-backend`) for Convex ingest
+(hub-centric). Live HUD uses **WebSocket** (`WSS /hud/ws`), not SSE.
+Presence keys: `ac:hud:conn:{steamId}` (SSE / `ac:hud:sse:*` removed from writers).
 
 ## Streams
 
 - `ac:events` (configurable via `REDIS_STREAM_KEY`) — runtime telemetry +
-  battle results, produced by the Python script and consumed by `ac-data`.
+  battle results, produced by the Python script and consumed by `ac-data-edge`.
 - `ac:config` (configurable via `REDIS_CONFIG_STREAM_KEY`) — `server_cfg.ini`
-  snapshots produced by `ac-data` (after polling Convex). **ac-data** is the
+  snapshots produced by the edge/hub config path. **ac-data-edge** is the
   sole writer of local INI files and restarts AC processes
   (`redisConfigApplier.ts`). **telemetry-data** consumes the same stream only
   to update in-memory `runtime_config` (server modes + event constraints) via
@@ -81,7 +83,7 @@ Battle events (`network/event_dispatcher.dispatch_battle_webhook`):
 ## Battle HUD keys (live overlay, not streams)
 
 Written by `telemetry-data/network/battle_hud_publisher.py` when
-`BATTLE_HUD_ENABLED=true`. Read by `ac-data` for SSE fan-out (`GET /hud/battle/stream`).
+`BATTLE_HUD_ENABLED=true`. Read by **ac-data-edge** for live HUD over **WSS** (`/hud/ws`).
 
 | Key | Value | TTL |
 |-----|-------|-----|
@@ -90,14 +92,14 @@ Written by `telemetry-data/network/battle_hud_publisher.py` when
 
 Redis snapshot players (telemetry): `steamId`, `name`, `car_id`, `score`, optional `role`.
 
-Each SSE `battle:update` enriches players from `ac:hud:player:*` (derived locally from `ac:hud:session:*` profile):
+Battle WS updates enrich players from `ac:hud:player:*` (derived locally from `ac:hud:session:*` profile):
 `name`, `tier`, `avatar_url`, `car_name`, `car_id` — profile wins over snapshot; legacy snapshots with `car` are still accepted.
 
 - `serverKey` = `{AC_INSTANCE_ID}_{normalizedDisplayName}` (lowercase, spaces → `_`, hyphens preserved, CM suffix stripped). Example: `vps-eu-2_battle_test`.
 - Legacy keys without instance prefix only occur when `AC_INSTANCE_ID` is unset (defaults to `default`).
 - Both players in a pair receive the same snapshot under their respective `steamId` keys.
 - Pub/sub channel `ac:hud:updates` notifies clients (same as time-attack HUD).
-- **ac-data** fan-out vía **SSE** (`GET /hud/battle/stream`) cuando `HUD_SSE_ENABLED=true`.
+- **SSE removed:** use `WSS /hud/ws` on ac-data-edge (`HUD_WS_ENABLED=true`).
 
 ## HUD overlay presence (battle matchmaking gate)
 
@@ -113,10 +115,10 @@ Env: `BATTLE_REQUIRE_HUD_SSE` (default false), `HUD_CONN_REDIS_PREFIX` (default 
 
 ## User invalidation / global ban (not streams)
 
-When Convex marks a profile `isInvalidated`, **ac-data** persists ban state in Redis and
+When Convex marks a profile `isInvalidated`, **ac-data-edge** (via hub worker) persists ban state in Redis and
 publishes a kick signal. **telemetry-data** reads the same keys (no Convex query in Python).
 
-**Writer path:** on `player_join`, ac-data calls `workerPlayers:getPlayerJoinContext`
+**Writer path:** on `player_join`, the edge/hub path calls `workerPlayers:getPlayerJoinContext`
 (`CONVEX_PLAYER_JOIN_QUERY`) once — user `isInvalidated` + optional HUD `session` (player
 cache `ac:hud:player:*` is derived locally from `session.profile`) — then
 `markUserInvalidated` when applicable. See [`docs/CONVEX_PLAYER_JOIN_CONTEXT.md`](../docs/CONVEX_PLAYER_JOIN_CONTEXT.md).

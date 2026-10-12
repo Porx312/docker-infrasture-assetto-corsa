@@ -28,7 +28,7 @@ async function postHubWorker<T>(path: string, body: Record<string, unknown>): Pr
       'Content-Type': 'application/json',
       'x-worker-secret': secret,
     },
-    body: JSON.stringify({ workerSecret: secret, ...body }),
+    body: JSON.stringify(body),
   });
 
   const json = (await response.json().catch(() => ({}))) as T & {

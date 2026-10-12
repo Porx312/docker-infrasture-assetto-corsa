@@ -1,24 +1,40 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.ADMIN_JWT_SECRET || '';
+function jwtSecret(): string {
+    return (process.env.ADMIN_JWT_SECRET || '').trim();
+}
 
 /** SameSite=None requires Secure; for HTTP admin panel use Lax (same origin). */
-const cookieSecure =
-    (process.env.ADMIN_COOKIE_SECURE || '').trim().toLowerCase() === 'true';
-const cookieSameSite =
-    cookieSecure &&
-    (process.env.ADMIN_COOKIE_SAMESITE || '').trim().toLowerCase() === 'none'
-        ? ('none' as const)
-        : ('lax' as const);
+function cookieSecure(): boolean {
+    return (process.env.ADMIN_COOKIE_SECURE || '').trim().toLowerCase() === 'true';
+}
 
-export const ADMIN_TOKEN_COOKIE_OPTIONS = {
-    httpOnly: true,
-    secure: cookieSecure,
-    sameSite: cookieSameSite,
-    path: '/',
-    maxAge: 24 * 60 * 60 * 1000,
-};
+function cookieSameSite(): 'none' | 'lax' {
+    return cookieSecure() &&
+        (process.env.ADMIN_COOKIE_SAMESITE || '').trim().toLowerCase() === 'none'
+        ? 'none'
+        : 'lax';
+}
+
+export function getAdminTokenCookieOptions(): {
+    httpOnly: true;
+    secure: boolean;
+    sameSite: 'none' | 'lax';
+    path: string;
+    maxAge: number;
+} {
+    return {
+        httpOnly: true,
+        secure: cookieSecure(),
+        sameSite: cookieSameSite(),
+        path: '/',
+        maxAge: 24 * 60 * 60 * 1000,
+    };
+}
+
+/** @deprecated Prefer getAdminTokenCookieOptions() — evaluated at import time. */
+export const ADMIN_TOKEN_COOKIE_OPTIONS = getAdminTokenCookieOptions();
 
 export interface AuthPayload {
     username: string;
@@ -26,18 +42,20 @@ export interface AuthPayload {
 }
 
 export function generateToken(username: string): string {
-    if (!JWT_SECRET) {
+    const secret = jwtSecret();
+    if (!secret) {
         throw new Error('ADMIN_JWT_SECRET is not configured');
     }
-    return jwt.sign({ username }, JWT_SECRET, { expiresIn: '24h' });
+    return jwt.sign({ username }, secret, { expiresIn: '24h' });
 }
 
 export function verifyToken(token: string): AuthPayload | null {
-    if (!JWT_SECRET) {
+    const secret = jwtSecret();
+    if (!secret) {
         return null;
     }
     try {
-        return jwt.verify(token, JWT_SECRET) as AuthPayload;
+        return jwt.verify(token, secret) as AuthPayload;
     } catch {
         return null;
     }

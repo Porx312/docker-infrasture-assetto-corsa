@@ -14,7 +14,11 @@ import {
   peekSessionCache,
   sessionLeaderboardFingerprint,
 } from './lapCompletedHudRefresh.js';
-import { HUD_SESSION_TTL_SEC, hudRedisTouch } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
+import {
+  HUD_SESSION_TTL_SEC,
+  hudRedisTouch,
+  isHudRedisConfigured,
+} from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 import { shouldFetchHudSession } from './hudSessionFetchPolicy.js';
 import { markUserInvalidated } from './hudUserInvalidation.js';
 import type { HudSessionResult, HudVersionOk, HudVersionResult } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
@@ -170,11 +174,13 @@ function emitHudSessionToSteamId(steamId: string, session: HudSessionResult): vo
     warnNoPushListeners(steamId, 'hud_session');
     return;
   }
-  if (session.ok) {
+  if (session.ok && isHudRedisConfigured()) {
     void hudRedisTouch(
       sessionRedisKey(buildSessionCacheKey({ steamId: steamId.trim() })),
       HUD_SESSION_TTL_SEC,
-    );
+    ).catch(() => {
+      // Best-effort TTL touch; never fail the push path or leave unhandled rejections in tests.
+    });
   }
   for (const conn of listeners) {
     if (sessionFingerprint !== '') {
@@ -220,11 +226,11 @@ export async function loadHudSessionForPush(
     const peeked = await peekSessionForPush(steamId);
     return peeked ?? { ok: false, reason: 'player_not_connected' };
   }
-  if (bypassCache) {
-    await invalidateSessionCache({ steamId });
-  }
   if (testHooks?.loadSession) {
     return testHooks.loadSession(steamId, bypassCache);
+  }
+  if (bypassCache) {
+    await invalidateSessionCache({ steamId });
   }
   return fetchHudSessionWithRetry({ steamId });
 }
@@ -234,7 +240,8 @@ export async function pushHudUpdateForSteamId(
   bypassCache = false,
   options?: PushHudUpdateOptions,
 ): Promise<void> {
-  if (!isHudConvexConfigured()) {
+  // Test hooks exercise push wiring without live Convex/Redis env (AUD2-06).
+  if (!testHooks && !isHudConvexConfigured()) {
     emitToSteamId(steamId, 'hud_error', buildHudErrorEvent(steamId, 'user_not_found'));
     return;
   }

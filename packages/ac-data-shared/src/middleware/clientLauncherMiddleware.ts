@@ -1,19 +1,27 @@
 import type { NextFunction, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { ipKeyGenerator } from 'express-rate-limit';
+import { isProductionLike } from '../config/env.js';
 import { clientSyncApiKeyMiddleware } from './clientSyncAuth.js';
 
 const LAUNCHER_RATE_LIMIT_MAX = Number(process.env.CLIENT_LAUNCHER_RATE_LIMIT_MAX || 60);
 const LAUNCHER_DOWNLOAD_RATE_LIMIT_MAX = Number(process.env.CLIENT_LAUNCHER_DOWNLOAD_RATE_LIMIT_MAX || 10);
 const LAUNCHER_CORS_ORIGIN = process.env.CLIENT_LAUNCHER_CORS_ORIGIN || '*';
 
-function envBool(name: string, defaultValue: boolean): boolean {
-  const raw = process.env[name];
-  if (raw === undefined || raw.trim() === '') return defaultValue;
-  return raw.trim().toLowerCase() === 'true' || raw === '1';
+/**
+ * When unset: required in production-like ASSETTO_ENV, optional in dev.
+ * Set CLIENT_LAUNCHER_REQUIRE_API_KEY=true|false to override.
+ */
+export function clientLauncherRequireApiKey(): boolean {
+  const raw = process.env.CLIENT_LAUNCHER_REQUIRE_API_KEY;
+  if (raw !== undefined && raw.trim() !== '') {
+    return raw.trim().toLowerCase() === 'true' || raw === '1';
+  }
+  return isProductionLike();
 }
 
-export const CLIENT_LAUNCHER_REQUIRE_API_KEY = envBool('CLIENT_LAUNCHER_REQUIRE_API_KEY', false);
+/** @deprecated Prefer clientLauncherRequireApiKey() — evaluated at import time. */
+export const CLIENT_LAUNCHER_REQUIRE_API_KEY = clientLauncherRequireApiKey();
 
 function isDownloadPath(req: Request): boolean {
   return req.path.includes('/download');
@@ -52,7 +60,7 @@ export function clientLauncherCacheHeaders(req: Request, res: Response, next: Ne
 }
 
 function optionalLauncherAuth(req: Request, res: Response, next: NextFunction): void {
-  if (!CLIENT_LAUNCHER_REQUIRE_API_KEY) {
+  if (!clientLauncherRequireApiKey()) {
     next();
     return;
   }

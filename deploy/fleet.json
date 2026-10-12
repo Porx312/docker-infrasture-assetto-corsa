@@ -1,0 +1,9 @@
+[
+  {
+    "id": "edge-eu",
+    "role": "edge",
+    "hostSecret": "VPS_HOST_EDGE_EU",
+    "path": "/home/jose/assetto-infra",
+    "healthUrl": "http://127.0.0.1:3000/api/health"
+  }
+]
