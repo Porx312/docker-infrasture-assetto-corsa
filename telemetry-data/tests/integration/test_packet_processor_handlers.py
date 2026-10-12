@@ -132,6 +132,19 @@ def test_car_update_battle_path(_mock_kick, server_state):
     assert args[1] == pytest.approx(0.42)
 
 
+def _new_session_packet(
+    name: str = "Live Name",
+    track: str = "track1",
+    config: str = "cfg1",
+) -> bytes:
+    # type + version + sessionIndex + currentSessionIndex + sessionCount
+    payload = struct.pack("<BBBBB", ACSP.NEW_SESSION, 1, 0, 0, 1)
+    payload += _encode_wstring(name)
+    payload += struct.pack("<B", len(track)) + track.encode("utf-8")
+    payload += struct.pack("<B", len(config)) + config.encode("utf-8")
+    return payload
+
+
 @patch("core.handlers.new_session.send_registration")
 def test_new_session_reloads_ini(mock_register, server_state, tmp_path):
     ini_path = tmp_path / "server_cfg.ini"
@@ -141,15 +154,41 @@ def test_new_session_reloads_ini(mock_register, server_state, tmp_path):
     runtime_config.set_server_modes(
         [{"serverName": "server", "displayName": "test", "type": "battle"}]
     )
-    payload = struct.pack("<BBBB", ACSP.NEW_SESSION, 1, 0, 0)
-    payload += struct.pack("<B", 1)
-    payload += _encode_wstring("Live Name")
-    payload += b"\x06" + b"track1"
-    payload += b"\x04" + b"cfg1"
-
-    process_packet(payload, server_state, ("127.0.0.1", 12001))
+    process_packet(_new_session_packet(), server_state, ("127.0.0.1", 12001))
 
     assert server_state.config_server_name == "" or server_state.track in ("track1", "ini_track")
     server_state.battle_manager.set_server_mode.assert_called_with(True)
     assert server_state.server_name == "Live Name"
     mock_register.assert_called_once()
+
+
+@patch("core.handlers.new_session.send_registration")
+@patch("core.handlers.new_session.log")
+def test_new_session_collapses_duplicate_storm(mock_log, mock_register, monkeypatch, server_state):
+    monkeypatch.setattr(settings, "NEW_SESSION_SUPPRESS_LOG_EVERY", 3)
+    monkeypatch.setattr(settings, "REGISTRATION_REFRESH_MIN_MS", 60_000)
+    server_state.cfg_path = ""
+
+    clock = {"ms": 1_000_000}
+    monkeypatch.setattr("core.handlers.new_session.now_ms", lambda: clock["ms"])
+
+    payload = _new_session_packet()
+    addr = ("127.0.0.1", 12001)
+
+    process_packet(payload, server_state, addr)
+    assert server_state.battle_manager.set_server_mode.call_count == 1
+
+    # Identical packets forever — no extra mode/ini/log work.
+    for _ in range(5):
+        clock["ms"] += 10_000
+        process_packet(payload, server_state, addr)
+
+    assert server_state.battle_manager.set_server_mode.call_count == 1
+    assert server_state._new_session_suppressed == 5
+    warn_msgs = [c.args[0] for c in mock_log.warning.call_args_list if c.args]
+    assert any("suppressed" in str(m) for m in warn_msgs)
+
+    # Fingerprint change is a real session event.
+    process_packet(_new_session_packet(track="track2"), server_state, addr)
+    assert server_state.battle_manager.set_server_mode.call_count == 2
+    assert server_state.track == "track2"

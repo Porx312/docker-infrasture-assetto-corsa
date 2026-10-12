@@ -14,23 +14,69 @@ from core.session_manager import send_registration
 log = get_logger("packet_handlers")
 
 
+def _note_suppressed(server_state, track: str, config: str, current_ms: int) -> None:
+    suppressed = getattr(server_state, "_new_session_suppressed", 0) + 1
+    server_state._new_session_suppressed = suppressed
+    server_state._new_session_log_ms = current_ms
+    every = max(1, settings.NEW_SESSION_SUPPRESS_LOG_EVERY)
+    if suppressed % every == 0:
+        log.warning(
+            "[%s] suppressed %d duplicate NEW_SESSION (track=%s config=%s) — "
+            "AC may be in a session restart loop",
+            server_state.port,
+            suppressed,
+            track,
+            config,
+        )
+
+
 def handle_new_session(parser, server_state, addr) -> None:
     current_ms = now_ms()
-    drop_stale_drivers_on_new_session(server_state, current_ms)
-
-    last_reg_ms = getattr(server_state, "last_registration_ms", 0)
-    if current_ms - last_reg_ms >= settings.REGISTRATION_REFRESH_MIN_MS:
-        send_registration(server_state, addr[0])
-        server_state.last_registration_ms = current_ms
 
     parser.read_uint8()  # version
     parser.read_uint8()  # sessionIndex
     parser.read_uint8()  # currentSessionIndex
     parser.read_uint8()  # sessionCount
 
-    server_state.server_name = parser.read_wstring()
-    server_state.track = parser.read_string()
-    server_state.config = parser.read_string()
+    server_name = parser.read_wstring()
+    track = parser.read_string()
+    config = parser.read_string()
+
+    fingerprint = (server_name, track, config)
+    last_fp = getattr(server_state, "_new_session_fingerprint", None)
+
+    # Identical session: never re-read ini / re-log; only periodic suppress warnings.
+    # (AC sometimes storms NEW_SESSION at tens/sec — disk I/O + log spam.)
+    if last_fp is not None and last_fp == fingerprint:
+        _note_suppressed(server_state, track, config, current_ms)
+        # Still refresh plugin registration on the normal cadence (no flood).
+        last_reg_ms = getattr(server_state, "last_registration_ms", 0)
+        if current_ms - last_reg_ms >= settings.REGISTRATION_REFRESH_MIN_MS:
+            send_registration(server_state, addr[0])
+            server_state.last_registration_ms = current_ms
+        return
+
+    prev_suppressed = getattr(server_state, "_new_session_suppressed", 0)
+    if prev_suppressed:
+        log.info(
+            "[%s] NEW_SESSION fingerprint changed after %d suppressed duplicates",
+            server_state.port,
+            prev_suppressed,
+        )
+    server_state._new_session_suppressed = 0
+    server_state._new_session_fingerprint = fingerprint
+    server_state._new_session_log_ms = current_ms
+
+    server_state.server_name = server_name
+    server_state.track = track
+    server_state.config = config
+
+    drop_stale_drivers_on_new_session(server_state, current_ms)
+
+    last_reg_ms = getattr(server_state, "last_registration_ms", 0)
+    if current_ms - last_reg_ms >= settings.REGISTRATION_REFRESH_MIN_MS:
+        send_registration(server_state, addr[0])
+        server_state.last_registration_ms = current_ms
 
     if server_state.cfg_path and os.path.exists(server_state.cfg_path):
         try:

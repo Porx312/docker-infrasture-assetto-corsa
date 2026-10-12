@@ -6,6 +6,7 @@
 #   ./scripts/deploy-from-main.sh hub
 #
 # Does NOT touch .env.production / .env.local.
+# Edge deploy reloads infra only (keeps acServer lobbies).
 
 set -euo pipefail
 
@@ -48,28 +49,18 @@ echo -e "${YELLOW}npm ci...${NC}"
 npm ci
 
 if [[ "$ROLE" == "edge" ]]; then
-  echo -e "${YELLOW}Building edge...${NC}"
-  npm run build:edge
-
-  echo -e "${YELLOW}Rebuilding telemetry-data (prod compose)...${NC}"
-  if command -v sg >/dev/null 2>&1; then
-    sg docker -c "docker compose -f docker-compose.prod.yml build telemetry-data redis" || true
-  else
-    docker compose -f docker-compose.prod.yml build telemetry-data redis || true
-  fi
-
-  echo -e "${YELLOW}Restarting services (prod edge)...${NC}"
-  ./stop.sh || true
-  ./start.sh prod edge
+  # Fleet VPS run start.sh dev (.env.local + telemetry on host).
+  echo -e "${YELLOW}Reloading infra (dev; keep acServer)...${NC}"
+  chmod +x reload-infra.sh
+  ./reload-infra.sh dev
 else
   echo -e "${YELLOW}Building backend (hub)...${NC}"
   npm run build:shared
   npm run build:backend
 
-  echo -e "${YELLOW}Restarting services (prod backend)...${NC}"
+  echo -e "${YELLOW}Restarting services (dev backend)...${NC}"
   ./stop.sh || true
-  # start.sh target is "backend" (hub role)
-  ./start.sh prod backend
+  ./start.sh dev backend
 fi
 
 echo -e "${GREEN}=== deploy-from-main done ($ROLE @ $(git rev-parse --short HEAD)) ===${NC}"

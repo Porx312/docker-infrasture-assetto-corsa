@@ -135,6 +135,7 @@ The **hub/backend** is deployed via **Dokploy**, not this workflow.
 - Edit/test on **vps-test**; merge to `main`; do not hand-edit code on prod edges.
 - Env files stay on each VPS — deploy never writes `.env.*`.
 - Add an edge: new `fleet.json` entry + `VPS_HOST_*` secret + matching `case` in the workflow.
+- Fleet edges run **`./start.sh dev`** (`.env.local`). Reload without killing lobbies: `./reload-infra.sh` (or `./stop.sh infra` then `./start.sh dev`). Full `./stop.sh` still kills `acServer`.
 
 ## Smoke tests
 

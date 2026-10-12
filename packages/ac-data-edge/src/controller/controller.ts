@@ -36,6 +36,53 @@ const savePids = () => {
 
 export const activeServers: Record<string, { pid: number; process: ChildProcess } | undefined> = {};
 
+/** Handle for a process we did not spawn in this Node lifetime (infra reload). */
+function makeExternalPidHandle(pid: number): ChildProcess {
+    return {
+        pid,
+        kill(signal?: NodeJS.Signals | number) {
+            try {
+                process.kill(pid, signal ?? 'SIGKILL');
+                return true;
+            } catch {
+                return false;
+            }
+        },
+    } as ChildProcess;
+}
+
+function isPidAlive(pid: number): boolean {
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function findAcServerPid(serverName: string): number | null {
+    // Match binary path (.../server-N/acServer), not a loose "server" substring.
+    const binary = path.join(SERVERS_PATH, serverName, 'acServer');
+    const escaped = binary.replace(/'/g, `'\\''`);
+    try {
+        const out = execSync(`pgrep -f '${escaped}' 2>/dev/null || true`, {
+            encoding: 'utf-8',
+        }).trim();
+        if (!out) return null;
+        const first = out.split(/\s+/)[0];
+        const pid = Number.parseInt(first ?? '', 10);
+        return Number.isFinite(pid) ? pid : null;
+    } catch {
+        return null;
+    }
+}
+
+function adoptServer(serverName: string, pid: number, reason: string): void {
+    if (activeServers[serverName]?.pid === pid) return;
+    activeServers[serverName] = { pid, process: makeExternalPidHandle(pid) };
+    console.log(`[cleanup] adopted ${serverName} PID ${pid} (${reason})`);
+}
+
 function isPortInUse(port: number, type: 'tcp' | 'udp'): boolean {
     try {
         const result = execSync(`ss -${type[0]}lnp 2>/dev/null | grep ':${port}'`, { encoding: 'utf-8' });
@@ -45,10 +92,33 @@ function isPortInUse(port: number, type: 'tcp' | 'udp'): boolean {
     }
 }
 
+/**
+ * On edge boot: re-attach to living acServer processes instead of killing them.
+ * Set AC_CLEANUP_KILL_ORPHANS=true to restore the old kill-on-boot behavior.
+ */
 export async function cleanupOrphanProcesses(): Promise<void> {
-    console.log('[cleanup] Scanning for orphan AC server processes...');
+    const killOrphans =
+        (process.env.AC_CLEANUP_KILL_ORPHANS || '').trim().toLowerCase() === 'true';
+
+    console.log(
+        killOrphans
+            ? '[cleanup] Scanning orphans (KILL mode)...'
+            : '[cleanup] Scanning for living AC servers to adopt...',
+    );
+
+    // Rehydrate from last edge lifetime (survives ./stop.sh infra).
+    for (const [serverName, info] of Object.entries(loadPids())) {
+        if (!info?.pid) continue;
+        if (isPidAlive(info.pid)) {
+            adoptServer(serverName, info.pid, 'server_pids.json');
+        }
+    }
+
     const serversPath = SERVERS_PATH;
-    if (!fs.existsSync(serversPath)) return;
+    if (!fs.existsSync(serversPath)) {
+        savePids();
+        return;
+    }
 
     const entries = fs.readdirSync(serversPath, { withFileTypes: true });
     for (const entry of entries) {
@@ -59,19 +129,36 @@ export async function cleanupOrphanProcesses(): Promise<void> {
 
         const isUdpInUse = isPortInUse(ports.udp, 'udp');
         const isTcpInUse = isPortInUse(ports.tcp, 'tcp');
+        if (!isUdpInUse && !isTcpInUse) continue;
 
-        if (isUdpInUse || isTcpInUse) {
+        if (activeServers[entry.name]?.pid && isPidAlive(activeServers[entry.name]!.pid)) {
+            continue;
+        }
+
+        if (killOrphans) {
             console.log(`[cleanup] ${entry.name} has orphan process on UDP:${ports.udp} TCP:${ports.tcp}`);
-
             try {
                 execSync(`pkill -f "acServer.*${entry.name}" 2>/dev/null`, { encoding: 'utf-8' });
-                await new Promise(r => setTimeout(r, 2000));
+                await new Promise((r) => setTimeout(r, 2000));
                 console.log(`[cleanup] Killed orphan process for ${entry.name}`);
             } catch {
                 console.log(`[cleanup] No process found or already dead for ${entry.name}`);
             }
+            delete activeServers[entry.name];
+            continue;
+        }
+
+        const pid = findAcServerPid(entry.name);
+        if (pid && isPidAlive(pid)) {
+            adoptServer(entry.name, pid, `ports UDP:${ports.udp} TCP:${ports.tcp}`);
+        } else {
+            console.warn(
+                `[cleanup] ${entry.name} ports in use but no acServer PID found — leave alone`,
+            );
         }
     }
+
+    savePids();
 }
 
 export type ServerConfigPayload = {

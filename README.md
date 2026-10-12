@@ -61,8 +61,14 @@ pgrep -a acServer
 ./start.sh prod     # Production (Redis cloud, telemetry in Docker)
 
 # Stop services
-./stop.sh           # Graceful stop
-./stop.sh force     # Force kill
+./stop.sh              # Full stop (edge + telemetry + AC lobbies)
+./stop.sh force        # Force kill everything
+./stop.sh infra        # Edge + telemetry only (keep acServer lobbies)
+
+# Apply code changes without killing lobbies (fleet uses dev)
+./reload-infra.sh        # defaults to dev
+./reload-infra.sh dev
+./reload-infra.sh prod   # only if a host uses .env.production + Docker telemetry
 
 # Status check
 ./start.sh status   # Show running services
@@ -178,8 +184,21 @@ Required GitHub Secrets:
 
 To add an edge VPS: append a row to `deploy/fleet.json`, add the matching `VPS_HOST_*` secret, and a `case` branch in [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) (Actions cannot resolve secret names dynamically).
 
+## Applying code changes (why a full restart used to be needed)
+
+| What you edited | What must reload | How |
+|-----------------|------------------|-----|
+| `packages/ac-data-edge` / `shared` | Node edge | `./reload-infra.sh` (or save file if `tsx watch` is already running) |
+| `telemetry-data/` (dev / fleet) | Host `python3 main.py` | `./reload-infra.sh` restarts the host process |
+| `telemetry-data/` (prod Docker) | Docker image | `./reload-infra.sh prod` rebuilds + recreates container |
+| Lobby INI / config snapshot | That `acServer` only | Config applier (no full stop) |
+| Everything broken / clean slate | All processes | `./stop.sh` then `./start.sh dev` |
+
+Fleet VPS and GitHub Actions edge deploy use **dev** (`.env.local`). Infra-only reload keeps lobbies up; the edge **adopts** living `acServer` PIDs on boot. Set `AC_CLEANUP_KILL_ORPHANS=true` only for the old kill-orphans-on-boot behavior.
+
 ## Known Gotchas
 
 1. **Content must be extracted (not .acd packages)** - Symlinks in `server/*/content/` must point to extracted folders
 2. **server_cfg.ini CARS/TRACK must be in [SERVER] section** - Not at end of file
 3. **Edge keeps restarting servers** - Convex config version is changing on every poll; use stable version strings
+4. **If a host uses prod Docker telemetry** - host `.py` edits are ignored until `./reload-infra.sh prod`
