@@ -26,6 +26,7 @@ def test_hud_conn_and_sse_redis_keys():
     assert hud_sse_redis_key("76561199000000001") == "ac:hud:sse:76561199000000001"
 
 
+@patch("core.hud_sse_presence.settings.REDIS_HOST", "127.0.0.1")
 @patch("core.hud_sse_presence.settings.BATTLE_REQUIRE_HUD_SSE", True)
 @patch("core.redis_client.get_redis_client")
 def test_is_hud_sse_active_reads_conn_key(mock_get_redis):
@@ -37,6 +38,7 @@ def test_is_hud_sse_active_reads_conn_key(mock_get_redis):
     redis.exists.assert_called_once_with("ac:hud:conn:76561199000000001")
 
 
+@patch("core.hud_sse_presence.settings.REDIS_HOST", "127.0.0.1")
 @patch("core.hud_sse_presence.settings.BATTLE_REQUIRE_HUD_SSE", True)
 @patch("core.redis_client.get_redis_client")
 def test_is_hud_sse_active_falls_back_to_sse_key(mock_get_redis):
@@ -56,6 +58,7 @@ def test_is_hud_sse_active_falls_back_to_sse_key(mock_get_redis):
     assert redis.exists.call_count == 2
 
 
+@patch("core.hud_sse_presence.settings.REDIS_HOST", "127.0.0.1")
 @patch("core.hud_sse_presence.settings.BATTLE_REQUIRE_HUD_SSE", True)
 @patch("core.redis_client.get_redis_client")
 def test_is_hud_sse_active_false_when_missing(mock_get_redis):
@@ -71,6 +74,7 @@ def test_is_hud_sse_active_skips_when_disabled():
     assert is_hud_sse_active("76561199000000001") is True
 
 
+@patch("core.hud_sse_presence.settings.REDIS_HOST", "127.0.0.1")
 @patch("core.hud_sse_presence.settings.BATTLE_REQUIRE_HUD_SSE", True)
 @patch("core.redis_client.get_redis_client")
 def test_filter_hud_eligible_batch(mock_get_redis):
@@ -91,6 +95,7 @@ def test_filter_hud_eligible_returns_all_when_disabled():
     assert filter_hud_eligible(guids) == set(guids)
 
 
+@patch("core.hud_sse_presence.settings.REDIS_HOST", "127.0.0.1")
 @patch("core.hud_sse_presence.settings.BATTLE_REQUIRE_HUD_SSE", False)
 @patch("core.redis_client.get_redis_client")
 def test_has_hud_overlay_connected_reads_redis_even_when_matchmaking_disabled(
@@ -106,6 +111,7 @@ def test_has_hud_overlay_connected_reads_redis_even_when_matchmaking_disabled(
     assert mock_get_redis.call_count == 1
 
 
+@patch("core.hud_sse_presence.settings.REDIS_HOST", "127.0.0.1")
 @patch("core.hud_sse_presence.settings.BATTLE_REQUIRE_HUD_SSE", False)
 @patch("core.redis_client.get_redis_client")
 def test_has_hud_overlay_connected_false_when_key_missing(mock_get_redis):

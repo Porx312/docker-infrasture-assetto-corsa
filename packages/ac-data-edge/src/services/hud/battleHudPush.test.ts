@@ -14,6 +14,22 @@ import type { HudBattleOk } from '@projectd/ac-data-shared/services/hud/hudTypes
 
 const ROOM = 'battle:testing:76561199000000001';
 
+async function waitForRoomEvents(
+  roomEvents: Array<{ event: string; payload: unknown }>,
+  minLength: number,
+  timeoutMs = 2000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (roomEvents.length < minLength) {
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Timed out waiting for ${minLength} room events (got ${roomEvents.length})`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 test('pushBattleToRoom emits battle and schedules clear on finished', async () => {
   resetBattleHudPushForTests();
 
@@ -64,7 +80,7 @@ test('pushBattleToRoom emits battle and schedules clear on finished', async () =
 
   try {
     await pushBattleToRoom(ROOM);
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await waitForRoomEvents(roomEvents, 3);
 
     assert.equal(roomEvents.length, 3);
     assert.equal(roomEvents[0]?.event, 'battle');
@@ -129,7 +145,7 @@ test('scheduleBattleClear repushes terminal snapshot before no_battle', async ()
 
   try {
     await pushBattleToRoom(ROOM);
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await waitForRoomEvents(roomEvents, 3);
 
     assert.equal(roomEvents.length, 3);
     assert.deepEqual(roomEvents[0]?.payload, finished);

@@ -36,9 +36,19 @@ def _should_skip_missing_env_file() -> bool:
     return False
 
 
+def _should_skip_env_file_load() -> bool:
+    """Unit tests / CI isolation — never pull REDIS_HOST etc. from a developer .env.local."""
+    return os.getenv("SKIP_ASSETTO_ENV_LOAD", "").strip() in ("1", "true", "yes", "on")
+
+
 def load_env() -> None:
     global _loaded
     if _loaded:
+        return
+
+    # Mirror Node shouldSkipEnvFileLoad(): skip even when the file exists.
+    if _should_skip_env_file_load():
+        _loaded = True
         return
 
     env_path = resolve_env_file_path()
