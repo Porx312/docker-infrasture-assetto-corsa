@@ -47,17 +47,29 @@ jobs:
         run: npm run test:shared
 
       - name: Test edge
-        # Unit suite isolates .env.local (NODE_ENV=test + SKIP_ASSETTO_ENV_LOAD). Short safety net only.
-        # Tee + grep so a single TAP failure is visible without scrolling the full suite log.
+        # Unit suite isolates .env.local (NODE_ENV=test + SKIP_ASSETTO_ENV_LOAD).
+        # Per-file processes + summary lines make the failing file obvious in CI.
         run: |
           set -o pipefail
-          timeout 120 npm run test:edge 2>&1 | tee /tmp/edge-unit-tests.log
+          # Per-file runner is slower; allow headroom beyond the old 90s cap.
+          timeout 300 npm run test:edge 2>&1 | tee /tmp/edge-unit-tests.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            echo "::error::Edge unit tests failed. Failing TAP lines:"
-            grep -E '^not ok ' /tmp/edge-unit-tests.log || echo "(no '^not ok ' lines found — check log above)"
+            echo "::error::Edge unit tests failed."
+            echo "Failed files:"
+            grep -E '^## FAILED FILE ' /tmp/edge-unit-tests.log || true
+            echo "TAP not-ok lines:"
+            grep -E '^ *not ok ' /tmp/edge-unit-tests.log || echo "(none matched)"
             exit "$status"
           fi
+      - name: Upload edge test log on failure
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: edge-unit-tests-log
+          path: /tmp/edge-unit-tests.log
+          if-no-files-found: ignore
 
       - name: Test backend
         run: npm run test:backend

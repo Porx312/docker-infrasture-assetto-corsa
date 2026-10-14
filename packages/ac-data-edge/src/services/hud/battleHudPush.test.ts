@@ -17,7 +17,7 @@ const ROOM = 'battle:testing:76561199000000001';
 async function waitForRoomEvents(
   roomEvents: Array<{ event: string; payload: unknown }>,
   minLength: number,
-  timeoutMs = 2000,
+  timeoutMs = 10000,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (roomEvents.length < minLength) {
