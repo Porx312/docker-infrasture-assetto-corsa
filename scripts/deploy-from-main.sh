@@ -65,6 +65,24 @@ git checkout main
 git reset --hard origin/main
 echo -e "${GREEN}Now at $(git rev-parse --short HEAD)${NC}"
 
+# Non-interactive SSH (Actions) skips .bashrc — load nvm/node if needed.
+ensure_npm() {
+  if command -v npm >/dev/null 2>&1; then
+    return 0
+  fi
+  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+    # shellcheck source=/dev/null
+    . "$NVM_DIR/nvm.sh"
+  fi
+  if ! command -v npm >/dev/null 2>&1; then
+    echo -e "${RED}npm not found (PATH=$PATH). Install Node or fix nvm for this user.${NC}"
+    exit 127
+  fi
+  echo -e "${YELLOW}Using npm via nvm: $(command -v npm)${NC}"
+}
+ensure_npm
+
 echo -e "${YELLOW}npm ci...${NC}"
 npm ci
 
