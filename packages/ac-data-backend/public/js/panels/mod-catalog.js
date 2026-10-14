@@ -113,12 +113,16 @@ function renderInventoryCard(item, type) {
       thumbInner = `<span class="mod-card-placeholder">${type === 'tracks' ? 'T' : 'C'}</span>`;
     }
   }
+  const linked = Boolean(artifactId);
+  const linkBadge = linked
+    ? `<span class="mod-card-badge mod-card-badge--linked">Linked</span>`
+    : `<span class="mod-card-badge mod-card-badge--local">Local only</span>`;
   const openAttrs = `data-open-catalog="${escapeAttr(type)}" data-artifact-id="${escapeAttr(artifactId)}" data-package-id="${escapeAttr(packageId)}" data-package-name="${escapeAttr(displayName)}" data-inv-slug="${escapeAttr(slug)}"`;
 
   return `
     <article class="mod-card-wrap" data-package-id="${escapeAttr(packageId)}" data-artifact-id="${escapeAttr(artifactId)}" data-inv-slug="${escapeAttr(slug)}">
       <button type="button" class="mod-card" ${openAttrs}>
-        <div class="mod-card-thumb">${thumbInner}</div>
+        <div class="mod-card-thumb">${thumbInner}${linkBadge}</div>
         <div class="mod-card-name" title="${escapeAttr(displayName)}">${escapeHtml(displayName)}</div>
         <div class="mod-card-meta">${escapeHtml(metaBits)}${escapeHtml(sizeMeta)}</div>
         ${category ? `<span class="mod-card-category">${escapeHtml(category)}</span>` : ''}
@@ -903,9 +907,10 @@ export async function openCatalogDistribution(type, artifactId, displayName, opt
         </div>
       </section>`
           : `<section class="mod-dist-section">
-        <p class="modal-mod-section">This VPS only</p>
-        <p class="panel-hint">Not linked to the hub catalog yet (no .acmod.json / artifact). Re-upload via Cars/Tracks to enable Sync to other VPS. You can still delete the folder on <strong>${escapeHtml(catalogEdgeId || 'this VPS')}</strong>.</p>
+        <p class="modal-mod-section">Local only</p>
+        <p class="panel-hint">Folder is on <strong>${escapeHtml(catalogEdgeId || 'this VPS')}</strong> but not linked to the hub catalog yet. <strong>Adopt / Link to catalog</strong> indexes it (writes .acmod.json) so you can Sync to other VPS — no ZIP re-upload needed.</p>
         <div class="modal-actions mod-side-dist-actions">
+          <button type="button" class="btn btn-primary btn-sm" data-adopt-local-slug="${escapeAttr(acSlug)}" data-adopt-local-kind="${escapeAttr(kindForType(type))}" data-adopt-display-name="${escapeAttr(displayName)}">Adopt / Link to catalog</button>
           <button type="button" class="btn btn-danger btn-sm" data-delete-local-slug="${escapeAttr(acSlug)}" data-delete-local-kind="${escapeAttr(kindForType(type))}">Delete from this VPS</button>
         </div>
       </section>`
@@ -1000,6 +1005,39 @@ export async function openCatalogDistribution(type, artifactId, displayName, opt
       }, 2000);
     }
   }
+
+  detail.querySelector('[data-adopt-local-slug]')?.addEventListener('click', async (e) => {
+    const btn = /** @type {HTMLElement} */ (e.currentTarget);
+    const slug = btn.getAttribute('data-adopt-local-slug') || '';
+    const kind = btn.getAttribute('data-adopt-local-kind') || kindForType(type);
+    const name = btn.getAttribute('data-adopt-display-name') || slug;
+    if (!slug || !catalogEdgeId) {
+      showToast('Missing slug or VPS', 'error');
+      return;
+    }
+    btn.setAttribute('disabled', 'true');
+    const { data: res } = await apiPost(`/mods/edges/${encodeURIComponent(catalogEdgeId)}/adopt`, {
+      kind,
+      slug,
+      displayName: name,
+    });
+    btn.removeAttribute('disabled');
+    if (!res.ok) {
+      showToast(res.message || 'Adopt failed', 'error');
+      return;
+    }
+    showToast(res.message || 'Linked to catalog', 'success');
+    await loadModCatalog(type);
+    const newArtifactId = res.artifactId || '';
+    if (newArtifactId) {
+      await openCatalogDistribution(type, newArtifactId, name, {
+        packageId: res.packageId || '',
+        invSlug: slug,
+      });
+    } else {
+      closeCatalogSidePanel(type);
+    }
+  });
 
   // Local folder delete (works with or without catalog artifact — for orphans / empty matrix).
   detail.querySelector('[data-delete-local-slug]')?.addEventListener('click', async (e) => {

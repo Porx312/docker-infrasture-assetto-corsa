@@ -1,0 +1,278 @@
+import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import fsp from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import type { Request, Response } from 'express';
+import type { ModKind, ModManifest } from '@projectd/ac-data-shared/mods/types.js';
+import { edgeFolderStorageKey } from '@projectd/ac-data-shared/mods/edgeBlobStorage.js';
+import { hashContentTree } from '@projectd/ac-data-shared/mods/contentTreeHash.js';
+import { getHubWorkerBaseUrl } from '@projectd/ac-data-shared/services/hubWorkerUrl.js';
+import { modAgentAuthHeaders } from '@projectd/ac-data-shared/mods/modAgentAuth.js';
+import { contentPoolPath, writeAcModSidecar } from './materialize.js';
+import { scanLocalModInventory, postModInventoryToHub } from '../modInventoryScan.js';
+
+function contentFolder(kind: ModKind): 'cars' | 'tracks' | 'weather' | null {
+  if (kind === 'car') return 'cars';
+  if (kind === 'track') return 'tracks';
+  if (kind === 'weather') return 'weather';
+  return null;
+}
+
+function parseKindSlug(kindRaw: string, slugRaw: string): { kind: ModKind; slug: string; folder: string } | null {
+  const kind = kindRaw.trim().toLowerCase();
+  const slug = slugRaw.trim();
+  if ((kind !== 'car' && kind !== 'track' && kind !== 'weather') || !slug) return null;
+  if (slug.includes('..') || slug.includes('/') || slug.includes('\\')) return null;
+  const folder = contentFolder(kind as ModKind);
+  if (!folder) return null;
+  return { kind: kind as ModKind, slug, folder };
+}
+
+/**
+ * Stream a CONTENT_PATH folder as an uncompressed tar (peer pull).
+ * Auth: worker secret (same as blob peer pull).
+ */
+export async function handleServeContentTree(req: Request, res: Response): Promise<void> {
+  const parsed = parseKindSlug(String(req.params.kind || ''), String(req.params.slug || ''));
+  if (!parsed) {
+    res.status(400).json({ ok: false, error: 'invalid_kind_or_slug' });
+    return;
+  }
+  const destDir = path.join(contentPoolPath(), parsed.folder, parsed.slug);
+  if (!fs.existsSync(destDir) || !fs.statSync(destDir).isDirectory()) {
+    res.status(404).json({ ok: false, error: 'folder_not_found' });
+    return;
+  }
+
+  const parent = path.join(contentPoolPath(), parsed.folder);
+  res.setHeader('Content-Type', 'application/x-tar');
+  res.setHeader('Content-Disposition', `attachment; filename="${parsed.slug}.tar"`);
+  res.setHeader('X-Mod-Kind', parsed.kind);
+  res.setHeader('X-Mod-Slug', parsed.slug);
+
+  const child = spawn('tar', ['-cf', '-', '-C', parent, parsed.slug], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  child.stderr?.on('data', (chunk: Buffer) => {
+    console.warn(`[mod-tree] tar stderr: ${chunk.toString('utf8').slice(0, 500)}`);
+  });
+  child.on('error', (err) => {
+    console.error(`[mod-tree] tar spawn failed: ${err.message}`);
+    if (!res.headersSent) {
+      res.status(500).json({ ok: false, error: 'tar_failed' });
+    } else {
+      res.destroy(err);
+    }
+  });
+  child.on('close', (code) => {
+    if (code !== 0 && !res.writableEnded) {
+      res.destroy(new Error(`tar exited ${code}`));
+    }
+  });
+  child.stdout?.pipe(res);
+}
+
+/**
+ * Install a peer tar stream into CONTENT_PATH (atomic rename), then adopt/register.
+ * Body: raw tar. Query/body: kind, slug, artifactId?, contentHash?, versionLabel?
+ */
+export async function installContentTreeFromStream(
+  kind: ModKind,
+  slug: string,
+  stream: NodeJS.ReadableStream,
+  meta?: {
+    artifactId?: string;
+    contentHash?: string;
+    versionLabel?: string;
+    register?: boolean;
+  },
+): Promise<{ contentHash: string; sizeBytes: number; destDir: string }> {
+  const folder = contentFolder(kind);
+  if (!folder) throw new Error('invalid kind');
+  if (slug.includes('..') || slug.includes('/') || slug.includes('\\')) {
+    throw new Error('invalid slug');
+  }
+
+  const pool = contentPoolPath();
+  const parent = path.join(pool, folder);
+  await fsp.mkdir(parent, { recursive: true });
+
+  const stagingRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'ac-mod-tree-'));
+  const stagingParent = path.join(stagingRoot, folder);
+  await fsp.mkdir(stagingParent, { recursive: true });
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn('tar', ['-xf', '-', '-C', stagingParent], {
+        stdio: ['pipe', 'ignore', 'pipe'],
+      });
+      let errBuf = '';
+      child.stderr?.on('data', (c: Buffer) => {
+        errBuf += c.toString('utf8');
+      });
+      child.on('error', reject);
+      child.on('close', (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`tar extract failed (${code}): ${errBuf.slice(0, 400)}`));
+      });
+      stream.pipe(child.stdin!);
+      stream.on('error', reject);
+    });
+
+    const extracted = path.join(stagingParent, slug);
+    if (!fs.existsSync(extracted) || !fs.statSync(extracted).isDirectory()) {
+      throw new Error(`Tar did not contain folder ${slug}`);
+    }
+
+    const { contentHash, sizeBytes } = await hashContentTree(extracted);
+    if (meta?.contentHash && meta.contentHash.toLowerCase() !== contentHash) {
+      throw new Error(
+        `contentHash mismatch: expected ${meta.contentHash.slice(0, 12)}… got ${contentHash.slice(0, 12)}…`,
+      );
+    }
+
+    const finalDir = path.join(parent, slug);
+    const swapDir = path.join(parent, `.${slug}.installing-${Date.now()}`);
+    await fsp.rename(extracted, swapDir);
+    if (fs.existsSync(finalDir)) {
+      const bak = `${finalDir}.bak-${Date.now()}`;
+      await fsp.rename(finalDir, bak);
+      try {
+        await fsp.rename(swapDir, finalDir);
+        await fsp.rm(bak, { recursive: true, force: true });
+      } catch (err) {
+        await fsp.rename(bak, finalDir).catch(() => undefined);
+        throw err;
+      }
+    } else {
+      await fsp.rename(swapDir, finalDir);
+    }
+
+    await writeAcModSidecar(finalDir, {
+      artifactId: meta?.artifactId,
+      sha256: contentHash,
+      contentHash,
+      kind,
+      slug,
+      ...(meta?.versionLabel ? { version: meta.versionLabel } : {}),
+    });
+
+    if (meta?.register !== false) {
+      const id = (process.env.EDGE_ID || '').trim().toLowerCase();
+      const hubBase = getHubWorkerBaseUrl();
+      if (id && hubBase && meta?.artifactId) {
+        // Inventory report is enough when job complete updates READY; optional re-register skipped.
+      } else if (id && hubBase && !meta?.artifactId) {
+        const storageKey = edgeFolderStorageKey(id, kind as 'car' | 'track' | 'weather', slug, contentHash);
+        const manifest: ModManifest = {
+          kind,
+          acContentSlugs: [slug],
+          rootPaths: [`${folder}/${slug}`],
+          contentTypeFolder: folder,
+        };
+        const registerUrl = `${hubBase.replace(/\/+$/, '')}/api/mod-agent/v1/artifacts/register-local`;
+        await fetch(registerUrl, {
+          method: 'POST',
+          headers: modAgentAuthHeaders(id),
+          body: JSON.stringify({
+            slug,
+            displayName: slug,
+            kind,
+            acContentSlug: slug,
+            versionLabel: meta?.versionLabel || new Date().toISOString().slice(0, 10),
+            sizeBytes,
+            sha256: contentHash,
+            storageKey,
+            storageOrigin: 'edge_folder',
+            manifest,
+          }),
+          signal: AbortSignal.timeout(120_000),
+        }).catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          console.warn(`[mod-tree] register after install failed: ${message}`);
+        });
+      }
+    }
+
+    void scanLocalModInventory()
+      .then((snap) => postModInventoryToHub(snap))
+      .catch(() => undefined);
+
+    return { contentHash, sizeBytes, destDir: finalDir };
+  } finally {
+    await fsp.rm(stagingRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+/** HTTP: POST /api/mod-agent/v1/trees/install?kind=&slug= with tar body (or multipart unused). */
+export async function handleInstallContentTree(req: Request, res: Response): Promise<void> {
+  const kindRaw = String(req.query.kind || req.body?.kind || '').trim();
+  const slug = String(req.query.slug || req.body?.slug || '').trim();
+  const parsed = parseKindSlug(kindRaw, slug);
+  if (!parsed) {
+    res.status(400).json({ ok: false, message: 'kind and slug required' });
+    return;
+  }
+  const artifactId =
+    typeof req.query.artifactId === 'string'
+      ? req.query.artifactId
+      : typeof req.body?.artifactId === 'string'
+        ? req.body.artifactId
+        : undefined;
+  const contentHash =
+    typeof req.query.contentHash === 'string'
+      ? req.query.contentHash
+      : typeof req.headers['x-content-hash'] === 'string'
+        ? req.headers['x-content-hash']
+        : undefined;
+
+  try {
+    const result = await installContentTreeFromStream(parsed.kind, parsed.slug, req, {
+      artifactId,
+      contentHash,
+      register: !artifactId,
+    });
+    res.json({ ok: true, ...result });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[mod-tree-install] ${message}`);
+    res.status(500).json({ ok: false, message });
+  }
+}
+
+/**
+ * Peer-pull install for mod agent: download tar from treeDownloadUrl into pool.
+ */
+export async function pullAndInstallContentTree(
+  treeUrl: string,
+  kind: ModKind,
+  slug: string,
+  headers: Record<string, string> | undefined,
+  meta: { artifactId?: string; contentHash?: string; versionLabel?: string },
+  onProgress?: (pct: number) => void,
+): Promise<{ contentHash: string; sizeBytes: number }> {
+  const res = await fetch(treeUrl, {
+    headers,
+    signal: AbortSignal.timeout(Number(process.env.MOD_TREE_PULL_TIMEOUT_MS || 600_000)),
+  });
+  if (!res.ok || !res.body) {
+    throw new Error(`Tree download failed HTTP ${res.status}`);
+  }
+  onProgress?.(10);
+  // Node fetch body is a web ReadableStream — convert for tar stdin
+  const nodeStream = res.body as unknown as NodeJS.ReadableStream;
+  const { Readable } = await import('node:stream');
+  const readable =
+    typeof (nodeStream as { pipe?: unknown }).pipe === 'function'
+      ? (nodeStream as NodeJS.ReadableStream)
+      : Readable.fromWeb(res.body as import('node:stream/web').ReadableStream);
+
+  onProgress?.(40);
+  const result = await installContentTreeFromStream(kind, slug, readable, {
+    ...meta,
+    register: false,
+  });
+  onProgress?.(100);
+  return result;
+}

@@ -1,15 +1,15 @@
-# Mod repository and distribution
+# Mod repository and distribution (folder-first)
 
-**Preferred model (edge-only blobs):** ZIP bytes live on game VPS nodes. The hub keeps **catalog metadata** only (`mod_packages`, `mod_artifacts`, inventory, sync jobs). Copy between VPS is **peer pull** (worker secret), not hub→edge re-upload.
+**Source of truth:** folders under each VPS `CONTENT_PATH/cars` and `CONTENT_PATH/tracks` (what Assetto Corsa loads).
 
-Unified catalog only: cars/tracks share `mod_packages` (no `mod_car_packages` / `mod_track_packages`). Migration `009_drop_unused_mod_split.sql` drops the abandoned split tables and unused upload-session table.
+The hub keeps **catalog metadata only** (`mod_packages`, `mod_artifacts`, inventory, sync jobs). There are **no permanent ZIP blobs** for new mods. Peer copy between VPS is a **tar stream** of the content folder (ephemeral), not a stored ZIP.
 
-Leftover hub master blobs (`storage_origin=hub`, `MOD_STORAGE_MODE`) are **read/delete only** — new uploads go **Cars / Tracks → Upload to VPS**. There is no hub ZIP upload API.
+Unified catalog only: cars/tracks share `mod_packages`. Migration `009_drop_unused_mod_split.sql` drops abandoned split tables. Migration `011_mod_artifact_edge_folder.sql` adds `storage_origin=edge_folder`.
 
 ## Architecture
 
 ```text
-                         HUB (metadata)
+                         HUB (metadata index)
                     Postgres + Redis inventory
                      sync_jobs / ensure API
                            │
@@ -18,7 +18,7 @@ Leftover hub master blobs (`storage_origin=hub`, `MOD_STORAGE_MODE`) are **read/
               ▼            ▼            ▼
            ProjectD      VPS 1  ←──→  VPS 2
              Web       CONTENT_PATH   CONTENT_PATH
-                       + blob cache   + blob cache
+                       (folder SoT)   (folder SoT)
                            │            │
                            ▼            ▼
                           AC           AC
@@ -26,19 +26,26 @@ Leftover hub master blobs (`storage_origin=hub`, `MOD_STORAGE_MODE`) are **read/
 
 | Concept | Source of truth | Notes |
 |---------|-----------------|-------|
-| **Catalog** | Hub Postgres | slug, kind, SHA256, `storage_key`, optional cover — **not** the ZIP |
-| **Blob** | Edge `AC_MOD_ROOT/blobs` | `storage_key` = `edge:{edgeId}:{sha256}` when edge-owned |
-| **Local pool** | VPS `CONTENT_PATH` | materialized cars/tracks for AC |
-| **Inventory** | Edge scan → Redis; hub `edge_artifact_inventory` | observed READY / PENDING / ERROR |
-| **Copy A→B** | Target agent pulls `/api/mod-agent/v1/blobs/:sha256` from source VPS | hub never stores the ZIP |
+| **Installed content** | VPS `CONTENT_PATH` | cars/tracks folders for AC |
+| **Syncable** | Folder **Adopt**ed (or uploaded once) | hub row + `.acmod.json` + `contentHash` |
+| **Catalog** | Hub Postgres | slug, kind, `contentHash` as `sha256`, `storage_key` |
+| **Copy A→B** | Target pulls `GET /api/mod-agent/v1/trees/:kind/:slug` | tar stream; no ZIP left on disk |
+| **Upload from PC** | Temp ZIP → materialize → delete ZIP | registers as `edge_folder` |
 
-**Do not** treat Redis scan as the global library. **Do not** accumulate master ZIPs on the hub for new mods.
+**Identity:** `kind + slug + contentHash` (deterministic tree hash of relative paths + sizes + file digests). Sidecar `.acmod.json`: `{ artifactId, contentHash, kind, slug }`.
 
-## Risks (edge-only)
+**Do not** accumulate master ZIPs on the hub or permanent blobs under `AC_MOD_ROOT/blobs` for new artifacts. Legacy `storage_origin=edge` blob keys and `/blobs/:sha256` remain for old rows until GC.
 
-- **Single copy:** if the only READY VPS loses the blob, re-upload is required (`artifact_blob_missing`).
-- **Peer reachability:** VPS must reach each other via `FLEET_EDGE_REGISTRY.baseUrl` (and share `CONVEX_WORKER_SECRET`).
-- **No hub fallback:** ensure/distribute cannot invent bytes that no edge has.
+## Pool layout (per VPS)
+
+```bash
+CONTENT_PATH=/path/to/pool          # shared pool
+# symlink each AC server instance:
+#   server/<name>/content/cars   → $CONTENT_PATH/cars
+#   server/<name>/content/tracks → $CONTENT_PATH/tracks
+```
+
+One pool per VPS; instances share via symlinks (already the recommended setup).
 
 ## Control API (Host)
 
@@ -50,28 +57,22 @@ Leftover hub master blobs (`storage_origin=hub`, `MOD_STORAGE_MODE`) are **read/
 | `POST` | `/v1/instances/:id/mods/ensure` | Idempotent materialize (reuse active job) |
 | `GET` | `/v1/instances/:id/mods/cars\|tracks` | LOCAL CONTENT / INVENTORY (Redis scan) |
 
-Exact version identity: `artifactId` + `sha256`. Slug alone is not enough for “LOCAL”.
+Exact version identity: `artifactId` + `contentHash` (`sha256` column). Slug alone is not enough for “LOCAL”.
 
 ## Environment (hub)
 
 ```bash
 DATABASE_URL=postgres://user:pass@host:5432/acdata
 REDIS_HOST=127.0.0.1
-# Key = EDGE_ID; instanceId = AC_INSTANCE_ID on that VPS
 FLEET_EDGE_REGISTRY={"eu":{"label":"EU","baseUrl":"http://10.0.0.2:3000","instanceId":"vps-eu-2","joinIp":"1.2.3.4"}}
 
-CONVEX_WORKER_SECRET=...   # same as edges (admin proxy + agent + peer blob pull)
-
-# Optional legacy hub master (older uploads only)
-# MOD_UPLOAD_ROOT=/var/lib/ac-data/mod-uploads
-# MOD_STORAGE_MODE=local
-# MOD_HUB_PUBLIC_URL=https://hub.example.com
+CONVEX_WORKER_SECRET=...   # same as edges (admin proxy + agent + peer tree pull)
 
 # Optional cover images (metadata only)
 # MOD_PREVIEW_IMAGES_PATH=/var/lib/ac-data/mod-previews
 ```
 
-Migrations run on hub startup (`migrations/001_…` … `008_mod_artifact_edge_origin.sql`).
+Migrations run on hub startup (`001` … `011_mod_artifact_edge_folder.sql`).
 
 ## Environment (edge VPS)
 
@@ -81,32 +82,46 @@ EDGE_ID=eu
 AC_INSTANCE_ID=vps-eu-2
 BACKEND_WORKER_URL=https://hub.example.com
 CONVEX_WORKER_SECRET=...
-AC_MOD_ROOT=/var/lib/ac-mods
-CONTENT_PATH=/var/lib/ac-mods/pool
+AC_MOD_ROOT=/var/lib/ac-mods          # optional legacy blob dir; prefer empty
+CONTENT_PATH=/var/lib/ac-mods/pool    # SoT
 ```
 
 Symlink each AC instance: `server/content/cars` → `$CONTENT_PATH/cars` (shared pool).
 
 ## Flows
 
-### Upload to one VPS
+### Adopt existing folder (no ZIP)
 
-1. Admin → **Cars** or **Tracks** → pick VPS → ZIP → **Upload to VPS**.
-2. Hub proxies multipart to edge `POST /admin/mods/local-upload` (temp only on hub).
-3. Edge caches blob, materializes pool, calls hub `register-local`.
-4. Hub inserts catalog row with `storage_origin=edge`, marks that edge READY.
+1. Cars / Tracks → open a **Local only** card.
+2. **Adopt / Link to catalog** → hub proxies `POST /admin/mods/edges/:edgeId/adopt`.
+3. Edge hashes the tree, writes `.acmod.json`, calls `register-local` with `storage_origin=edge_folder`.
+4. Sync to other VPS is enabled.
+
+### Upload ZIP from admin
+
+1. Admin → Cars/Tracks → pick VPS → ZIP → Upload.
+2. Hub proxies to edge `POST /admin/mods/local-upload` (temp only).
+3. Edge materializes into `CONTENT_PATH`, hashes folder, registers `edge_folder`, **deletes the temp ZIP** (no permanent blob).
 
 ### Copy VPS A → VPS B
 
-1. Cars/Tracks side panel → select target edges → **Sync / copy to selected**.
-2. Hub enqueues install on B; at acquire time sets `downloadUrl` to A’s blob URL.
-3. B pulls with `X-Worker-Secret`, materializes, reports READY.
-
-Explicit API: use `POST /admin/mods/artifacts/:id/distribute` with target edge ids (edge-owned artifacts peer-pull automatically).
+1. Side panel → select targets → **Sync / copy to selected**.
+2. Hub enqueues install on B; at acquire time sets `treeDownloadUrl` to A’s tree URL.
+3. B pulls tar with `X-Worker-Secret`, extracts atomically into `CONTENT_PATH`, reports READY.
 
 ### Delete on one VPS
 
-Cars/Tracks → select edges → **Remove from VPS** → `remove` sync jobs (pool + blob on that edge). Catalog row remains until package delete.
+Cars/Tracks → **Remove from VPS** or **Delete folder on this VPS**. Catalog row remains until package delete.
+
+### GC leftover ZIP blobs
+
+After migrating to folder-first:
+
+```http
+POST /admin/mods/edges/:edgeId/gc-blobs
+```
+
+Deletes files under `$AC_MOD_ROOT/blobs` on that edge (one-shot reclaim of disk).
 
 ## Start flow
 
@@ -118,27 +133,32 @@ AC must not depend on hub / peer download mid-session. Prefetch only.
 
 ## Admin UI
 
-- **Fleet:** agent health, capacity, stuck syncs, GC (not inventory).
-- **Cars / Tracks:** per-VPS inventory + upload-to-edge + distribution matrix (sync / verify / remove).
+- **Cars / Tracks:** inventory badges **Linked** / **Local only**; Adopt for orphans; Sync after link.
+- **Fleet:** agent health, capacity, stuck syncs.
 - Server modal **Overview:** required mods readiness + sync missing.
 
 ## PENDING forever?
 
-Usually: agent off, wrong `EDGE_ID`, hub unreachable (`BACKEND_WORKER_URL`), or peer `baseUrl` unreachable for edge-owned copy. Check `[mod-agent]` logs and Fleet edges strip.
+Usually: agent off, wrong `EDGE_ID`, hub unreachable (`BACKEND_WORKER_URL`), or peer `baseUrl` unreachable for tree pull. Check `[mod-agent]` logs and Fleet edges strip.
 
 ## API cheat sheet
 
 | Surface | Paths |
 |---------|--------|
 | Control (worker) | `/v1/mods`, `/v1/mods/availability`, `/v1/instances/:id/mods/ensure` |
-| Admin | `/admin/mods/*`, `/admin/mods/edges/:id/inventory`, `/admin/mods/edges/:id/upload` |
+| Admin | `/admin/mods/*`, `…/edges/:id/inventory`, `…/upload`, `…/adopt`, `…/gc-blobs` |
 | Agent | `/api/mod-agent/v1/*` including `register-local` |
-| Peer blob | `GET /api/mod-agent/v1/blobs/:sha256` on source edge |
+| Peer tree (preferred) | `GET /api/mod-agent/v1/trees/:kind/:slug` on source edge |
+| Peer blob (legacy) | `GET /api/mod-agent/v1/blobs/:sha256` — deprecated for **new** artifacts |
 
-## Garbage collection
+## Storage origins
 
-Not aggressive. `GET /admin/mods/gc/candidates` / `POST /admin/mods/gc/run` schedule removes for READY artifacts with zero server refs.
+| `storage_origin` | Meaning |
+|------------------|---------|
+| `edge_folder` | Folder-first (default for new uploads/adopts). `storage_key` = `edge-folder:{edgeId}:{kind}:{slug}:{contentHash}` |
+| `edge` | Legacy edge ZIP blob. Prefer tree pull when folder exists; blob URL fallback |
+| `hub` | Leftover hub master — read/delete only |
 
-## Leftover hub masters
+## Leftover hub masters / edge blobs
 
-Older `storage_origin=hub` artifacts may still download from hub disk/S3 until re-uploaded on an edge. No new hub ZIP writes. No CONTENT_FLEET_SYNC rsync.
+Older hub or edge ZIP rows may still exist until re-adopted or GC’d. No new permanent ZIP writes. No CONTENT_FLEET_SYNC rsync.

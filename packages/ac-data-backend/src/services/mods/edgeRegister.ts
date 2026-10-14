@@ -1,5 +1,12 @@
 import type { ModKind, ModManifest } from '@projectd/ac-data-shared/mods/types.js';
-import { edgeBlobStorageKey, isEdgeBlobStorageKey } from '@projectd/ac-data-shared/mods/edgeBlobStorage.js';
+import {
+  edgeBlobStorageKey,
+  edgeFolderStorageKey,
+  isEdgeBlobStorageKey,
+  isEdgeFolderStorageKey,
+  isEdgeOwnedStorageKey,
+  type EdgeFolderKind,
+} from '@projectd/ac-data-shared/mods/edgeBlobStorage.js';
 import {
   createPackageAndArtifact,
   markArtifactReadyOnEdge,
@@ -17,10 +24,17 @@ export type RegisterEdgeLocalArtifactInput = {
   sizeBytes: number;
   sha256: string;
   storageKey?: string;
+  /** Prefer edge_folder for folder-first adopt/upload (no permanent ZIP). */
+  storageOrigin?: 'edge' | 'edge_folder';
   manifest: ModManifest;
 };
 
-/** Catalog row only — ZIP already lives on the reporting edge. */
+function folderKindFromMod(kind: ModKind): EdgeFolderKind | null {
+  if (kind === 'car' || kind === 'track' || kind === 'weather') return kind;
+  return null;
+}
+
+/** Catalog row only — content already lives on the reporting edge (folder and/or legacy blob). */
 export async function registerEdgeLocalArtifact(
   input: RegisterEdgeLocalArtifactInput,
 ): Promise<{ packageId: string; artifactId: string }> {
@@ -29,11 +43,31 @@ export async function registerEdgeLocalArtifact(
     throw new Error('edgeId required');
   }
   if (!/^[a-f0-9]{64}$/i.test(input.sha256)) {
-    throw new Error('invalid sha256');
+    throw new Error('invalid sha256 (contentHash)');
   }
-  const storageKey = input.storageKey?.trim() || edgeBlobStorageKey(edgeId, input.sha256);
-  if (!isEdgeBlobStorageKey(storageKey)) {
-    throw new Error('storageKey must be edge:{edgeId}:{sha256}');
+
+  const origin = input.storageOrigin ?? (input.storageKey && isEdgeFolderStorageKey(input.storageKey)
+    ? 'edge_folder'
+    : 'edge');
+
+  let storageKey = input.storageKey?.trim() || '';
+  if (!storageKey) {
+    if (origin === 'edge_folder') {
+      const fk = folderKindFromMod(input.kind);
+      if (!fk) throw new Error('edge_folder requires kind car|track|weather');
+      storageKey = edgeFolderStorageKey(edgeId, fk, input.acContentSlug, input.sha256);
+    } else {
+      storageKey = edgeBlobStorageKey(edgeId, input.sha256);
+    }
+  }
+  if (!isEdgeOwnedStorageKey(storageKey)) {
+    throw new Error('storageKey must be edge:… or edge-folder:…');
+  }
+  if (origin === 'edge_folder' && !isEdgeFolderStorageKey(storageKey)) {
+    throw new Error('storageOrigin edge_folder requires edge-folder storageKey');
+  }
+  if (origin === 'edge' && !isEdgeBlobStorageKey(storageKey)) {
+    throw new Error('storageOrigin edge requires edge:{edgeId}:{sha256} storageKey');
   }
 
   await syncFleetEdgesToDb();
@@ -47,7 +81,7 @@ export async function registerEdgeLocalArtifact(
     sha256: input.sha256.toLowerCase(),
     storageKey,
     manifest: input.manifest,
-    storageOrigin: 'edge',
+    storageOrigin: origin,
     sourceEdgeId: edgeId,
   });
   await markArtifactReadyOnEdge({

@@ -229,6 +229,7 @@ export async function modAgentRegisterLocalHandler(req: Request, res: Response):
     sizeBytes?: number;
     sha256?: string;
     storageKey?: string;
+    storageOrigin?: 'edge' | 'edge_folder';
     manifest?: ModManifest;
   };
   if (
@@ -254,6 +255,7 @@ export async function modAgentRegisterLocalHandler(req: Request, res: Response):
       sizeBytes: body.sizeBytes,
       sha256: body.sha256,
       storageKey: body.storageKey,
+      storageOrigin: body.storageOrigin,
       manifest: body.manifest,
     });
     res.json({ ok: true, ...result });

@@ -50,6 +50,11 @@ export type ModAgentJobPayload = {
    * Auth: agent sends X-Worker-Secret.
    */
   downloadUrl?: string;
+  /**
+   * Folder-first peer pull: tar stream of CONTENT_PATH/{cars|tracks|weather}/slug.
+   * When set, agent installs from tree instead of a ZIP blob.
+   */
+  treeDownloadUrl?: string;
 };
 
 export type InventoryReportItem = {

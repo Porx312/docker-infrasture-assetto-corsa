@@ -25,7 +25,7 @@ export type ModArtifactRow = {
   storage_key: string;
   manifest_json: ModManifest;
   created_at: Date;
-  storage_origin?: 'hub' | 'edge';
+  storage_origin?: 'hub' | 'edge' | 'edge_folder';
   source_edge_id?: string | null;
 };
 
@@ -205,7 +205,7 @@ export async function createPackageAndArtifact(input: {
   sha256: string;
   storageKey: string;
   manifest: ModManifest;
-  storageOrigin?: 'hub' | 'edge';
+  storageOrigin?: 'hub' | 'edge' | 'edge_folder';
   sourceEdgeId?: string | null;
 }): Promise<{ packageId: string; artifactId: string }> {
   const pool = getModPool();
@@ -379,7 +379,7 @@ export async function getArtifactById(artifactId: string): Promise<
     storage_key: String(row.storage_key),
     manifest_json: row.manifest_json as ModManifest,
     created_at: row.created_at as Date,
-    storage_origin: (row.storage_origin as 'hub' | 'edge' | undefined) ?? 'hub',
+    storage_origin: (row.storage_origin as 'hub' | 'edge' | 'edge_folder' | undefined) ?? 'hub',
     source_edge_id: (row.source_edge_id as string | null | undefined) ?? null,
     package: {
       id: String(row.pkg_id),

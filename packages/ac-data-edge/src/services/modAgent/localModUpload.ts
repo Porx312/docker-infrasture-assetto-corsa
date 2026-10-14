@@ -4,11 +4,11 @@ import path from 'node:path';
 import type { Request, Response } from 'express';
 import unzipper from 'unzipper';
 import type { ModKind, ModManifest } from '@projectd/ac-data-shared/mods/types.js';
-import { edgeBlobStorageKey } from '@projectd/ac-data-shared/mods/edgeBlobStorage.js';
+import { edgeFolderStorageKey } from '@projectd/ac-data-shared/mods/edgeBlobStorage.js';
+import { hashContentTree } from '@projectd/ac-data-shared/mods/contentTreeHash.js';
 import { getHubWorkerBaseUrl } from '@projectd/ac-data-shared/services/hubWorkerUrl.js';
 import { modAgentAuthHeaders } from '@projectd/ac-data-shared/mods/modAgentAuth.js';
 import {
-  ensureBlobCached,
   materializeManifestToPool,
   sha256File,
   getValidCachedBlob,
@@ -22,7 +22,6 @@ function inferKind(paths: string[]): ModKind {
   if (normalized.some((p) => /(^|\/)cars\//.test(p))) return 'car';
   if (normalized.some((p) => /(^|\/)tracks\//.test(p))) return 'track';
   if (normalized.some((p) => /(^|\/)weather\//.test(p))) return 'weather';
-  // Bare car/track folder ZIPs (RaceDepartment etc.): look for AC markers.
   if (normalized.some((p) => /(^|\/)(data\.acd|data\/car\.ini|skins\/)/.test(p))) return 'car';
   if (normalized.some((p) => /(^|\/)(ui_track\.json|surfaces\.ini|map\.png|data\/surfaces\.ini)/.test(p))) {
     return 'track';
@@ -37,7 +36,6 @@ function contentFolder(kind: ModKind): 'cars' | 'tracks' | 'weather' | undefined
   return undefined;
 }
 
-/** Slugs from cars/<slug>/… anywhere in the zip (root or nested wrapper). */
 function extractSlugs(paths: string[], kind: ModKind): string[] {
   const folder = contentFolder(kind);
   if (!folder) return [];
@@ -75,7 +73,6 @@ async function buildManifestFromZip(zipPath: string, kindHint?: ModKind): Promis
   }
   const kind = kindHint && kindHint !== 'misc' ? kindHint : inferKind(paths);
   let slugs = extractSlugs(paths, kind);
-  // Common layout: ZIP is just <car_folder>/… without a cars/ prefix.
   if (!slugs.length && (kind === 'car' || kind === 'track')) {
     const root = singleRootSlug(paths);
     if (root) slugs = [root];
@@ -95,7 +92,8 @@ function edgeId(): string {
 }
 
 /**
- * Local ZIP upload on this edge: cache blob, materialize pool, register metadata on hub (no hub ZIP).
+ * Local ZIP upload: materialize to CONTENT_PATH, register as edge_folder, delete temp ZIP.
+ * Does not keep a permanent blob under AC_MOD_ROOT/blobs.
  */
 export async function handleLocalModUpload(req: Request, res: Response): Promise<void> {
   const file = (req as Request & { file?: Express.Multer.File }).file;
@@ -125,8 +123,7 @@ export async function handleLocalModUpload(req: Request, res: Response): Promise
       : path.basename(file.originalname || 'mod.zip', path.extname(file.originalname || '.zip'));
 
   try {
-    const sha256 = await sha256File(file.path);
-    const sizeBytes = fs.statSync(file.path).size;
+    const zipSha = await sha256File(file.path);
     const manifest = await buildManifestFromZip(file.path, kindHint);
     if (!manifest.contentTypeFolder || !manifest.acContentSlugs.length) {
       res.status(400).json({
@@ -137,13 +134,20 @@ export async function handleLocalModUpload(req: Request, res: Response): Promise
       return;
     }
     const acSlug = manifest.acContentSlugs[0]!;
-    // Skip re-hash + prefer rename into blob store (big speedup for multi‑GB ZIPs).
-    const cached = await ensureBlobCached(sha256, file.path, { trustedSource: true });
-    await materializeManifestToPool(sha256, cached, manifest, acSlug, {
-      sha256,
+    await materializeManifestToPool(zipSha, file.path, manifest, acSlug, {
+      sha256: zipSha,
       kind: manifest.kind,
       slug: acSlug,
     });
+
+    const destDir = path.join(contentPoolPath(), manifest.contentTypeFolder!, acSlug);
+    const { contentHash, sizeBytes } = await hashContentTree(destDir);
+    const storageKey = edgeFolderStorageKey(
+      id,
+      manifest.kind as 'car' | 'track' | 'weather',
+      acSlug,
+      contentHash,
+    );
 
     const registerUrl = `${hubBase.replace(/\/+$/, '')}/api/mod-agent/v1/artifacts/register-local`;
     const registerRes = await fetch(registerUrl, {
@@ -156,8 +160,9 @@ export async function handleLocalModUpload(req: Request, res: Response): Promise
         acContentSlug: acSlug,
         versionLabel: new Date().toISOString().slice(0, 10),
         sizeBytes,
-        sha256,
-        storageKey: edgeBlobStorageKey(id, sha256),
+        sha256: contentHash,
+        storageKey,
+        storageOrigin: 'edge_folder',
         manifest,
       }),
       signal: AbortSignal.timeout(120_000),
@@ -176,11 +181,10 @@ export async function handleLocalModUpload(req: Request, res: Response): Promise
       return;
     }
 
-    // Sidecar must include artifactId so inventory scan / UI can Sync & Remove.
-    const destDir = path.join(contentPoolPath(), manifest.contentTypeFolder!, acSlug);
     await writeAcModSidecar(destDir, {
       artifactId: body.artifactId,
-      sha256,
+      sha256: contentHash,
+      contentHash,
       kind: manifest.kind,
       slug: acSlug,
       version: new Date().toISOString().slice(0, 10),
@@ -198,10 +202,11 @@ export async function handleLocalModUpload(req: Request, res: Response): Promise
 
     res.json({
       ok: true,
-      message: 'Installed on this VPS and registered (ZIP stays on this edge only)',
+      message: 'Installed on this VPS and registered (folder-first; ZIP not retained)',
       packageId: body.packageId,
       artifactId: body.artifactId,
-      sha256,
+      sha256: contentHash,
+      contentHash,
       acContentSlug: acSlug,
       edgeId: id,
     });
@@ -214,7 +219,7 @@ export async function handleLocalModUpload(req: Request, res: Response): Promise
   }
 }
 
-/** Stream content-addressed blob for peer copy (worker secret). */
+/** Stream legacy content-addressed blob for peer copy (deprecated for new artifacts). */
 export async function handleServeModBlob(req: Request, res: Response): Promise<void> {
   const sha256 = String(req.params.sha256 || '')
     .trim()

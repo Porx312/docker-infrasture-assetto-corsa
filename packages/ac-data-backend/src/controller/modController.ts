@@ -606,3 +606,75 @@ export async function modEdgeUploadHandler(req: Request, res: Response): Promise
     await fsp.unlink(file.path).catch(() => undefined);
   }
 }
+
+/** Proxy adopt: link existing CONTENT_PATH folder to hub catalog (no ZIP). */
+export async function modEdgeAdoptHandler(req: Request, res: Response): Promise<void> {
+  const edgeId = String(req.params.edgeId || '').trim().toLowerCase();
+  const edge = resolveFleetEdge(edgeId);
+  if (!edge?.baseUrl) {
+    res.status(404).json({ ok: false, message: `Unknown fleet edge: ${edgeId}` });
+    return;
+  }
+  const { fleetEdgeSecret } = await import(
+    '@projectd/ac-data-shared/services/secrets/fleetSecrets.js'
+  );
+  const secret = fleetEdgeSecret();
+  if (!secret) {
+    res.status(503).json({ ok: false, message: 'FLEET_EDGE_SECRET or CONVEX_WORKER_SECRET missing' });
+    return;
+  }
+  try {
+    const url = new URL(
+      '/admin/mods/adopt',
+      edge.baseUrl.endsWith('/') ? edge.baseUrl : `${edge.baseUrl}/`,
+    );
+    const upstream = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'X-Worker-Secret': secret,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(req.body ?? {}),
+      signal: AbortSignal.timeout(Number(process.env.FLEET_ADMIN_PROXY_TIMEOUT_MS || 300_000)),
+    });
+    const data = (await upstream.json().catch(() => ({}))) as Record<string, unknown>;
+    res.status(upstream.status).json(data);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(502).json({ ok: false, message });
+  }
+}
+
+/** Proxy one-shot GC of permanent ZIP blobs on an edge (folder-first). */
+export async function modEdgeGcBlobsHandler(req: Request, res: Response): Promise<void> {
+  const edgeId = String(req.params.edgeId || '').trim().toLowerCase();
+  const edge = resolveFleetEdge(edgeId);
+  if (!edge?.baseUrl) {
+    res.status(404).json({ ok: false, message: `Unknown fleet edge: ${edgeId}` });
+    return;
+  }
+  const { fleetEdgeSecret } = await import(
+    '@projectd/ac-data-shared/services/secrets/fleetSecrets.js'
+  );
+  const secret = fleetEdgeSecret();
+  if (!secret) {
+    res.status(503).json({ ok: false, message: 'FLEET_EDGE_SECRET or CONVEX_WORKER_SECRET missing' });
+    return;
+  }
+  try {
+    const url = new URL(
+      '/admin/mods/gc-blobs',
+      edge.baseUrl.endsWith('/') ? edge.baseUrl : `${edge.baseUrl}/`,
+    );
+    const upstream = await fetch(url, {
+      method: 'POST',
+      headers: { 'X-Worker-Secret': secret },
+      signal: AbortSignal.timeout(Number(process.env.FLEET_ADMIN_PROXY_TIMEOUT_MS || 300_000)),
+    });
+    const data = (await upstream.json().catch(() => ({}))) as Record<string, unknown>;
+    res.status(upstream.status).json(data);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(502).json({ ok: false, message });
+  }
+}

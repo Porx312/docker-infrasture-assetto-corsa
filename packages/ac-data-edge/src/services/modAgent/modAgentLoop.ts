@@ -2,6 +2,7 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { ModAgentJobPayload } from '@projectd/ac-data-shared/mods/types.js';
+import { isEdgeFolderStorageKey } from '@projectd/ac-data-shared/mods/edgeBlobStorage.js';
 import {
   acquireModJob,
   agentHeartbeat,
@@ -20,7 +21,10 @@ import {
   verifyPoolSlug,
   ensureBlobCached,
   getValidCachedBlob,
+  contentPoolPath,
+  writeAcModSidecar,
 } from './materialize.js';
+import { pullAndInstallContentTree } from './contentTreeSync.js';
 
 const POLL_MS = Number(process.env.MOD_AGENT_POLL_MS || 1500);
 /** How many jobs to drain back-to-back before yielding to the poll interval. */
@@ -52,12 +56,60 @@ async function processJob(job: ModAgentJobPayload): Promise<void> {
   const sidecarMeta = {
     artifactId: job.artifactId,
     sha256: job.sha256,
+    contentHash: job.sha256,
     ...(job.versionLabel ? { version: job.versionLabel } : {}),
     kind: job.manifest.kind,
     slug: acSlug,
   };
 
-  // Cache hit: blob exists + SHA matches → skip download
+  const treeUrl =
+    typeof job.treeDownloadUrl === 'string' && job.treeDownloadUrl.trim()
+      ? job.treeDownloadUrl.trim()
+      : '';
+
+  // Folder already on this edge (peer === self): verify pool, refresh sidecar, done.
+  if (!treeUrl && isEdgeFolderStorageKey(job.storageKey)) {
+    const ok = await verifyPoolSlug(job.manifest, acSlug);
+    if (!ok) {
+      await failModJob(job.jobId, 'folder_missing', 'Content folder missing on this VPS', true);
+      return;
+    }
+    const folder = job.manifest.contentTypeFolder;
+    if (folder) {
+      await writeAcModSidecar(path.join(contentPoolPath(), folder, acSlug), sidecarMeta).catch(
+        () => undefined,
+      );
+    }
+    await completeModJob(job.jobId, job.sha256);
+    return;
+  }
+
+  if (treeUrl) {
+    const secret = modPeerSecret();
+    const downloadHeaders = secret ? { 'X-Worker-Secret': secret } : undefined;
+    await reportJobProgress(job.jobId, 5, 'tree_download');
+    const result = await pullAndInstallContentTree(
+      treeUrl,
+      job.manifest.kind,
+      acSlug,
+      downloadHeaders,
+      {
+        artifactId: job.artifactId,
+        contentHash: job.sha256,
+        versionLabel: job.versionLabel,
+      },
+      (pct) => {
+        void reportJobProgress(job.jobId, pct, 'tree_download').catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          console.warn(`[mod-agent] progress report failed: ${message}`);
+        });
+      },
+    );
+    await completeModJob(job.jobId, result.contentHash);
+    return;
+  }
+
+  // Legacy ZIP blob path (hub master or edge blob cache)
   let zipPath = await getValidCachedBlob(job.sha256);
   if (zipPath) {
     console.log(`[mod-agent] CACHE HIT sha256=${job.sha256.slice(0, 12)}…`);
@@ -86,6 +138,8 @@ async function processJob(job: ModAgentJobPayload): Promise<void> {
       job.sha256,
       downloadHeaders,
     );
+    // Ephemeral only: do not keep permanent blob cache for new installs from temp.
+    // Legacy peer blob pulls may still land in cache via ensureBlobCached when source is ZIP.
     await ensureBlobCached(job.sha256, zipPath);
   }
 
@@ -104,7 +158,6 @@ async function tick(): Promise<void> {
   tickInFlight = true;
   try {
     await agentHeartbeat(await collectHostMetrics());
-    // Drain queued jobs immediately instead of waiting POLL_MS between each mod.
     for (let i = 0; i < DRAIN_MAX; i += 1) {
       const job = await acquireModJob(`agent-${process.pid}`);
       if (!job) {

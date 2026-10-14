@@ -7,7 +7,10 @@ import type {
 } from '@projectd/ac-data-shared/mods/types.js';
 import {
   isEdgeBlobStorageKey,
+  isEdgeFolderStorageKey,
+  isEdgeOwnedStorageKey,
   parseEdgeBlobStorageKey,
+  parseEdgeFolderStorageKey,
 } from '@projectd/ac-data-shared/mods/edgeBlobStorage.js';
 import {
   listFleetEdges,
@@ -38,7 +41,7 @@ function maxPeerPullConcurrent(): number {
 }
 
 function assertLocalMasterBlobPresent(storageKey: string, sha256: string): void {
-  if (isEdgeBlobStorageKey(storageKey)) {
+  if (isEdgeOwnedStorageKey(storageKey)) {
     return;
   }
   if (!localMasterArtifactExists(storageKey)) {
@@ -84,6 +87,15 @@ function peerBlobDownloadUrl(sourceEdgeId: string, sha256: string): string {
   }
   const base = edge.baseUrl.replace(/\/+$/, '');
   return `${base}/api/mod-agent/v1/blobs/${encodeURIComponent(sha256)}`;
+}
+
+function peerTreeDownloadUrl(sourceEdgeId: string, kind: string, slug: string): string {
+  const edge = resolveFleetEdge(sourceEdgeId);
+  if (!edge?.baseUrl) {
+    throw new Error(`peer_edge_unreachable: no baseUrl for edge ${sourceEdgeId}`);
+  }
+  const base = edge.baseUrl.replace(/\/+$/, '');
+  return `${base}/api/mod-agent/v1/trees/${encodeURIComponent(kind)}/${encodeURIComponent(slug)}`;
 }
 
 /**
@@ -139,17 +151,17 @@ export async function ensureArtifactOnEdge(
   if (!art) {
     throw new Error('Artifact not found');
   }
-  if (!isEdgeBlobStorageKey(art.storage_key)) {
+  if (!isEdgeOwnedStorageKey(art.storage_key)) {
     assertLocalMasterBlobPresent(art.storage_key, art.sha256);
   } else {
-    const peer = await findPeerEdgeWithBlob(
-      artifactId,
-      art.sha256,
-      parseEdgeBlobStorageKey(art.storage_key)?.edgeId ?? art.source_edge_id,
-    );
+    const prefer =
+      parseEdgeFolderStorageKey(art.storage_key)?.edgeId ??
+      parseEdgeBlobStorageKey(art.storage_key)?.edgeId ??
+      art.source_edge_id;
+    const peer = await findPeerEdgeWithBlob(artifactId, art.sha256, prefer);
     if (!peer) {
       throw new Error(
-        'artifact_blob_missing: edge-owned mod has no READY source VPS — re-upload to an edge',
+        'artifact_blob_missing: edge-owned mod has no READY source VPS — adopt or upload on an edge',
       );
     }
   }
@@ -175,7 +187,7 @@ export async function distributeArtifact(
   if (!art) {
     throw new Error('Artifact not found');
   }
-  if (!isEdgeBlobStorageKey(art.storage_key)) {
+  if (!isEdgeOwnedStorageKey(art.storage_key)) {
     assertLocalMasterBlobPresent(art.storage_key, art.sha256);
   }
   await syncFleetEdgesToDb();
@@ -183,16 +195,15 @@ export async function distributeArtifact(
     edgeIds === 'all'
       ? listFleetEdges().map((e) => e.id)
       : edgeIds.map((id) => id.toLowerCase());
-  if (isEdgeBlobStorageKey(art.storage_key)) {
-    const source =
-      (await findPeerEdgeWithBlob(
-        artifactId,
-        art.sha256,
-        parseEdgeBlobStorageKey(art.storage_key)?.edgeId ?? art.source_edge_id,
-      )) ?? null;
+  if (isEdgeOwnedStorageKey(art.storage_key)) {
+    const prefer =
+      parseEdgeFolderStorageKey(art.storage_key)?.edgeId ??
+      parseEdgeBlobStorageKey(art.storage_key)?.edgeId ??
+      art.source_edge_id;
+    const source = (await findPeerEdgeWithBlob(artifactId, art.sha256, prefer)) ?? null;
     if (!source) {
       throw new Error(
-        'artifact_blob_missing: edge-owned mod has no READY source VPS — re-upload to an edge',
+        'artifact_blob_missing: edge-owned mod has no READY source VPS — adopt or upload on an edge',
       );
     }
     return copyArtifactFromEdge(artifactId, source, targets.filter((id) => id !== source));
@@ -333,7 +344,7 @@ export async function forceDeleteModPackage(packageId: string): Promise<{
   }
 
   for (const art of artifacts) {
-    if (!isEdgeBlobStorageKey(art.storage_key)) {
+    if (!isEdgeOwnedStorageKey(art.storage_key)) {
       await deleteMasterArtifact(art.storage_key).catch(() => undefined);
     }
   }
@@ -453,29 +464,51 @@ export async function acquireJobForEdge(edgeId: string, agentId: string): Promis
       }
 
       let downloadUrl: string | undefined;
-      if (
-        (job.operation === 'install' || job.operation === 'upgrade') &&
-        isEdgeBlobStorageKey(art.storage_key)
-      ) {
-        const prefer =
-          parseEdgeBlobStorageKey(art.storage_key)?.edgeId ?? art.source_edge_id ?? null;
-        const peer = await findPeerEdgeWithBlob(job.artifact_id, art.sha256, prefer);
-        if (peer && peer !== edgeId) {
-          downloadUrl = peerBlobDownloadUrl(peer, art.sha256);
-        } else if (!peer) {
-          await forceReleaseModLock(edgeId, art.sha256);
-          await client.query(
-            `UPDATE sync_jobs SET state = 'failed', error_message = $2, finished_at = NOW() WHERE id = $1`,
-            [job.id, 'No peer edge has this mod READY for download'],
-          );
-          await client.query(
-            `UPDATE edge_artifact_inventory SET status = 'ERROR', error_message = $3, updated_at = NOW()
-             WHERE edge_id = $1 AND artifact_id = $2`,
-            [edgeId, job.artifact_id, 'No peer edge has this mod READY'],
-          );
-          continue;
+      let treeDownloadUrl: string | undefined;
+      if (job.operation === 'install' || job.operation === 'upgrade') {
+        if (isEdgeFolderStorageKey(art.storage_key)) {
+          const parsed = parseEdgeFolderStorageKey(art.storage_key);
+          const prefer = parsed?.edgeId ?? art.source_edge_id ?? null;
+          const peer = await findPeerEdgeWithBlob(job.artifact_id, art.sha256, prefer);
+          const kind = parsed?.kind ?? art.package.kind;
+          const slug = parsed?.slug ?? art.package.ac_content_slug;
+          if (peer && peer !== edgeId) {
+            treeDownloadUrl = peerTreeDownloadUrl(peer, kind, slug);
+          } else if (!peer) {
+            await forceReleaseModLock(edgeId, art.sha256);
+            await client.query(
+              `UPDATE sync_jobs SET state = 'failed', error_message = $2, finished_at = NOW() WHERE id = $1`,
+              [job.id, 'No peer edge has this mod READY for tree download'],
+            );
+            await client.query(
+              `UPDATE edge_artifact_inventory SET status = 'ERROR', error_message = $3, updated_at = NOW()
+               WHERE edge_id = $1 AND artifact_id = $2`,
+              [edgeId, job.artifact_id, 'No peer edge has this mod READY'],
+            );
+            continue;
+          }
+          // peer === edgeId: folder already on this VPS (verify path / no download).
+        } else if (isEdgeBlobStorageKey(art.storage_key)) {
+          // Legacy ZIP blob artifacts: keep blob peer-pull (tree is for edge_folder only).
+          const prefer =
+            parseEdgeBlobStorageKey(art.storage_key)?.edgeId ?? art.source_edge_id ?? null;
+          const peer = await findPeerEdgeWithBlob(job.artifact_id, art.sha256, prefer);
+          if (peer && peer !== edgeId) {
+            downloadUrl = peerBlobDownloadUrl(peer, art.sha256);
+          } else if (!peer) {
+            await forceReleaseModLock(edgeId, art.sha256);
+            await client.query(
+              `UPDATE sync_jobs SET state = 'failed', error_message = $2, finished_at = NOW() WHERE id = $1`,
+              [job.id, 'No peer edge has this mod READY for download'],
+            );
+            await client.query(
+              `UPDATE edge_artifact_inventory SET status = 'ERROR', error_message = $3, updated_at = NOW()
+               WHERE edge_id = $1 AND artifact_id = $2`,
+              [edgeId, job.artifact_id, 'No peer edge has this mod READY'],
+            );
+            continue;
+          }
         }
-        // peer === edgeId: local blob cache expected (no downloadUrl).
       }
 
       await client.query(
@@ -501,6 +534,7 @@ export async function acquireJobForEdge(edgeId: string, agentId: string): Promis
         manifest: art.manifest_json,
         versionLabel: art.version_label,
         ...(downloadUrl ? { downloadUrl } : {}),
+        ...(treeDownloadUrl ? { treeDownloadUrl } : {}),
       };
     }
 
@@ -672,12 +706,30 @@ export async function getDownloadUrlForArtifact(
   if (!art) {
     throw new Error('Artifact not found');
   }
+  if (isEdgeFolderStorageKey(art.storage_key)) {
+    const parsed = parseEdgeFolderStorageKey(art.storage_key);
+    const prefer = parsed?.edgeId ?? art.source_edge_id ?? null;
+    const peer = await findPeerEdgeWithBlob(artifactId, art.sha256, prefer);
+    if (!peer) {
+      throw new Error(
+        'artifact_blob_missing: folder mod has no READY source VPS — adopt or upload on an edge',
+      );
+    }
+    const kind = parsed?.kind ?? art.package.kind;
+    const slug = parsed?.slug ?? art.package.ac_content_slug;
+    return {
+      url: peerTreeDownloadUrl(peer, kind, slug),
+      expiresInSec: 3600,
+      sha256: art.sha256,
+      sizeBytes: Number(art.size_bytes),
+    };
+  }
   if (isEdgeBlobStorageKey(art.storage_key)) {
     const prefer = parseEdgeBlobStorageKey(art.storage_key)?.edgeId ?? art.source_edge_id ?? null;
     const peer = await findPeerEdgeWithBlob(artifactId, art.sha256, prefer);
     if (!peer) {
       throw new Error(
-        'artifact_blob_missing: edge-owned mod has no READY source VPS — re-upload to an edge',
+        'artifact_blob_missing: edge-owned mod has no READY source VPS — adopt or upload on an edge',
       );
     }
     return {

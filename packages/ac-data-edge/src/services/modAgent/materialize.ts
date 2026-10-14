@@ -271,6 +271,8 @@ function findNestedContentDir(
 export type AcModSidecar = {
   artifactId?: string;
   sha256?: string;
+  /** Folder-first tree hash (same value as sha256 for edge_folder artifacts). */
+  contentHash?: string;
   version?: string;
   kind?: string;
   slug?: string;

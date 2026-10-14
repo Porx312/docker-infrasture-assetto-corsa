@@ -26,6 +26,8 @@ import {
   modEdgeInventoryHandler,
   modEdgeUploadHandler,
   modEdgeDeleteContentHandler,
+  modEdgeAdoptHandler,
+  modEdgeGcBlobsHandler,
 } from '../controller/modController.js';
 import { ensureModStagingDir } from '../services/mods/modPaths.js';
 
@@ -78,6 +80,12 @@ router.post(
 );
 router.delete('/mods/edges/:edgeId/content/:kind/:slug', adminAuth, (req, res) => {
   void modEdgeDeleteContentHandler(req, res);
+});
+router.post('/mods/edges/:edgeId/adopt', adminAuth, (req, res) => {
+  void modEdgeAdoptHandler(req, res);
+});
+router.post('/mods/edges/:edgeId/gc-blobs', adminAuth, (req, res) => {
+  void modEdgeGcBlobsHandler(req, res);
 });
 router.get('/mods/fleet/sync-issues', adminAuth, (req, res) => {
   void listFleetSyncIssuesHandler(req, res);

@@ -9,6 +9,11 @@ import {
   handleServeModBlob,
   handleDeleteLocalContent,
 } from '../services/modAgent/localModUpload.js';
+import { handleAdoptLocalFolder, handleGcModBlobs } from '../services/modAgent/adoptLocalFolder.js';
+import {
+  handleServeContentTree,
+  handleInstallContentTree,
+} from '../services/modAgent/contentTreeSync.js';
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -39,12 +44,24 @@ export const modLocalUploadRouter = Router();
 modLocalUploadRouter.post('/mods/local-upload', hubOrAdminAuth, upload.single('file'), (req, res) => {
   void handleLocalModUpload(req, res);
 });
+modLocalUploadRouter.post('/mods/adopt', hubOrAdminAuth, (req, res) => {
+  void handleAdoptLocalFolder(req, res);
+});
+modLocalUploadRouter.post('/mods/gc-blobs', hubOrAdminAuth, (req, res) => {
+  void handleGcModBlobs(req, res);
+});
 modLocalUploadRouter.delete('/mods/local-content/:kind/:slug', hubOrAdminAuth, (req, res) => {
   void handleDeleteLocalContent(req, res);
 });
 
-/** Mount under /api — peer edges pull blobs. */
+/** Mount under /api — peer edges pull blobs (legacy) or content trees (folder-first). */
 export const modBlobRouter = Router();
 modBlobRouter.get('/mod-agent/v1/blobs/:sha256', workerAuth, (req, res) => {
   void handleServeModBlob(req, res);
+});
+modBlobRouter.get('/mod-agent/v1/trees/:kind/:slug', workerAuth, (req, res) => {
+  void handleServeContentTree(req, res);
+});
+modBlobRouter.post('/mod-agent/v1/trees/install', workerAuth, (req, res) => {
+  void handleInstallContentTree(req, res);
 });
