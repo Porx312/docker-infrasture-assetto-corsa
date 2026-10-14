@@ -9,7 +9,7 @@ Fleet model: **hub** (`ac-data-backend`) + **edges** (`ac-data-edge`) + **shared
 | [VPS_FLEET_SETUP.md](./VPS_FLEET_SETUP.md) | Stand up hub + edges |
 | [MULTI_REGION_EDGE.md](./MULTI_REGION_EDGE.md) | Topology, env, Redis |
 | [HUD_HARDENING_CUTOVER.md](./HUD_HARDENING_CUTOVER.md) | WSS + Convex `presence` + `LIVE_INGEST_CONVEX=false` |
-| [MOD_DISTRIBUTION.md](./MOD_DISTRIBUTION.md) | Edge blobs, peer pull, hub catalog |
+| [MOD_DISTRIBUTION.md](./MOD_DISTRIBUTION.md) | Folder-first CONTENT_PATH, tree peer pull, hub catalog |
 | [VPS_SECURITY_HARDENING.md](./VPS_SECURITY_HARDENING.md) | Secrets, firewall, Redis AUTH |
 | [VPS_CAPACITY.md](./VPS_CAPACITY.md) | Host sizing |
 

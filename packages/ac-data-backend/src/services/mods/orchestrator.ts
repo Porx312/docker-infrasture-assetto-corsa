@@ -46,7 +46,7 @@ function assertLocalMasterBlobPresent(storageKey: string, sha256: string): void 
   }
   if (!localMasterArtifactExists(storageKey)) {
     throw new Error(
-      `artifact_blob_missing: master ZIP not on hub disk for sha256=${sha256.slice(0, 12)}… (MOD_UPLOAD_ROOT / wrong MOD_HUB_PUBLIC_URL host)`,
+      `artifact_blob_missing: leftover hub master ZIP missing for sha256=${sha256.slice(0, 12)}… — adopt/upload on an edge`,
     );
   }
 }

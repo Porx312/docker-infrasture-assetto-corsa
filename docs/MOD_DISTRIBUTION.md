@@ -82,8 +82,8 @@ EDGE_ID=eu
 AC_INSTANCE_ID=vps-eu-2
 BACKEND_WORKER_URL=https://hub.example.com
 CONVEX_WORKER_SECRET=...
-AC_MOD_ROOT=/var/lib/ac-mods          # optional legacy blob dir; prefer empty
-CONTENT_PATH=/var/lib/ac-mods/pool    # SoT
+CONTENT_PATH=/path/to/assetto/.../content   # required SoT
+# AC_MOD_ROOT=…   # deprecated; only for leftover blobs + gc-blobs, then remove
 ```
 
 Symlink each AC instance: `server/content/cars` → `$CONTENT_PATH/cars` (shared pool).

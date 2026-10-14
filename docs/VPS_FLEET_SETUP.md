@@ -61,15 +61,10 @@ HUD_PUBLIC_BASE_URL=https://api.example.com
 # BRANDING_IMAGES_PATH=/var/lib/ac-data/branding   # default: sibling of CONTENT_PATH named branding
 
 HUB_OWNS_CONTENT=true
-CONTENT_PATH=/path/to/content   # optional hub library
+CONTENT_PATH=/path/to/content   # optional hub library (weather/branding); mods live on edges
 
-# Mod catalog (Postgres) + edge blobs — see docs/MOD_DISTRIBUTION.md
+# Mod catalog (Postgres metadata) — see docs/MOD_DISTRIBUTION.md
 DATABASE_URL=postgres://…
-# Staging for Fleet→edge upload proxy only
-MOD_UPLOAD_ROOT=/var/lib/ac-data/mod-uploads
-# Optional: serve leftover hub-origin masters
-# MOD_STORAGE_MODE=local
-# MOD_HUB_PUBLIC_URL=https://api.example.com
 ```
 
 Deploy: [deploy/backend-hub/README.md](../deploy/backend-hub/README.md) or monorepo `npm run build:backend && npm run start -w @projectd/ac-data-backend`.
@@ -82,16 +77,21 @@ Deploy: [deploy/backend-hub/README.md](../deploy/backend-hub/README.md) or monor
 AC_INSTANCE_ID=vps-eu-2         # = registry instanceId
 EDGE_ID=eu                      # = registry key (mod agent)
 SERVERS_PATH=/path/to/servers
-CONTENT_PATH=/var/lib/ac-mods/pool
+CONTENT_PATH=/path/to/assetto-install/.../content   # required SoT (cars/tracks)
+MOD_AGENT_ENABLED=true
 
 BACKEND_INGEST_URL=https://api.example.com
 # BACKEND_WORKER_URL=…          # defaults to BACKEND_INGEST_URL
+# Prefer BACKEND_*; AC_DATA_BASE_URL is a legacy alias if still set
 CONVEX_WORKER_SECRET=…          # same as hub — NO Convex SDK creds on edge
 
 REDIS_HOST=…                    # SAME as hub
 REDIS_CONFIG_SYNC_ON_EDGE=false
 REDIS_CONFIG_APPLIER_ENABLED=true
 REDIS_EVENTS_BRIDGE_ENABLED=true
+HUD_WS_ENABLED=true
+HUD_CONN_PRESENCE_TTL_SEC=45
+# BATTLE_REQUIRE_HUD_CONN=true  # on telemetry-data if battle gate needs overlay
 
 EDGE_REGISTRY_BASE_URL=http://10.0.0.2:3000   # private URL hub uses
 EDGE_PUBLIC_BASE_URL=https://eu-api.example.com  # player HUD WSS

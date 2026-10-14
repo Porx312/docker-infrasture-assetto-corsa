@@ -18,7 +18,10 @@ export type ModAgentHostMetrics = {
 async function diskStats(): Promise<{ free?: number; total?: number }> {
   try {
     const { statfs } = await import('node:fs/promises');
-    const root = process.env.AC_MOD_ROOT || process.env.SERVERS_PATH || '/var/lib/ac-mods';
+    const root =
+      (process.env.CONTENT_PATH || '').trim() ||
+      (process.env.SERVERS_PATH || '').trim() ||
+      process.cwd();
     const stat = await statfs(root);
     const bsize = Number(stat.bsize);
     return {

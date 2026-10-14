@@ -27,8 +27,7 @@ export function resolveBrandingImagesPath(): string {
 export function resolveBrandingPublicBaseUrl(): string {
   return (
     (process.env.HUD_PUBLIC_BASE_URL || '').trim() ||
-    (process.env.PUBLIC_API_BASE_URL || '').trim() ||
-    (process.env.MOD_HUB_PUBLIC_URL || '').trim()
+    (process.env.PUBLIC_API_BASE_URL || '').trim()
   ).replace(/\/+$/, '');
 }
 

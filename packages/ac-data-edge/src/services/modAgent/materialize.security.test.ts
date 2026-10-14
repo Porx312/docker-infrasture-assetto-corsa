@@ -98,6 +98,21 @@ test('multi-server: shared CONTENT_PATH → one materialization path', () => {
   }
 });
 
+test('contentPoolPath requires CONTENT_PATH (no AC_MOD_ROOT fallback)', () => {
+  const prevContent = process.env.CONTENT_PATH;
+  const prevRoot = process.env.AC_MOD_ROOT;
+  delete process.env.CONTENT_PATH;
+  process.env.AC_MOD_ROOT = '/tmp/should-not-be-used';
+  try {
+    assert.throws(() => contentPoolPath(), /CONTENT_PATH is required/);
+  } finally {
+    if (prevContent === undefined) delete process.env.CONTENT_PATH;
+    else process.env.CONTENT_PATH = prevContent;
+    if (prevRoot === undefined) delete process.env.AC_MOD_ROOT;
+    else process.env.AC_MOD_ROOT = prevRoot;
+  }
+});
+
 test('integrity: SHA mismatch is treated as failure (download contract)', () => {
   const expected = 'a'.repeat(64);
   const actual = 'b'.repeat(64);

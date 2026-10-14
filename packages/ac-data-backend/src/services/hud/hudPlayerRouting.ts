@@ -119,16 +119,10 @@ function publicBaseForEdge(entry: HudEdgeRegistryEntry, instanceId?: string): st
   return entry.publicBaseUrl?.trim() || entry.baseUrl;
 }
 
-function allowLegacyServerNameRouting(): boolean {
-  const raw = (process.env.HUD_ALLOW_LEGACY_SERVERNAME_ROUTING || '').trim().toLowerCase();
-  if (raw === 'true' || raw === '1') return true;
-  if (raw === 'false' || raw === '0') return false;
-  // Default: allow in non-prod only. Prod must opt in via HUD_ALLOW_LEGACY_SERVERNAME_ROUTING
-  // (ALLOW_INSECURE_DEFAULTS must not reopen lobby-name routing — AUD2-11).
-  const env = (process.env.ASSETTO_ENV || 'dev').trim().toLowerCase();
-  return env !== 'prod' && env !== 'production';
-}
-
+/**
+ * Resolve fleet edge for a player via Redis presence only.
+ * Legacy serverName-only routing (HUD_ALLOW_LEGACY_SERVERNAME_ROUTING) removed.
+ */
 export async function resolveHudEdgeForSteamId(
   steamId: string,
   options?: { legacyServerName?: string | null },
@@ -139,31 +133,10 @@ export async function resolveHudEdgeForSteamId(
   }
 
   if (!isHudRedisConfigured()) {
-    const legacy = options?.legacyServerName?.trim();
-    if (legacy && !allowLegacyServerNameRouting()) {
+    if (options?.legacyServerName?.trim()) {
       console.warn(
-        '[hud-routing] legacy serverName routing disabled (set HUD_ALLOW_LEGACY_SERVERNAME_ROUTING=true to override)',
+        '[hud-routing] Redis unavailable — serverName routing removed; require HUD Redis presence',
       );
-      return { ok: false, reason: 'redis_unavailable' };
-    }
-    if (legacy) {
-      const edge = lookupHudEdgeByServerName(legacy);
-      if (edge) {
-        const presence: HubPlayerPresenceRecord = {
-          serverName: legacy,
-          track: '',
-          trackConfig: '',
-          carModel: '',
-          updatedAt: Date.now(),
-        };
-        return {
-          ok: true,
-          steamId: trimmed,
-          presence,
-          edge,
-          publicBaseUrl: publicBaseForEdge(edge, edge.instanceId),
-        };
-      }
     }
     return { ok: false, reason: 'redis_unavailable' };
   }
@@ -172,27 +145,9 @@ export async function resolveHudEdgeForSteamId(
   const legacyServerName = options?.legacyServerName?.trim() ?? null;
 
   if (!presence) {
-    if (legacyServerName && allowLegacyServerNameRouting()) {
-      const edge = lookupHudEdgeByServerName(legacyServerName);
-      if (edge) {
-        const stub: HubPlayerPresenceRecord = {
-          serverName: legacyServerName,
-          track: '',
-          trackConfig: '',
-          carModel: '',
-          updatedAt: Date.now(),
-        };
-        return {
-          ok: true,
-          steamId: trimmed,
-          presence: stub,
-          edge,
-          publicBaseUrl: publicBaseForEdge(edge, edge.instanceId),
-        };
-      }
-    } else if (legacyServerName) {
+    if (legacyServerName) {
       console.warn(
-        '[hud-routing] ignoring legacy serverName — require Redis presence (HUD_ALLOW_LEGACY_SERVERNAME_ROUTING)',
+        '[hud-routing] no Redis presence — ignoring serverName hint (legacy routing removed)',
       );
     }
     return { ok: false, reason: 'player_not_connected' };

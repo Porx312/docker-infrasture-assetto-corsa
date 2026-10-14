@@ -48,9 +48,15 @@ export async function getArtifactDownloadUrl(
 ): Promise<{ url: string; expiresInSec: number }> {
   const expiresInSec = Number(process.env.MOD_PRESIGN_TTL_SEC || 3600);
   if (storageMode() === 'local') {
-    const hubBase = (process.env.MOD_HUB_PUBLIC_URL || process.env.HUD_PUBLIC_BASE_URL || '').trim();
+    const hubBase = (
+      process.env.HUD_PUBLIC_BASE_URL ||
+      process.env.PUBLIC_API_BASE_URL ||
+      ''
+    ).trim();
     if (!hubBase) {
-      throw new Error('MOD_HUB_PUBLIC_URL required for local artifact downloads');
+      throw new Error(
+        'HUD_PUBLIC_BASE_URL required for leftover hub master downloads (prefer edge_folder / adopt)',
+      );
     }
     const token = sha256.slice(0, 16);
     const url = `${hubBase.replace(/\/+$/, '')}/api/mods/internal/artifacts/download?key=${encodeURIComponent(storageKey)}&sha256=${sha256}&token=${token}`;
@@ -101,7 +107,7 @@ export async function streamLocalMasterArtifact(
     res.status(404).json({
       ok: false,
       error: 'artifact_blob_missing',
-      message: 'Master ZIP missing on hub disk (check MOD_UPLOAD_ROOT / MOD_HUB_PUBLIC_URL)',
+      message: 'Leftover hub master ZIP missing — re-adopt/upload on an edge (folder-first)',
     });
     return;
   }

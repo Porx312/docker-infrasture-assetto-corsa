@@ -36,7 +36,7 @@ flowchart TB
 
 Con `BATTLE_HUD_ENABLED=true` (default), el estado en vivo se publica en Redis para pilotos con overlay ProjectD. Con `BATTLE_CHAT_ENABLED=true` (default), los pilotos **sin** clave `ac:hud:conn:{steamId}` reciben las mismas transiciones por chat ACSP privado (consola in-game). Ambos canales son independientes: el chat no sustituye al HUD ni viceversa.
 
-**ac-data-edge** escribe `ac:hud:conn:{steamId}` al conectar el overlay a **`WSS /hud/ws`** (renovación en keepalive). telemetry-data usa esa clave en `has_hud_overlay_connected()` (fallback legacy `ac:hud:sse:*` si existe). Env `BATTLE_REQUIRE_HUD_SSE` conserva el nombre por compat; el runtime lee **conn** primero.
+**ac-data-edge** escribe `ac:hud:conn:{steamId}` al conectar el overlay a **`WSS /hud/ws`** (renovación en keepalive). telemetry-data usa esa clave en `has_hud_overlay_connected()`. Gate: `BATTLE_REQUIRE_HUD_CONN` (alias temporal `BATTLE_REQUIRE_HUD_SSE`).
 
 - Overlay: WebSocket a `/hud/ws` vía ac-data-edge
 - Chat fallback: `engines/battlesystem/chat.py` → `session_manager.handle_chat_message` → ACSP 202 privado
@@ -53,7 +53,7 @@ En cada `update()` de telemetría (`orchestrator._try_matchmake`):
 2. Se emparejan si están a **≤ 15 m** (`BATTLE_ARM_MAX_GAP_METERS`) y ambos van a **> 40 km/h** (`BATTLE_ARM_MIN_SPEED_KMH`)
 3. Algoritmo **greedy nearest-neighbor**: el par más cercano que cumple condiciones se bloquea primero; se repite hasta agotar candidatos
 4. Un jugador solo puede estar en **una** batalla a la vez (`guid_to_pair`). Si la pareja queda separada en IDLE **10 s** (`BATTLE_PAIR_IDLE_SEPARATED_RELEASE_SEC`) o sin llegar a ACTIVE en **120 s** (`BATTLE_PAIR_MAX_PREACTIVE_LOCK_SEC`), el lock se disuelve y pueden emparejarse con otros
-5. Con `BATTLE_REQUIRE_HUD_SSE=true`, solo entran candidatos con overlay conectado (`ac:hud:conn:{steamId}` escrito por ac-data-edge en `WSS /hud/ws`). Si un jugador pierde el overlay durante una batalla, la pareja se disuelve con `cancelReason: hud_disconnected`. Con `BATTLE_REQUIRE_HUD_SSE=false` (recomendado para mezcla HUD/vanilla), el emparejamiento no exige overlay; el chat fallback cubre a quien no tenga clave activa.
+5. Con `BATTLE_REQUIRE_HUD_CONN=true`, solo entran candidatos con overlay conectado (`ac:hud:conn:{steamId}`). Si un jugador pierde el overlay durante una batalla, la pareja se disuelve con `cancelReason: hud_disconnected`. Con `false` (recomendado para mezcla HUD/vanilla), el emparejamiento no exige overlay; el chat fallback cubre a quien no tenga clave activa.
 6. Solo entran candidatos con **`acceptBattle` activo** (pref Redis `ac:user:prefs:accept_battle:{steamId}` ausente o distinto de `"0"`). Con `acceptBattle=false` el piloto conduce con normalidad pero no se empareja; el rival puede buscar otra pareja. Si un jugador con batallas activas se acerca (≤15 m, ambos >40 km/h) a otro con `acceptBattle=false`, recibe chat privado: `{player} don't accept battles.` (`BATTLE_DECLINED_OPPONENT_MESSAGE`), con cooldown `BATTLE_DECLINED_NOTIFY_COOLDOWN_SEC` (default 30 s).
 
 ## Máquina de estados por pareja
@@ -173,7 +173,7 @@ Ver también [REDIS_CONTRACT.md](../REDIS_CONTRACT.md) para el esquema de evento
 | Arming cancel (HUD) | Either driver &lt; 55 km/h or gap opens | `BATTLE_ARM_CANCEL_SPEED_KMH` (default 55); continue requires ≥ 40 km/h |
 | Arm (IDLE → ARMED) | condiciones sostenidas 5 s | `BATTLE_ARM_SUSTAINED_PROXIMITY_SEC` |
 | Rematch tras fin/cancel | cooldown 20 s solo para la misma pareja | `BATTLE_FINISHED_COOLDOWN_SEC` |
-| HUD SSE requerido (matchmaking) | overlay conectado a `/hud/stream` | `BATTLE_REQUIRE_HUD_SSE` |
+| HUD overlay requerido (matchmaking) | overlay conectado a `WSS /hud/ws` | `BATTLE_REQUIRE_HUD_CONN` |
 | Chat fallback (sin overlay) | chat ACSP a quien no tenga SSE | `BATTLE_CHAT_ENABLED` |
 | HUD overlay Redis | snapshots en vivo | `BATTLE_HUD_ENABLED` |
 | Abort prestart (solo ARMED) | > 80 m, ambos ≥ 20 km/h tras 2 s | `MAX_BATTLE_GAP_METERS`, `BATTLE_PRESTART_GAP_ABORT_GRACE_SEC` |

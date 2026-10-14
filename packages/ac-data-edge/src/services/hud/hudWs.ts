@@ -40,7 +40,7 @@ import { HUD_WS_PATH } from '@projectd/ac-data-shared/services/hud/hudQueryParam
 import type { ResolvedPlayerPresence } from '@projectd/ac-data-shared/services/hud/hudTypes.js';
 
 function wsKeepaliveMs(): number {
-  return Number(process.env.HUD_WS_KEEPALIVE_MS || process.env.HUD_SSE_KEEPALIVE_MS || 30_000);
+  return Number(process.env.HUD_WS_KEEPALIVE_MS || 30_000);
 }
 
 const keepaliveLogCounter = new Map<string, number>();

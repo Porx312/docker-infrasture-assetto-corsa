@@ -330,7 +330,7 @@ export async function modPreviewImageUploadHandler(req: Request, res: Response):
     res.status(503).json({
       ok: false,
       message:
-        'HUD_PUBLIC_BASE_URL (or PUBLIC_API_BASE_URL / MOD_HUB_PUBLIC_URL) required for mod preview uploads',
+        'HUD_PUBLIC_BASE_URL (or PUBLIC_API_BASE_URL) required for mod preview uploads',
     });
     return;
   }

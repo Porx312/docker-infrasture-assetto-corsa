@@ -148,11 +148,16 @@ export async function handleAdoptLocalFolder(req: Request, res: Response): Promi
   }
 }
 
-/** One-shot GC of permanent ZIP blobs under AC_MOD_ROOT/blobs (folder-first no longer needs them). */
+/** One-shot GC of permanent ZIP blobs under AC_MOD_ROOT/blobs (optional legacy). */
 export async function handleGcModBlobs(_req: Request, res: Response): Promise<void> {
   const root = (process.env.AC_MOD_ROOT || '').trim();
   if (!root) {
-    res.status(503).json({ ok: false, message: 'AC_MOD_ROOT not configured' });
+    res.json({
+      ok: true,
+      deleted: 0,
+      freedBytes: 0,
+      message: 'AC_MOD_ROOT unset (no legacy blobs)',
+    });
     return;
   }
   const blobsDir = path.join(root, 'blobs');
@@ -160,26 +165,38 @@ export async function handleGcModBlobs(_req: Request, res: Response): Promise<vo
     res.json({ ok: true, deleted: 0, freedBytes: 0, message: 'No blobs directory' });
     return;
   }
-  let deleted = 0;
-  let freedBytes = 0;
-  const entries = await fsp.readdir(blobsDir, { withFileTypes: true });
-  for (const ent of entries) {
-    if (!ent.isFile()) continue;
-    const full = path.join(blobsDir, ent.name);
-    try {
-      const st = await fsp.stat(full);
-      await fsp.unlink(full);
-      deleted += 1;
-      freedBytes += st.size;
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.warn(`[mod-gc-blobs] skip ${ent.name}: ${message}`);
+
+  async function rmTree(dir: string): Promise<{ deleted: number; freedBytes: number }> {
+    let deleted = 0;
+    let freedBytes = 0;
+    const entries = await fsp.readdir(dir, { withFileTypes: true });
+    for (const ent of entries) {
+      const full = path.join(dir, ent.name);
+      try {
+        if (ent.isDirectory()) {
+          const nested = await rmTree(full);
+          deleted += nested.deleted;
+          freedBytes += nested.freedBytes;
+          await fsp.rmdir(full).catch(() => undefined);
+        } else if (ent.isFile()) {
+          const st = await fsp.stat(full);
+          await fsp.unlink(full);
+          deleted += 1;
+          freedBytes += st.size;
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`[mod-gc-blobs] skip ${full}: ${message}`);
+      }
     }
+    return { deleted, freedBytes };
   }
+
+  const { deleted, freedBytes } = await rmTree(blobsDir);
   res.json({
     ok: true,
     deleted,
     freedBytes,
-    message: `Removed ${deleted} blob(s), freed ~${Math.round(freedBytes / (1024 * 1024))} MiB`,
+    message: `Removed ${deleted} blob file(s), freed ~${Math.round(freedBytes / (1024 * 1024))} MiB`,
   });
 }

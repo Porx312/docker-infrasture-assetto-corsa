@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
@@ -16,24 +17,41 @@ const MAX_ZIP_TOTAL_BYTES = Number(process.env.MOD_ZIP_MAX_TOTAL_BYTES || 8 * 10
 const MAX_ZIP_FILE_BYTES = Number(process.env.MOD_ZIP_MAX_FILE_BYTES || 2 * 1024 * 1024 * 1024);
 const MAX_ZIP_DEPTH = Number(process.env.MOD_ZIP_MAX_DEPTH || 32);
 
-function modRoot(): string {
-  return process.env.AC_MOD_ROOT || '/var/lib/ac-mods';
+/** Optional legacy ZIP blob root. Unset = no permanent blob cache (folder-first). */
+export function legacyModBlobRoot(): string | null {
+  const root = (process.env.AC_MOD_ROOT || '').trim();
+  return root || null;
 }
 
 export function contentPoolPath(): string {
-  return process.env.CONTENT_PATH || path.join(modRoot(), 'pool');
+  const raw = (process.env.CONTENT_PATH || '').trim();
+  if (!raw) {
+    throw new Error(
+      'CONTENT_PATH is required (AC content tree with cars/ and tracks/). AC_MOD_ROOT/pool is no longer used.',
+    );
+  }
+  return raw;
 }
 
 function blobZipPath(sha256: string): string {
+  const root = legacyModBlobRoot();
+  if (!root) {
+    throw new Error('AC_MOD_ROOT unset — legacy ZIP blob cache disabled');
+  }
   const prefix = sha256.slice(0, 2);
   const mid = sha256.slice(2, 4);
-  return path.join(modRoot(), 'blobs', 'sha256', prefix, mid, `${sha256}.zip`);
+  return path.join(root, 'blobs', 'sha256', prefix, mid, `${sha256}.zip`);
 }
 
 function extractDir(sha256: string): string {
+  const root = legacyModBlobRoot();
   const prefix = sha256.slice(0, 2);
   const mid = sha256.slice(2, 4);
-  return path.join(modRoot(), 'blobs', 'sha256', prefix, mid, sha256, 'tree');
+  if (root) {
+    return path.join(root, 'blobs', 'sha256', prefix, mid, sha256, 'tree');
+  }
+  // Ephemeral extract when folder-first (no permanent blob root).
+  return path.join(os.tmpdir(), 'ac-mod-extract', prefix, mid, sha256, 'tree');
 }
 
 export async function sha256File(filePath: string): Promise<string> {
@@ -52,6 +70,9 @@ export async function sha256File(filePath: string): Promise<string> {
  * Invalid cache (exists but wrong hash) → delete and return null.
  */
 export async function getValidCachedBlob(expectedSha256: string): Promise<string | null> {
+  if (!legacyModBlobRoot()) {
+    return null;
+  }
   const dest = blobZipPath(expectedSha256);
   if (!fs.existsSync(dest)) {
     return null;
@@ -79,6 +100,10 @@ export async function ensureBlobCached(
   zipPath: string,
   opts?: { trustedSource?: boolean },
 ): Promise<string> {
+  if (!legacyModBlobRoot()) {
+    // Folder-first: keep using the temp/source path without writing AC_MOD_ROOT/blobs.
+    return zipPath;
+  }
   const dest = blobZipPath(sha256);
   if (fs.existsSync(dest)) {
     if (opts?.trustedSource) {

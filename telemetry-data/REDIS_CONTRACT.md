@@ -104,14 +104,14 @@ Battle WS updates enrich players from `ac:hud:player:*` (derived locally from `a
 ## HUD overlay presence (battle matchmaking gate)
 
 Written by **ac-data-edge** when the overlay connects to `WSS /hud/ws`.
-Read by **telemetry-data** when `BATTLE_REQUIRE_HUD_SSE=true` to gate matchmaking (name kept for env compat).
+Read by **telemetry-data** when `BATTLE_REQUIRE_HUD_CONN=true` to gate matchmaking.
 
 | Key | Writer | Reader | TTL |
 |-----|--------|--------|-----|
-| `ac:hud:conn:{steamId}` | ac-data-edge (`hudConnPresence.ts`) on WS connect; renewed on keepalive; deleted on disconnect | telemetry-data `core/hud_sse_presence.py` (primary) | `HUD_CONN_PRESENCE_TTL_SEC` / legacy `HUD_SSE_PRESENCE_TTL_SEC` (default 45) |
+| `ac:hud:conn:{steamId}` | ac-data-edge (`hudConnPresence.ts`) on WS connect; renewed on keepalive; deleted on disconnect | telemetry-data `core/hud_sse_presence.py` | `HUD_CONN_PRESENCE_TTL_SEC` (default 45) |
 | `ac:hud:sse:{steamId}` | legacy only | telemetry-data fallback if conn missing | same |
 
-Env: `BATTLE_REQUIRE_HUD_SSE` (default false), `HUD_CONN_REDIS_PREFIX` (default `ac:hud:conn:`), `HUD_SSE_REDIS_PREFIX` (legacy fallback).
+Env: `BATTLE_REQUIRE_HUD_CONN` (default false; alias `BATTLE_REQUIRE_HUD_SSE`), `HUD_CONN_REDIS_PREFIX` (default `ac:hud:conn:`).
 
 ## User invalidation / global ban (not streams)
 
