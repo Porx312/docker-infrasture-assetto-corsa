@@ -6,9 +6,14 @@ import { getServerPorts } from './serverPorts.js';
 import { normalizeTrackConfigForIni } from '@projectd/ac-data-shared/controller/trackConfig.js';
 import { applyCmNameSuffix, readCmWrapperPort } from '@projectd/ac-data-shared/controller/cmWrapper.js';
 
-const _serversPath = process.env.SERVERS_PATH;
-if (!_serversPath) throw new Error(`SERVERS_PATH no definido en ${resolveEnvFilePath()}`);
-const SERVERS_PATH: string = _serversPath;
+/** Lazy so unit tests can import this module without SERVERS_PATH set. */
+function getServersPath(): string {
+    const serversPath = process.env.SERVERS_PATH?.trim();
+    if (!serversPath) {
+        throw new Error(`SERVERS_PATH no definido en ${resolveEnvFilePath()}`);
+    }
+    return serversPath;
+}
 
 const PIDS_FILE = path.join(process.cwd(), 'server_pids.json');
 
@@ -62,7 +67,7 @@ function isPidAlive(pid: number): boolean {
 
 function findAcServerPid(serverName: string): number | null {
     // Match binary path (.../server-N/acServer), not a loose "server" substring.
-    const binary = path.join(SERVERS_PATH, serverName, 'acServer');
+    const binary = path.join(getServersPath(), serverName, 'acServer');
     const escaped = binary.replace(/'/g, `'\\''`);
     try {
         const out = execSync(`pgrep -f '${escaped}' 2>/dev/null || true`, {
@@ -114,7 +119,7 @@ export async function cleanupOrphanProcesses(): Promise<void> {
         }
     }
 
-    const serversPath = SERVERS_PATH;
+    const serversPath = getServersPath();
     if (!fs.existsSync(serversPath)) {
         savePids();
         return;
@@ -124,7 +129,7 @@ export async function cleanupOrphanProcesses(): Promise<void> {
     for (const entry of entries) {
         if (!entry.isDirectory() || !entry.name.startsWith('server')) continue;
 
-        const ports = getServerPorts(SERVERS_PATH, entry.name);
+        const ports = getServerPorts(serversPath, entry.name);
         if (!ports) continue;
 
         const isUdpInUse = isPortInUse(ports.udp, 'udp');
@@ -191,8 +196,9 @@ export function applyServerConfiguration(
         entries,
     } = payload;
 
-    const cfgPath = path.join(SERVERS_PATH, serverName, 'cfg', 'server_cfg.ini');
-    const entryListPath = path.join(SERVERS_PATH, serverName, 'cfg', 'entry_list.ini');
+    const serversPath = getServersPath();
+    const cfgPath = path.join(serversPath, serverName, 'cfg', 'server_cfg.ini');
+    const entryListPath = path.join(serversPath, serverName, 'cfg', 'entry_list.ini');
 
     if (!fs.existsSync(cfgPath)) {
         return { ok: false, reason: `server_cfg.ini no existe para ${serverName}` };
@@ -204,7 +210,7 @@ export function applyServerConfiguration(
         let content = fs.readFileSync(cfgPath, 'utf-8');
 
         if (displayName !== undefined) {
-            const wrapperPort = readCmWrapperPort(SERVERS_PATH, serverName);
+            const wrapperPort = readCmWrapperPort(serversPath, serverName);
             const nameValue = applyCmNameSuffix(displayName, wrapperPort);
             if (/^NAME=.*/m.test(content)) {
                 content = content.replace(/^NAME=.*/m, `NAME=${nameValue}`);
@@ -303,7 +309,7 @@ export function applyServerConfiguration(
 }
 
 export function startServerCore(serverName: string): { ok: boolean; message: string } {
-    const serverPath = path.join(SERVERS_PATH, serverName, 'acServer');
+    const serverPath = path.join(getServersPath(), serverName, 'acServer');
     if (!fs.existsSync(serverPath)) {
         return { ok: false, message: `El servidor no existe: ${serverName}` };
     }
@@ -374,7 +380,7 @@ export async function stopServerCore(serverName: string): Promise< { ok: boolean
 }
 
 export async function restartServerCore(serverName: string): Promise<{ ok: boolean; message: string }> {
-    const serverPath = path.join(SERVERS_PATH, serverName, 'acServer');
+    const serverPath = path.join(getServersPath(), serverName, 'acServer');
     if (!fs.existsSync(serverPath)) {
         return { ok: false, message: 'Servidor no existe' };
     }

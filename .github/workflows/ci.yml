@@ -81,4 +81,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Pytest
+        env:
+          SKIP_ASSETTO_ENV_LOAD: "1"
+          CI: "true"
         run: pytest -q

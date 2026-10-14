@@ -98,13 +98,14 @@ async function getConvexQueryStats(
 
 test.before(() => {
   process.env.CONVEX_WORKER_SECRET = 'test-worker-secret';
+  // Worker routes auth via FLEET_EDGE_SECRET (no CONVEX fallback without ALLOW_INSECURE_DEFAULTS).
+  process.env.FLEET_EDGE_SECRET = 'test-worker-secret';
   process.env.AC_INSTANCE_ID = 'default';
   process.env.CONVEX_DEPLOYMENT_URL = 'https://example.convex.cloud';
   process.env.CONVEX_PRODUCT_KEY = 'test-product-key';
   // Prevent accidental hub registry sync from config publish (AUD2-06).
   delete process.env.BACKEND_WORKER_URL;
   delete process.env.BACKEND_INGEST_URL;
-  delete process.env.FLEET_EDGE_SECRET;
   setJoinContextRetryDelayMsForTests(-1);
   bindConfigSyncRedisClient({ xAdd: async () => '1-0' } as never);
   setConfigSyncTestHooks({

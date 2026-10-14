@@ -33,7 +33,7 @@ afterEach(() => {
 });
 
 test('hubOrAdminAuth accepts worker secret', () => {
-  process.env.CONVEX_WORKER_SECRET = 'test-secret';
+  process.env.FLEET_EDGE_SECRET = 'test-secret';
   const req = {
     headers: { 'x-worker-secret': 'test-secret' },
     body: {},
@@ -48,7 +48,7 @@ test('hubOrAdminAuth accepts worker secret', () => {
 });
 
 test('hubOrAdminAuth rejects without secret', () => {
-  process.env.CONVEX_WORKER_SECRET = 'test-secret';
+  process.env.FLEET_EDGE_SECRET = 'test-secret';
   const req = { headers: {}, cookies: {}, body: {} } as unknown as Request;
   const out = mockRes();
   let nextCalled = false;

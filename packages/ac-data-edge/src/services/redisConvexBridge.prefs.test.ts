@@ -47,9 +47,12 @@ test('partitionCoalescedByIngestPrefs forwards lap_completed when saveTime=true'
 });
 
 test('partitionCoalescedByIngestPrefs always forwards non-lap events', async () => {
+  // liveIngestConvex=true so presence events are not forced localOnly (cutover default is false).
   const { forward, localOnly } = await partitionCoalescedByIngestPrefs(
     [playerJoinPending('2'), lapPending('1', 'steam-a')],
     async () => true,
+    true,
+    true,
   );
 
   assert.equal(forward.length, 1);
@@ -102,6 +105,7 @@ test('partitionCoalescedByIngestPrefs forwards populated server_status when skip
     [populatedServerStatusPending('4')],
     async () => false,
     true,
+    true,
   );
 
   assert.equal(forward.length, 1);
@@ -113,6 +117,7 @@ test('partitionCoalescedByIngestPrefs forwards empty server_status when skip dis
     [emptyServerStatusPending('5')],
     async () => false,
     false,
+    true,
   );
 
   assert.equal(forward.length, 1);

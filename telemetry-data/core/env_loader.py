@@ -22,6 +22,20 @@ def resolve_env_file_path() -> Path:
     return _REPO_ROOT / name
 
 
+def _should_skip_missing_env_file() -> bool:
+    """CI / pytest / unit isolation — allow import without a real .env.local."""
+    if os.getenv("SKIP_ASSETTO_ENV_LOAD", "").strip() in ("1", "true", "yes", "on"):
+        return True
+    if os.getenv("CI", "").strip().lower() in ("1", "true", "yes"):
+        return True
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return True
+    # pytest often imports settings before PYTEST_CURRENT_TEST is set
+    if os.getenv("PYTEST_VERSION") or "pytest" in os.getenv("_", ""):
+        return True
+    return False
+
+
 def load_env() -> None:
     global _loaded
     if _loaded:
@@ -29,6 +43,9 @@ def load_env() -> None:
 
     env_path = resolve_env_file_path()
     if not env_path.is_file():
+        if _should_skip_missing_env_file():
+            _loaded = True
+            return
         raise FileNotFoundError(
             f"Env file not found: {env_path}. "
             "Copy .env.example to .env.local or .env.production, or set ASSETTO_ENV_FILE."
