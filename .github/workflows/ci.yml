@@ -48,7 +48,16 @@ jobs:
 
       - name: Test edge
         # Unit suite isolates .env.local (NODE_ENV=test + SKIP_ASSETTO_ENV_LOAD). Short safety net only.
-        run: timeout 90 npm run test:edge
+        # Tee + grep so a single TAP failure is visible without scrolling the full suite log.
+        run: |
+          set -o pipefail
+          timeout 120 npm run test:edge 2>&1 | tee /tmp/edge-unit-tests.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            echo "::error::Edge unit tests failed. Failing TAP lines:"
+            grep -E '^not ok ' /tmp/edge-unit-tests.log || echo "(no '^not ok ' lines found — check log above)"
+            exit "$status"
+          fi
 
       - name: Test backend
         run: npm run test:backend
