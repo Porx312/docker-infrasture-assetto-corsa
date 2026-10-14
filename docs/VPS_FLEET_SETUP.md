@@ -128,14 +128,15 @@ HUD / live ingest: [HUD_HARDENING_CUTOVER.md](./HUD_HARDENING_CUTOVER.md).
 
 ## Deploy from GitHub `main`
 
-Prod **edges (infra)** update via GitHub Actions on push to `main` ([`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml), inventory [`deploy/fleet.json`](../deploy/fleet.json)). Remote script: [`scripts/deploy-from-main.sh`](../scripts/deploy-from-main.sh).
+Prod **edges (infra)** update via GitHub Actions on push to `main` ([`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml), inventory [`deploy/fleet.json`](../deploy/fleet.json)). Remote script: [`scripts/deploy-from-main.sh`](../scripts/deploy-from-main.sh) → `./reload-infra.sh dev`.
 
 The **hub/backend** is deployed via **Dokploy**, not this workflow.
 
 - Edit/test on **vps-test**; merge to `main`; do not hand-edit code on prod edges.
 - Env files stay on each VPS — deploy never writes `.env.*`.
-- Add an edge: new `fleet.json` entry + `VPS_HOST_*` secret + matching `case` in the workflow.
-- Fleet edges run **`./start.sh dev`** (`.env.local`). Reload without killing lobbies: `./reload-infra.sh` (or `./stop.sh infra` then `./start.sh dev`). Full `./stop.sh` still kills `acServer`.
+- Each fleet edge needs **3 repository secrets**: `VPS_HOST_EDGE_N`, `VPS_USER_EDGE_N`, `VPS_SSH_KEY_EDGE_N` (see README CI/CD). Default inventory: `edge-1` … `edge-3`.
+- Add an edge: new `fleet.json` row + 3 secrets + matching `case` branches in the workflow for host/user/key.
+- Fleet edges run **`./start.sh dev`** (`.env.local`). Reload without killing lobbies: `./reload-infra.sh`. Full `./stop.sh` still kills `acServer`.
 
 ## Smoke tests
 

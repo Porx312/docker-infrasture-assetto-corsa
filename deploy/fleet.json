@@ -1,8 +1,28 @@
 [
   {
-    "id": "edge-eu",
+    "id": "edge-1",
     "role": "edge",
-    "hostSecret": "VPS_HOST_EDGE_EU",
+    "hostSecret": "VPS_HOST_EDGE_1",
+    "userSecret": "VPS_USER_EDGE_1",
+    "keySecret": "VPS_SSH_KEY_EDGE_1",
+    "path": "/home/jose/assetto-infra",
+    "healthUrl": "http://127.0.0.1:3000/api/health"
+  },
+  {
+    "id": "edge-2",
+    "role": "edge",
+    "hostSecret": "VPS_HOST_EDGE_2",
+    "userSecret": "VPS_USER_EDGE_2",
+    "keySecret": "VPS_SSH_KEY_EDGE_2",
+    "path": "/home/jose/assetto-infra",
+    "healthUrl": "http://127.0.0.1:3000/api/health"
+  },
+  {
+    "id": "edge-3",
+    "role": "edge",
+    "hostSecret": "VPS_HOST_EDGE_3",
+    "userSecret": "VPS_USER_EDGE_3",
+    "keySecret": "VPS_SSH_KEY_EDGE_3",
     "path": "/home/jose/assetto-infra",
     "healthUrl": "http://127.0.0.1:3000/api/health"
   }

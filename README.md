@@ -171,18 +171,23 @@ The hub exposes a **Control API** for ProjectD Host (mods inventory, live lobbie
 
 ## CI/CD
 
-Push to `main` → GitHub Actions deploys **edge (infra) VPS** in parallel (see [`deploy/fleet.json`](deploy/fleet.json)): each target SSHs in, runs [`scripts/deploy-from-main.sh`](scripts/deploy-from-main.sh) (`git reset --hard origin/main`, `npm ci`, build, `./stop.sh` + `./start.sh prod …`), then health-checks. **Does not** overwrite `.env.production` / `.env.local`.
+Push to `main` → GitHub Actions deploys **edge (infra) VPS** in parallel (see [`deploy/fleet.json`](deploy/fleet.json)): each target SSHs in with **per-VPS** credentials, runs [`scripts/deploy-from-main.sh`](scripts/deploy-from-main.sh) (`git reset --hard origin/main`, `npm ci`, `./reload-infra.sh dev`), then health-checks. **Does not** overwrite `.env.local`.
 
 The **hub/backend** is deployed separately via **Dokploy** (not this workflow).
 
-Workflow: develop/test on **vps-test** → push/merge to `main` → Actions updates prod edges. Do not edit code by hand on prod edge VPS hosts.
+Workflow: develop/test on **vps-test** → push/merge to `main` → Actions updates all fleet edges. Do not edit code by hand on prod edge VPS hosts.
 
-Required GitHub Secrets:
-- `VPS_USER`, `VPS_SSH_KEY` (shared deploy user/key)
-- One host secret per fleet entry (default: `VPS_HOST_EDGE_EU`)
-- Optional legacy: `VPS_HOST` if a fleet entry uses `hostSecret: "VPS_HOST"`
+### Repository secrets (3 per VPS)
 
-To add an edge VPS: append a row to `deploy/fleet.json`, add the matching `VPS_HOST_*` secret, and a `case` branch in [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) (Actions cannot resolve secret names dynamically).
+| Fleet id | Host | User | SSH private key |
+|----------|------|------|-----------------|
+| `edge-1` | `VPS_HOST_EDGE_1` | `VPS_USER_EDGE_1` | `VPS_SSH_KEY_EDGE_1` |
+| `edge-2` | `VPS_HOST_EDGE_2` | `VPS_USER_EDGE_2` | `VPS_SSH_KEY_EDGE_2` |
+| `edge-3` | `VPS_HOST_EDGE_3` | `VPS_USER_EDGE_3` | `VPS_SSH_KEY_EDGE_3` |
+
+Create them under Settings → Secrets and variables → Actions → **Repository secrets** (not Variables). Host = public IP/hostname; key = full PEM private key.
+
+To add a 4th edge: new row in `deploy/fleet.json` + 3 secrets (`VPS_HOST_EDGE_4`, `VPS_USER_EDGE_4`, `VPS_SSH_KEY_EDGE_4`) + matching `case` branches in [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) (Actions cannot resolve secret names dynamically).
 
 ## Applying code changes (why a full restart used to be needed)
 

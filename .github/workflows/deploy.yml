@@ -31,50 +31,80 @@ jobs:
         include: ${{ fromJson(needs.prepare.outputs.matrix) }}
 
     steps:
-      - name: Resolve VPS host
-        id: host
+      - name: Resolve VPS credentials
+        id: creds
         run: |
           case "${{ matrix.hostSecret }}" in
-            VPS_HOST_EDGE_EU)
-              HOST='${{ secrets.VPS_HOST_EDGE_EU }}'
-              ;;
-            VPS_HOST_HUB)
-              HOST='${{ secrets.VPS_HOST_HUB }}'
-              ;;
-            VPS_HOST)
-              # Backward-compatible single-host secret
-              HOST='${{ secrets.VPS_HOST }}'
-              ;;
+            VPS_HOST_EDGE_1) HOST='${{ secrets.VPS_HOST_EDGE_1 }}' ;;
+            VPS_HOST_EDGE_2) HOST='${{ secrets.VPS_HOST_EDGE_2 }}' ;;
+            VPS_HOST_EDGE_3) HOST='${{ secrets.VPS_HOST_EDGE_3 }}' ;;
+            VPS_HOST_EDGE_EU) HOST='${{ secrets.VPS_HOST_EDGE_EU }}' ;;
+            VPS_HOST) HOST='${{ secrets.VPS_HOST }}' ;;
             *)
               echo "Unknown hostSecret: ${{ matrix.hostSecret }}"
               echo "Add a case branch in .github/workflows/deploy.yml when extending deploy/fleet.json"
               exit 1
               ;;
           esac
-          if [ -z "$HOST" ]; then
-            echo "Secret ${{ matrix.hostSecret }} is empty. Set it in repo Settings → Secrets."
+
+          case "${{ matrix.userSecret }}" in
+            VPS_USER_EDGE_1) USER='${{ secrets.VPS_USER_EDGE_1 }}' ;;
+            VPS_USER_EDGE_2) USER='${{ secrets.VPS_USER_EDGE_2 }}' ;;
+            VPS_USER_EDGE_3) USER='${{ secrets.VPS_USER_EDGE_3 }}' ;;
+            VPS_USER) USER='${{ secrets.VPS_USER }}' ;;
+            *)
+              echo "Unknown userSecret: ${{ matrix.userSecret }}"
+              echo "Add a case branch in .github/workflows/deploy.yml when extending deploy/fleet.json"
+              exit 1
+              ;;
+          esac
+
+          case "${{ matrix.keySecret }}" in
+            VPS_SSH_KEY_EDGE_1) KEY='${{ secrets.VPS_SSH_KEY_EDGE_1 }}' ;;
+            VPS_SSH_KEY_EDGE_2) KEY='${{ secrets.VPS_SSH_KEY_EDGE_2 }}' ;;
+            VPS_SSH_KEY_EDGE_3) KEY='${{ secrets.VPS_SSH_KEY_EDGE_3 }}' ;;
+            VPS_SSH_KEY) KEY='${{ secrets.VPS_SSH_KEY }}' ;;
+            *)
+              echo "Unknown keySecret: ${{ matrix.keySecret }}"
+              echo "Add a case branch in .github/workflows/deploy.yml when extending deploy/fleet.json"
+              exit 1
+              ;;
+          esac
+
+          if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$KEY" ]; then
+            echo "Missing secret(s) for ${{ matrix.id }}:"
+            echo "  hostSecret=${{ matrix.hostSecret }} empty=$([ -z "$HOST" ] && echo yes || echo no)"
+            echo "  userSecret=${{ matrix.userSecret }} empty=$([ -z "$USER" ] && echo yes || echo no)"
+            echo "  keySecret=${{ matrix.keySecret }} empty=$([ -z "$KEY" ] && echo yes || echo no)"
             exit 1
           fi
-          echo "value=$HOST" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "host=$HOST"
+            echo "user=$USER"
+            echo "key<<EOF"
+            echo "$KEY"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Deploy ${{ matrix.id }} (${{ matrix.role }})
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ steps.host.outputs.value }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
+          host: ${{ steps.creds.outputs.host }}
+          username: ${{ steps.creds.outputs.user }}
+          key: ${{ steps.creds.outputs.key }}
           script: |
             set -euo pipefail
             cd "${{ matrix.path }}"
-            chmod +x scripts/deploy-from-main.sh
+            chmod +x scripts/deploy-from-main.sh reload-infra.sh
             ./scripts/deploy-from-main.sh "${{ matrix.role }}"
 
       - name: Health check (${{ matrix.id }})
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ steps.host.outputs.value }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
+          host: ${{ steps.creds.outputs.host }}
+          username: ${{ steps.creds.outputs.user }}
+          key: ${{ steps.creds.outputs.key }}
           script: |
             set -euo pipefail
             sleep 8
@@ -84,9 +114,9 @@ jobs:
         if: matrix.role == 'edge'
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ steps.host.outputs.value }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
+          host: ${{ steps.creds.outputs.host }}
+          username: ${{ steps.creds.outputs.user }}
+          key: ${{ steps.creds.outputs.key }}
           script: |
             set -euo pipefail
             pgrep -f 'python3 main.py' >/dev/null
