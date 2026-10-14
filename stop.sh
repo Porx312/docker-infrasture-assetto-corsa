@@ -1,5 +1,5 @@
 #!/bin/bash
-# Stop Assetto Corsa Server Infrastructure
+# Stop Assetto Corsa Server Infrastructure hello world
 #
 # Usage:
 #   ./stop.sh              # Stop everything (edge, telemetry, AC lobbies, CM proxies)
