@@ -1,7 +1,5 @@
-import time
 from unittest.mock import MagicMock, patch
 
-from core import settings
 from core.server_registry import register_server, reset_registry_for_tests
 from core.session_manager import DriverInfo, ServerState
 from core.user_registration_enforcer import (
@@ -15,6 +13,17 @@ from core.user_registration_enforcer import (
     user_not_registered_redis_key,
 )
 from core.user_status_cache import reset_user_status_cache_for_tests
+
+
+class ImmediateThread:
+    """Run Thread target synchronously so defer tests are not timing-flaky."""
+
+    def __init__(self, target=None, daemon=None, name=None, **_kwargs):
+        self._target = target
+
+    def start(self):
+        if self._target:
+            self._target()
 
 
 def setup_function():
@@ -100,8 +109,8 @@ def test_schedule_deferred_registration_kick_skips_when_cleared(
     server.guid_to_driver[driver.guid] = driver
     mock_is_not_registered.return_value = False
 
-    schedule_deferred_registration_kick(server, driver)
-    time.sleep(0.05)
+    with patch("core.user_registration_enforcer.threading.Thread", ImmediateThread):
+        schedule_deferred_registration_kick(server, driver)
 
     mock_kick.assert_not_called()
 
@@ -126,8 +135,8 @@ def test_schedule_deferred_registration_kick_kicks_when_still_not_registered(
     server.guid_to_driver[driver.guid] = driver
     mock_is_not_registered.return_value = True
 
-    schedule_deferred_registration_kick(server, driver)
-    time.sleep(0.05)
+    with patch("core.user_registration_enforcer.threading.Thread", ImmediateThread):
+        schedule_deferred_registration_kick(server, driver)
 
     mock_kick.assert_called_once()
 
@@ -152,8 +161,8 @@ def test_schedule_deferred_registration_kick_hands_off_to_ban(
 
     with patch("core.user_registration_enforcer.schedule_deferred_ban_kick") as mock_ban_defer:
         with patch("core.user_registration_enforcer.kick_unregistered_driver") as mock_kick:
-            schedule_deferred_registration_kick(server, driver)
-            time.sleep(0.2)
+            with patch("core.user_registration_enforcer.threading.Thread", ImmediateThread):
+                schedule_deferred_registration_kick(server, driver)
 
             mock_kick.assert_not_called()
             mock_ban_defer.assert_called_once_with(server, driver)

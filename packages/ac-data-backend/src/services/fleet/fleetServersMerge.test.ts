@@ -1,14 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { resetFleetRegistryForTests } from '@projectd/ac-data-shared/services/fleet/fleetRegistry.js';
 
 test('fetchMergedFleetServers aggregates branding servers from edges', async () => {
   const prevFleet = process.env.FLEET_EDGE_REGISTRY;
-  const prevSecret = process.env.CONVEX_WORKER_SECRET;
+  const prevSecret = process.env.FLEET_EDGE_SECRET;
+  const prevConvex = process.env.CONVEX_WORKER_SECRET;
   process.env.FLEET_EDGE_REGISTRY = JSON.stringify({
     eu: { label: 'EU', baseUrl: 'http://127.0.0.1:3991', instanceId: 'vps-eu' },
     na: { label: 'NA', baseUrl: 'http://127.0.0.1:3992', instanceId: 'vps-na' },
   });
-  process.env.CONVEX_WORKER_SECRET = 'test-secret';
+  // Dedicated fleet secret — CONVEX_WORKER_SECRET fallback needs ALLOW_INSECURE_DEFAULTS.
+  process.env.FLEET_EDGE_SECRET = 'test-secret';
+  resetFleetRegistryForTests();
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input: RequestInfo | URL) => {
@@ -42,7 +46,12 @@ test('fetchMergedFleetServers aggregates branding servers from edges', async () 
     assert.equal(result.servers[1]?.fleetLabel, 'NA');
   } finally {
     globalThis.fetch = originalFetch;
-    process.env.FLEET_EDGE_REGISTRY = prevFleet;
-    process.env.CONVEX_WORKER_SECRET = prevSecret;
+    if (prevFleet === undefined) delete process.env.FLEET_EDGE_REGISTRY;
+    else process.env.FLEET_EDGE_REGISTRY = prevFleet;
+    if (prevSecret === undefined) delete process.env.FLEET_EDGE_SECRET;
+    else process.env.FLEET_EDGE_SECRET = prevSecret;
+    if (prevConvex === undefined) delete process.env.CONVEX_WORKER_SECRET;
+    else process.env.CONVEX_WORKER_SECRET = prevConvex;
+    resetFleetRegistryForTests();
   }
 });

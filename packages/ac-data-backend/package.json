@@ -9,7 +9,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "rimraf ./dist && tsc -p tsconfig.build.json && node scripts/write-build-info.mjs",
     "start": "node dist/index.js",
-    "test": "bash -c \"shopt -s globstar && tsx --test src/**/*.test.ts\""
+    "test": "bash -c 'export NODE_ENV=test SKIP_ASSETTO_ENV_LOAD=1; export SERVERS_PATH=\"${SERVERS_PATH:-$(mktemp -d /tmp/assetto-ci-servers-XXXXXX)}\"; mkdir -p \"$SERVERS_PATH\"; shopt -s globstar; exec tsx --test src/**/*.test.ts'"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1138.0",
