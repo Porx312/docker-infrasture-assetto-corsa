@@ -135,6 +135,7 @@ The **hub/backend** is deployed via **Dokploy**, not this workflow.
 - Edit/test on **vps-test**; merge to `main`; do not hand-edit code on prod edges.
 - Env files stay on each VPS — deploy never writes `.env.*`.
 - Each fleet edge needs **3 repository secrets**: `VPS_HOST_EDGE_N`, `VPS_USER_EDGE_N`, `VPS_SSH_KEY_EDGE_N` (see README CI/CD). Default inventory: `edge-1` … `edge-3`.
+- Repo paths in `fleet.json`: **edge-1** and **edge-2** → `/root/assetto-infra` (`VPS_USER` = `root`); **edge-3** → `/home/jose/assetto-infra`. Confirm user secrets match the path owner.
 - Add an edge: new `fleet.json` row + 3 secrets + matching `case` branches in the workflow for host/user/key.
 - Fleet edges run **`./start.sh dev`** (`.env.local`). Reload without killing lobbies: `./reload-infra.sh`. Full `./stop.sh` still kills `acServer`.
 

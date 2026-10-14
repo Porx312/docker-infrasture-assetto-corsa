@@ -32,11 +32,31 @@ esac
 echo -e "${GREEN}=== deploy-from-main ($ROLE) ===${NC}"
 echo "Repo: $ROOT_DIR"
 
-# Refuse to wipe uncommitted tracked/untracked work (env files are gitignored).
-if [[ -n "$(git status --porcelain)" ]]; then
-  echo -e "${RED}Working tree is dirty. Commit/stash or clean before deploy.${NC}"
-  git status --porcelain
+# Refuse to wipe uncommitted work outside server/ (runtime AC binaries/content
+# are still tracked historically and get mutated on fleet VPS; reset --hard below).
+# Porcelain: XY PATH  |  XY ORIG -> PATH  |  untracked "?? PATH"
+non_server_dirty="$(
+  git status --porcelain | awk '
+    {
+      line = $0
+      sub(/^.../, "", line)
+      if (index(line, " -> ")) {
+        split(line, parts, " -> ")
+        line = parts[length(parts)]
+      }
+      gsub(/^"/, "", line)
+      gsub(/"$/, "", line)
+      if (line !~ /^server\//) print $0
+    }
+  '
+)"
+if [[ -n "$non_server_dirty" ]]; then
+  echo -e "${RED}Working tree is dirty outside server/. Commit/stash or clean before deploy.${NC}"
+  echo "$non_server_dirty"
   exit 1
+fi
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo -e "${YELLOW}Ignoring dirty server/ paths (will be reset to origin/main).${NC}"
 fi
 
 echo -e "${YELLOW}Fetching origin/main...${NC}"

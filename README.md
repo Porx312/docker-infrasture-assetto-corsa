@@ -179,11 +179,11 @@ Workflow: develop/test on **vps-test** → push/merge to `main` → Actions upda
 
 ### Repository secrets (3 per VPS)
 
-| Fleet id | Host | User | SSH private key |
-|----------|------|------|-----------------|
-| `edge-1` | `VPS_HOST_EDGE_1` | `VPS_USER_EDGE_1` | `VPS_SSH_KEY_EDGE_1` |
-| `edge-2` | `VPS_HOST_EDGE_2` | `VPS_USER_EDGE_2` | `VPS_SSH_KEY_EDGE_2` |
-| `edge-3` | `VPS_HOST_EDGE_3` | `VPS_USER_EDGE_3` | `VPS_SSH_KEY_EDGE_3` |
+| Fleet id | Host | User | SSH private key | Repo path (`fleet.json`) |
+|----------|------|------|-----------------|--------------------------|
+| `edge-1` | `VPS_HOST_EDGE_1` | `VPS_USER_EDGE_1` (`root`) | `VPS_SSH_KEY_EDGE_1` | `/root/assetto-infra` |
+| `edge-2` | `VPS_HOST_EDGE_2` | `VPS_USER_EDGE_2` (`root`) | `VPS_SSH_KEY_EDGE_2` | `/root/assetto-infra` |
+| `edge-3` | `VPS_HOST_EDGE_3` | `VPS_USER_EDGE_3` | `VPS_SSH_KEY_EDGE_3` | `/home/jose/assetto-infra` |
 
 Create them under Settings → Secrets and variables → Actions → **Repository secrets** (not Variables). Host = public IP/hostname; key = full PEM private key.
 
