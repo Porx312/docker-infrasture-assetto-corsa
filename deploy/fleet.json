@@ -5,7 +5,7 @@
     "hostSecret": "VPS_HOST_EDGE_1",
     "userSecret": "VPS_USER_EDGE_1",
     "keySecret": "VPS_SSH_KEY_EDGE_1",
-    "path": "/home/jose/assetto-infra",
+    "path": "/root/assetto-infra",
     "healthUrl": "http://127.0.0.1:3000/api/health"
   },
   {
