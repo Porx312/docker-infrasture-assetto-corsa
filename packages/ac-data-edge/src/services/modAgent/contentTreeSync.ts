@@ -6,11 +6,21 @@ import path from 'node:path';
 import type { Request, Response } from 'express';
 import type { ModKind, ModManifest } from '@projectd/ac-data-shared/mods/types.js';
 import { edgeFolderStorageKey } from '@projectd/ac-data-shared/mods/edgeBlobStorage.js';
-import { hashContentTree } from '@projectd/ac-data-shared/mods/contentTreeHash.js';
+import {
+  hashContentTree,
+  listContentTreeRelPaths,
+} from '@projectd/ac-data-shared/mods/contentTreeHash.js';
+import { mergeAllFiles } from '@projectd/ac-data-shared/mods/serverSlimCopy.js';
+import type { ServerSlimKind } from '@projectd/ac-data-shared/mods/serverSlimPaths.js';
 import { getHubWorkerBaseUrl } from '@projectd/ac-data-shared/services/hubWorkerUrl.js';
 import { modAgentAuthHeaders } from '@projectd/ac-data-shared/mods/modAgentAuth.js';
 import { contentPoolPath, writeAcModSidecar } from './materialize.js';
 import { scanLocalModInventory, postModInventoryToHub } from '../modInventoryScan.js';
+
+function slimKindOf(kind: ModKind): ServerSlimKind | undefined {
+  if (kind === 'car' || kind === 'track' || kind === 'weather') return kind;
+  return undefined;
+}
 
 function contentFolder(kind: ModKind): 'cars' | 'tracks' | 'weather' | null {
   if (kind === 'car') return 'cars';
@@ -46,18 +56,33 @@ export async function handleServeContentTree(req: Request, res: Response): Promi
   }
 
   const parent = path.join(contentPoolPath(), parsed.folder);
+  const slimKind = slimKindOf(parsed.kind);
+  const rels = await listContentTreeRelPaths(destDir, slimKind ? { slimKind } : undefined);
+  if (!rels.length) {
+    res.status(404).json({ ok: false, error: 'no_server_slim_files' });
+    return;
+  }
+
+  const listPath = path.join(os.tmpdir(), `ac-slim-tar-${process.pid}-${Date.now()}.txt`);
+  await fsp.writeFile(listPath, rels.map((r) => `${parsed.slug}/${r}`).join('\n') + '\n', 'utf8');
+
   res.setHeader('Content-Type', 'application/x-tar');
   res.setHeader('Content-Disposition', `attachment; filename="${parsed.slug}.tar"`);
   res.setHeader('X-Mod-Kind', parsed.kind);
   res.setHeader('X-Mod-Slug', parsed.slug);
+  res.setHeader('X-Mod-Slim', slimKind ? '1' : '0');
 
-  const child = spawn('tar', ['-cf', '-', '-C', parent, parsed.slug], {
+  const child = spawn('tar', ['-cf', '-', '-C', parent, '-T', listPath], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   child.stderr?.on('data', (chunk: Buffer) => {
     console.warn(`[mod-tree] tar stderr: ${chunk.toString('utf8').slice(0, 500)}`);
   });
+  const cleanupList = () => {
+    void fsp.unlink(listPath).catch(() => undefined);
+  };
   child.on('error', (err) => {
+    cleanupList();
     console.error(`[mod-tree] tar spawn failed: ${err.message}`);
     if (!res.headersSent) {
       res.status(500).json({ ok: false, error: 'tar_failed' });
@@ -66,6 +91,7 @@ export async function handleServeContentTree(req: Request, res: Response): Promi
     }
   });
   child.on('close', (code) => {
+    cleanupList();
     if (code !== 0 && !res.writableEnded) {
       res.destroy(new Error(`tar exited ${code}`));
     }
@@ -125,29 +151,19 @@ export async function installContentTreeFromStream(
       throw new Error(`Tar did not contain folder ${slug}`);
     }
 
-    const { contentHash, sizeBytes } = await hashContentTree(extracted);
+    const slimKind = slimKindOf(kind);
+    const { contentHash, sizeBytes } = await hashContentTree(extracted, {
+      slimKind,
+    });
     if (meta?.contentHash && meta.contentHash.toLowerCase() !== contentHash) {
       throw new Error(
         `contentHash mismatch: expected ${meta.contentHash.slice(0, 12)}… got ${contentHash.slice(0, 12)}…`,
       );
     }
 
+    // Merge into pool (do not replace whole folder — preserves client assets on shared install).
     const finalDir = path.join(parent, slug);
-    const swapDir = path.join(parent, `.${slug}.installing-${Date.now()}`);
-    await fsp.rename(extracted, swapDir);
-    if (fs.existsSync(finalDir)) {
-      const bak = `${finalDir}.bak-${Date.now()}`;
-      await fsp.rename(finalDir, bak);
-      try {
-        await fsp.rename(swapDir, finalDir);
-        await fsp.rm(bak, { recursive: true, force: true });
-      } catch (err) {
-        await fsp.rename(bak, finalDir).catch(() => undefined);
-        throw err;
-      }
-    } else {
-      await fsp.rename(swapDir, finalDir);
-    }
+    await mergeAllFiles(extracted, finalDir);
 
     await writeAcModSidecar(finalDir, {
       artifactId: meta?.artifactId,

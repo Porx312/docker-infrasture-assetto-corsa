@@ -75,7 +75,10 @@ export async function handleAdoptLocalFolder(req: Request, res: Response): Promi
   }
 
   try {
-    const { contentHash, sizeBytes, fileCount } = await hashContentTree(destDir);
+    const slimKind = kind === 'car' || kind === 'track' || kind === 'weather' ? kind : undefined;
+    const { contentHash, sizeBytes, fileCount } = await hashContentTree(destDir, {
+      slimKind,
+    });
     if (fileCount === 0) {
       res.status(400).json({ ok: false, message: 'Folder is empty' });
       return;

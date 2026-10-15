@@ -141,7 +141,11 @@ export async function handleLocalModUpload(req: Request, res: Response): Promise
     });
 
     const destDir = path.join(contentPoolPath(), manifest.contentTypeFolder!, acSlug);
-    const { contentHash, sizeBytes } = await hashContentTree(destDir);
+    const slimKind =
+      manifest.kind === 'car' || manifest.kind === 'track' || manifest.kind === 'weather'
+        ? manifest.kind
+        : undefined;
+    const { contentHash, sizeBytes } = await hashContentTree(destDir, { slimKind });
     const storageKey = edgeFolderStorageKey(
       id,
       manifest.kind as 'car' | 'track' | 'weather',

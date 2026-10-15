@@ -9,6 +9,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import unzipper from 'unzipper';
 import type { ModManifest } from '@projectd/ac-data-shared/mods/types.js';
+import { mergeServerSlimFiles } from '@projectd/ac-data-shared/mods/serverSlimCopy.js';
+import type { ServerSlimKind } from '@projectd/ac-data-shared/mods/serverSlimPaths.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -359,27 +361,43 @@ export async function materializeManifestToPool(
   }
 
   const destDir = path.join(pool, folder, acContentSlug);
-  const stagingDest = `${destDir}.staging-${process.pid}`;
   await fsp.mkdir(path.join(pool, folder), { recursive: true });
-  await fsp.rm(stagingDest, { recursive: true, force: true }).catch(() => undefined);
-  await hardlinkOrCopyDir(sourceDir, stagingDest);
-  if (meta) {
-    await writeAcModSidecar(stagingDest, { ...meta, sha256, slug: acContentSlug });
-  }
-  // Atomic swap: rename staging over final (rm old then rename)
-  const backup = `${destDir}.old-${process.pid}`;
-  if (fs.existsSync(destDir)) {
-    await fsp.rename(destDir, backup);
-  }
-  try {
-    await fsp.rename(stagingDest, destDir);
-  } catch (err) {
-    if (fs.existsSync(backup)) {
-      await fsp.rename(backup, destDir).catch(() => undefined);
+
+  const slimKind: ServerSlimKind | null =
+    manifest.kind === 'car' || manifest.kind === 'track' || manifest.kind === 'weather'
+      ? manifest.kind
+      : null;
+
+  if (slimKind) {
+    // Pack-style: merge server-slim files only (never wipe kn5/dds on a full install pool).
+    const n = await mergeServerSlimFiles(sourceDir, destDir, slimKind);
+    if (n === 0) {
+      throw new Error(
+        `No server-slim files found for ${acContentSlug} (need data.acd / track surfaces.ini etc.)`,
+      );
     }
-    throw err;
+  } else {
+    const stagingDest = `${destDir}.staging-${process.pid}`;
+    await fsp.rm(stagingDest, { recursive: true, force: true }).catch(() => undefined);
+    await hardlinkOrCopyDir(sourceDir, stagingDest);
+    const backup = `${destDir}.old-${process.pid}`;
+    if (fs.existsSync(destDir)) {
+      await fsp.rename(destDir, backup);
+    }
+    try {
+      await fsp.rename(stagingDest, destDir);
+    } catch (err) {
+      if (fs.existsSync(backup)) {
+        await fsp.rename(backup, destDir).catch(() => undefined);
+      }
+      throw err;
+    }
+    await fsp.rm(backup, { recursive: true, force: true }).catch(() => undefined);
   }
-  await fsp.rm(backup, { recursive: true, force: true }).catch(() => undefined);
+
+  if (meta) {
+    await writeAcModSidecar(destDir, { ...meta, sha256, slug: acContentSlug });
+  }
 }
 
 export async function removeFromPool(manifest: ModManifest, acContentSlug: string): Promise<void> {

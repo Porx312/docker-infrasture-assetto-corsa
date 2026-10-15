@@ -29,10 +29,14 @@ Unified catalog only: cars/tracks share `mod_packages`. Migration `009_drop_unus
 | **Installed content** | VPS `CONTENT_PATH` | cars/tracks folders for AC |
 | **Syncable** | Folder **Adopt**ed (or uploaded once) | hub row + `.acmod.json` + `contentHash` |
 | **Catalog** | Hub Postgres | slug, kind, `contentHash` as `sha256`, `storage_key` |
-| **Copy A→B** | Target pulls `GET /api/mod-agent/v1/trees/:kind/:slug` | tar stream; no ZIP left on disk |
-| **Upload from PC** | Temp ZIP → materialize → delete ZIP | registers as `edge_folder` |
+| **Copy A→B** | Target pulls `GET /api/mod-agent/v1/trees/:kind/:slug` | **server-slim** tar (Pack subset); no ZIP left on disk |
+| **Upload from PC** | Temp ZIP → materialize **server-slim** → delete ZIP | registers as `edge_folder` |
 
-**Identity:** `kind + slug + contentHash` (deterministic tree hash of relative paths + sizes + file digests). Sidecar `.acmod.json`: `{ artifactId, contentHash, kind, slug }`.
+**Identity:** `kind + slug + contentHash` where `contentHash` is the **server-slim** tree (Content Manager Pack–style: `data.acd` / track `surfaces.ini` + small UI stubs — not kn5/dds). Sidecar `.acmod.json`: `{ artifactId, contentHash, kind, slug }`.
+
+### Server-slim (Pack)
+
+`acServer` only needs checksum/physics files. Upload and peer sync merge those files into `CONTENT_PATH` **without deleting** other client assets if the pool is a full game install. Preferred upload: Content Manager **Pack** (server files only). Full client mods stay with players (CM Download URL / elsewhere) — not hosted by the hub.
 
 **Do not** accumulate master ZIPs on the hub or permanent blobs under `AC_MOD_ROOT/blobs` for new artifacts. Legacy `storage_origin=edge` blob keys and `/blobs/:sha256` remain for old rows until GC.
 
@@ -99,9 +103,9 @@ Symlink each AC instance: `server/content/cars` → `$CONTENT_PATH/cars` (shared
 
 ### Upload ZIP from admin
 
-1. Admin → Cars/Tracks → pick VPS → ZIP → Upload.
+1. Admin → Cars/Tracks → pick VPS → ZIP → Upload (prefer CM **Pack**).
 2. Hub proxies to edge `POST /admin/mods/local-upload` (temp only).
-3. Edge materializes into `CONTENT_PATH`, hashes folder, registers `edge_folder`, **deletes the temp ZIP** (no permanent blob).
+3. Edge merges **server-slim** files into `CONTENT_PATH`, hashes the slim tree, registers `edge_folder`, **deletes the temp ZIP**.
 
 ### Copy VPS A → VPS B
 

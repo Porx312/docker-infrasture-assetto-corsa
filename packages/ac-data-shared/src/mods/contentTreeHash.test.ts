@@ -27,4 +27,24 @@ describe('hashContentTree', () => {
       await fsp.rm(dir, { recursive: true, force: true });
     }
   });
+
+  it('server-slim hash ignores kn5 but keeps data.acd', async () => {
+    const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'ac-hash-slim-'));
+    try {
+      await fsp.writeFile(path.join(dir, 'data.acd'), 'acd', 'utf8');
+      await fsp.mkdir(path.join(dir, 'skins', 'red'), { recursive: true });
+      await fsp.writeFile(path.join(dir, 'skins', 'red', 'ui_skin.json'), '{}', 'utf8');
+      await fsp.writeFile(path.join(dir, 'skins', 'red', 'body.kn5'), 'huge', 'utf8');
+      const slimA = await hashContentTree(dir, { slimKind: 'car' });
+      await fsp.writeFile(path.join(dir, 'skins', 'red', 'body.kn5'), 'changed-huge', 'utf8');
+      const slimB = await hashContentTree(dir, { slimKind: 'car' });
+      assert.equal(slimA.contentHash, slimB.contentHash);
+      assert.equal(slimA.fileCount, 2);
+      const full = await hashContentTree(dir);
+      assert.notEqual(full.contentHash, slimA.contentHash);
+      assert.ok(full.fileCount > slimA.fileCount);
+    } finally {
+      await fsp.rm(dir, { recursive: true, force: true });
+    }
+  });
 });

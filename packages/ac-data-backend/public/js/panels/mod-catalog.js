@@ -154,7 +154,7 @@ export function mountModCatalogPanel(type, container) {
       </div>
       <div class="upload-dropzone" id="${type}InvDropzone" tabindex="0" role="button" aria-label="Upload ZIP to selected VPS">
         <p>Drag & drop a car/track ZIP here</p>
-        <p class="upload-hint">Accepts cars/&lt;name&gt;/…, tracks/&lt;name&gt;/…, or a single folder at the ZIP root</p>
+        <p class="upload-hint">Prefer Content Manager <strong>Pack</strong> (server files). Full ZIP is OK — only data.acd / track surfaces + UI stubs are kept for the server. Paths: cars/&lt;name&gt;/… or tracks/&lt;name&gt;/…</p>
         <input type="file" id="${type}InvFile" accept=".zip,application/zip" hidden>
         <button type="button" class="btn btn-primary btn-sm" id="${type}InvPickBtn">Choose ZIP</button>
         <button type="button" class="btn btn-primary btn-sm" id="${type}InvUploadBtn" disabled>Upload to VPS</button>
