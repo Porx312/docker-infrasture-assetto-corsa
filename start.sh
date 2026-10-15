@@ -184,7 +184,11 @@ fi
 
 start_ac_data_edge() {
     echo -e "${YELLOW}Starting ac-data-edge...${NC}"
-    if pgrep -f "packages/ac-data-edge.*tsx.*index" >/dev/null 2>&1 || pgrep -f "ac-data-edge/dist/index" >/dev/null 2>&1; then
+    # Dev: npm -w leaves `tsx watch src/index.ts` (+ parent with @projectd/ac-data-edge).
+    # Match the same family as deploy.yml verify: tsx watch src/index|ac-data-edge
+    if pgrep -f 'tsx watch src/index' >/dev/null 2>&1 \
+      || pgrep -f '@projectd/ac-data-edge' >/dev/null 2>&1 \
+      || pgrep -f 'ac-data-edge/dist/index' >/dev/null 2>&1; then
         echo -e "${GREEN}ac-data-edge is already running${NC}"
         return
     fi
@@ -195,7 +199,9 @@ start_ac_data_edge() {
 
 start_ac_data_backend() {
     echo -e "${YELLOW}Starting ac-data-backend...${NC}"
-    if pgrep -f "packages/ac-data-backend.*tsx.*index" >/dev/null 2>&1; then
+    # Do not match bare `tsx watch src/index` — that also matches edge on the same host.
+    if pgrep -f '@projectd/ac-data-backend' >/dev/null 2>&1 \
+      || pgrep -f 'ac-data-backend/dist/index' >/dev/null 2>&1; then
         echo -e "${GREEN}ac-data-backend is already running${NC}"
         return
     fi

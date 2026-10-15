@@ -64,6 +64,10 @@ fi
 echo -e "${YELLOW}Starting edge ($ENV_MODE)...${NC}"
 ./start.sh "$ENV_MODE" edge
 
+echo -e "${YELLOW}Waiting for edge /api/health...${NC}"
+chmod +x scripts/wait-edge-health.sh
+./scripts/wait-edge-health.sh
+
 echo -e "${GREEN}=== reload-infra done (lobbies should still be up) ===${NC}"
 echo "Check: pgrep -a acServer | head"
 echo "Edge log: tail -f logs/ac-data-edge.log"
