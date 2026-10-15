@@ -44,14 +44,23 @@ export type HudBootstrapBody =
       ws: { primary: string; fallback: string };
     };
 
-export async function buildHudBootstrapResponse(req: Request): Promise<HudBootstrapBody> {
+export type HudBootstrapDeps = {
+  /** Test hook — defaults to Redis presence routing. */
+  resolveEdge?: typeof resolveHudEdgeForSteamId;
+};
+
+export async function buildHudBootstrapResponse(
+  req: Request,
+  deps: HudBootstrapDeps = {},
+): Promise<HudBootstrapBody> {
   const steamId = requireQueryString(req.query.steamId);
   if (!steamId) {
     return { ok: false, reason: 'steamId required for HUD bootstrap' };
   }
 
   const legacyServerName = legacyServerNameFromQuery(req.query as Record<string, unknown>);
-  const routing = await resolveHudEdgeForSteamId(steamId, { legacyServerName });
+  const resolveEdge = deps.resolveEdge ?? resolveHudEdgeForSteamId;
+  const routing = await resolveEdge(steamId, { legacyServerName });
 
   if (!routing.ok) {
     return {
