@@ -96,6 +96,12 @@ jobs:
           script: |
             set -euo pipefail
             cd "${{ matrix.path }}"
+            # Unblock deploy when telemetry dirtied a still-tracked runtime JSON (chicken-egg
+            # until deploy-from-main.sh allowlist is on the VPS). Safe: file is gitignored SoT.
+            git restore --worktree --staged --source=HEAD -- \
+              telemetry-data/redis_applied_config_versions.json 2>/dev/null \
+              || git checkout HEAD -- telemetry-data/redis_applied_config_versions.json 2>/dev/null \
+              || true
             chmod +x scripts/deploy-from-main.sh reload-infra.sh
             ./scripts/deploy-from-main.sh "${{ matrix.role }}"
 
