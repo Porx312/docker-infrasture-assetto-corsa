@@ -70,6 +70,29 @@ export async function listContentTreeRelPaths(
   return rels;
 }
 
+export type ContentTreeFileEntry = {
+  rel: string;
+  size: number;
+  sha256: string;
+};
+
+/**
+ * Tree identity from an in-memory file list (same algorithm as hashContentTree).
+ * Used by slim-upload plan/commit and browser-side expectedContentHash.
+ */
+export function contentHashFromFileEntries(entries: ContentTreeFileEntry[]): string {
+  const sorted = entries
+    .map((e) => ({
+      rel: normalizeRelPath(e.rel),
+      size: e.size,
+      sha256: e.sha256.toLowerCase(),
+    }))
+    .filter((e) => e.rel && !e.rel.includes('..'))
+    .sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
+  const lines = sorted.map((e) => `${e.rel}\0${e.size}\0${e.sha256}`);
+  return sha256Buffer(Buffer.from(lines.join('\n'), 'utf8'));
+}
+
 /**
  * Deterministic content hash of a CONTENT_PATH folder tree.
  * Uses sorted relative paths + size + per-file sha256 (portable across OS).
@@ -82,19 +105,19 @@ export async function hashContentTree(
   const abs = path.resolve(rootDir);
   const rels = await listContentTreeRelPaths(abs, opts);
 
-  const lines: string[] = [];
+  const entries: ContentTreeFileEntry[] = [];
   let sizeBytes = 0;
   for (const rel of rels) {
     const filePath = path.join(abs, ...rel.split('/'));
     const st = await fsp.stat(filePath);
     sizeBytes += st.size;
     const digest = await sha256File(filePath);
-    lines.push(`${rel}\0${st.size}\0${digest}`);
+    entries.push({ rel, size: st.size, sha256: digest });
   }
 
   return {
-    contentHash: sha256Buffer(Buffer.from(lines.join('\n'), 'utf8')),
+    contentHash: contentHashFromFileEntries(entries),
     sizeBytes,
-    fileCount: rels.length,
+    fileCount: entries.length,
   };
 }

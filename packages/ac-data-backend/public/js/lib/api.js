@@ -120,6 +120,53 @@ export function apiPostFormWithProgress(path, body, onProgress, fleetEdgeId) {
   });
 }
 
+/**
+ * PUT raw bytes with upload progress (slim file upload).
+ *
+ * @param {string} path
+ * @param {Blob | ArrayBuffer | Uint8Array} body
+ * @param {Record<string, string>} headers
+ * @param {(loaded: number, total: number) => void} [onProgress]
+ * @param {number} [timeoutMs]
+ * @returns {Promise<{ res: { status: number; ok: boolean }; data: Record<string, unknown> }>}
+ */
+export function apiPutBinaryWithProgress(path, body, headers = {}, onProgress, timeoutMs = 120_000) {
+  const resolvedPath = appendFleetEdgeQuery(path);
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', `${API_BASE}${resolvedPath}`);
+    xhr.withCredentials = true;
+    xhr.timeout = timeoutMs;
+    for (const [k, v] of Object.entries(headers)) {
+      xhr.setRequestHeader(k, v);
+    }
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+
+    xhr.upload.addEventListener('progress', (event) => {
+      onProgress?.(event.loaded, event.lengthComputable ? event.total : 0);
+    });
+
+    xhr.addEventListener('load', () => {
+      let data;
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch {
+        data = { ok: false, message: `Server error (${xhr.status})` };
+      }
+      resolve({
+        res: { status: xhr.status, ok: xhr.status >= 200 && xhr.status < 300 },
+        data,
+      });
+    });
+
+    xhr.addEventListener('error', () => reject(new Error('Network error')));
+    xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
+    xhr.addEventListener('timeout', () => reject(new Error('Upload timeout')));
+
+    xhr.send(body);
+  });
+}
+
 /** @param {string} path */
 export function apiDelete(path) {
   return apiFetch(path, { method: 'DELETE' });

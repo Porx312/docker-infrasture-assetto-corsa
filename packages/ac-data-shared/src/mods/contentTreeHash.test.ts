@@ -3,7 +3,8 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
-import { hashContentTree } from './contentTreeHash.js';
+import { contentHashFromFileEntries, hashContentTree } from './contentTreeHash.js';
+import crypto from 'node:crypto';
 
 describe('hashContentTree', () => {
   it('is stable for same tree and ignores .acmod.json', async () => {
@@ -23,6 +24,22 @@ describe('hashContentTree', () => {
       assert.equal(a.fileCount, 2);
       assert.equal(b.fileCount, 2);
       assert.ok(/^[a-f0-9]{64}$/.test(a.contentHash));
+    } finally {
+      await fsp.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('contentHashFromFileEntries matches on-disk slim hash', async () => {
+    const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'ac-hash-entries-'));
+    try {
+      const acd = 'pack-acd';
+      await fsp.writeFile(path.join(dir, 'data.acd'), acd, 'utf8');
+      const tree = await hashContentTree(dir, { slimKind: 'car' });
+      const sha = crypto.createHash('sha256').update(acd, 'utf8').digest('hex');
+      assert.equal(
+        contentHashFromFileEntries([{ rel: 'data.acd', size: Buffer.byteLength(acd), sha256: sha }]),
+        tree.contentHash,
+      );
     } finally {
       await fsp.rm(dir, { recursive: true, force: true });
     }

@@ -5,13 +5,13 @@ export const TABS = [
   {
     id: 'cars',
     label: 'Cars',
-    hint: 'Mods on the selected VPS. Upload ZIP here; open a card to sync to other VPS.',
+    hint: 'Mods on the selected VPS. Smart slim upload (Pack files only); open a card to sync to other VPS.',
     kind: 'mod-catalog',
   },
   {
     id: 'tracks',
     label: 'Tracks',
-    hint: 'Tracks on the selected VPS. Upload ZIP here; open a card to sync to other VPS.',
+    hint: 'Tracks on the selected VPS. Smart slim upload (Pack files only); open a card to sync to other VPS.',
     kind: 'mod-catalog',
   },
   {

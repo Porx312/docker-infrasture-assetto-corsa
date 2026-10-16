@@ -1,31 +1,17 @@
-import { Router } from 'express';
-import multer from 'multer';
-import os from 'node:os';
-import path from 'node:path';
+import { Router, raw } from 'express';
 import { hubOrAdminAuth } from '../middleware/hubOrAdminAuth.js';
 import { isModPeerRequestAuthorized } from '@projectd/ac-data-shared/services/hud/hudWorkerAuth.js';
-import {
-  handleLocalModUpload,
-  handleServeModBlob,
-  handleDeleteLocalContent,
-} from '../services/modAgent/localModUpload.js';
+import { handleServeModBlob, handleDeleteLocalContent } from '../services/modAgent/localModUpload.js';
 import { handleAdoptLocalFolder, handleGcModBlobs } from '../services/modAgent/adoptLocalFolder.js';
 import {
   handleServeContentTree,
   handleInstallContentTree,
 } from '../services/modAgent/contentTreeSync.js';
-
-const upload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => {
-      cb(null, process.env.ADMIN_UPLOAD_DIR || os.tmpdir());
-    },
-    filename: (_req, file, cb) => {
-      cb(null, `edge-mod-${Date.now()}${path.extname(file.originalname) || '.zip'}`);
-    },
-  }),
-  limits: { fileSize: Number(process.env.MOD_UPLOAD_MAX_BYTES || 10 * 1024 * 1024 * 1024) },
-});
+import {
+  handleSlimUploadPlan,
+  handleSlimUploadPut,
+  handleSlimUploadCommit,
+} from '../services/modAgent/slimUploadSession.js';
 
 function workerAuth(
   req: import('express').Request,
@@ -41,9 +27,6 @@ function workerAuth(
 
 /** Mount under /admin — fleet hub proxies with X-Worker-Secret. */
 export const modLocalUploadRouter = Router();
-modLocalUploadRouter.post('/mods/local-upload', hubOrAdminAuth, upload.single('file'), (req, res) => {
-  void handleLocalModUpload(req, res);
-});
 modLocalUploadRouter.post('/mods/adopt', hubOrAdminAuth, (req, res) => {
   void handleAdoptLocalFolder(req, res);
 });
@@ -52,6 +35,20 @@ modLocalUploadRouter.post('/mods/gc-blobs', hubOrAdminAuth, (req, res) => {
 });
 modLocalUploadRouter.delete('/mods/local-content/:kind/:slug', hubOrAdminAuth, (req, res) => {
   void handleDeleteLocalContent(req, res);
+});
+modLocalUploadRouter.post('/mods/slim-upload/plan', hubOrAdminAuth, (req, res) => {
+  void handleSlimUploadPlan(req, res);
+});
+modLocalUploadRouter.put(
+  '/mods/slim-upload/file',
+  hubOrAdminAuth,
+  raw({ type: '*/*', limit: Number(process.env.MOD_SLIM_UPLOAD_MAX_FILE_BYTES || 64 * 1024 * 1024) }),
+  (req, res) => {
+    void handleSlimUploadPut(req, res);
+  },
+);
+modLocalUploadRouter.post('/mods/slim-upload/commit', hubOrAdminAuth, (req, res) => {
+  void handleSlimUploadCommit(req, res);
 });
 
 /** Mount under /api — peer edges pull blobs (legacy) or content trees (folder-first). */

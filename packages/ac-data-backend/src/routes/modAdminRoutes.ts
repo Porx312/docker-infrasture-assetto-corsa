@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, raw } from 'express';
 import multer from 'multer';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,30 +24,15 @@ import {
   modDeletePackageHandler,
   modUpdatePackageHandler,
   modEdgeInventoryHandler,
-  modEdgeUploadHandler,
   modEdgeDeleteContentHandler,
   modEdgeAdoptHandler,
   modEdgeGcBlobsHandler,
+  modEdgeSlimUploadPlanHandler,
+  modEdgeSlimUploadFileHandler,
+  modEdgeSlimUploadCommitHandler,
 } from '../controller/modController.js';
-import { ensureModStagingDir } from '../services/mods/modPaths.js';
 
 const router = Router();
-
-const upload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => {
-      try {
-        cb(null, ensureModStagingDir());
-      } catch (err) {
-        cb(err instanceof Error ? err : new Error(String(err)), '');
-      }
-    },
-    filename: (_req, file, cb) => {
-      cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${path.extname(file.originalname)}`);
-    },
-  }),
-  limits: { fileSize: Number(process.env.MOD_UPLOAD_MAX_BYTES || 10 * 1024 * 1024 * 1024) },
-});
 
 const previewUpload = multer({
   storage: multer.diskStorage({
@@ -70,19 +55,25 @@ router.get('/mods/edges', adminAuth, listModEdgesHandler);
 router.get('/mods/edges/:edgeId/inventory', adminAuth, (req, res) => {
   void modEdgeInventoryHandler(req, res);
 });
-router.post(
-  '/mods/edges/:edgeId/upload',
-  adminAuth,
-  upload.single('file'),
-  (req, res) => {
-    void modEdgeUploadHandler(req, res);
-  },
-);
 router.delete('/mods/edges/:edgeId/content/:kind/:slug', adminAuth, (req, res) => {
   void modEdgeDeleteContentHandler(req, res);
 });
 router.post('/mods/edges/:edgeId/adopt', adminAuth, (req, res) => {
   void modEdgeAdoptHandler(req, res);
+});
+router.post('/mods/edges/:edgeId/slim-upload/plan', adminAuth, (req, res) => {
+  void modEdgeSlimUploadPlanHandler(req, res);
+});
+router.put(
+  '/mods/edges/:edgeId/slim-upload/file',
+  adminAuth,
+  raw({ type: '*/*', limit: Number(process.env.MOD_SLIM_UPLOAD_MAX_FILE_BYTES || 64 * 1024 * 1024) }),
+  (req, res) => {
+    void modEdgeSlimUploadFileHandler(req, res);
+  },
+);
+router.post('/mods/edges/:edgeId/slim-upload/commit', adminAuth, (req, res) => {
+  void modEdgeSlimUploadCommitHandler(req, res);
 });
 router.post('/mods/edges/:edgeId/gc-blobs', adminAuth, (req, res) => {
   void modEdgeGcBlobsHandler(req, res);

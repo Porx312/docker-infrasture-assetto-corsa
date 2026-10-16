@@ -36,7 +36,7 @@ Phase 2 (optional): Clerk JWT or short-lived token from Convex Action.
 
 ## Agent presence (register / heartbeat)
 
-Edge reports liveness to the hub (Redis key `instance:{instanceId}:agent`, TTL ~90s). Distinct from mod-agent ZIP sync (`/mod-agent/v1/*`).
+Edge reports liveness to the hub (Redis key `instance:{instanceId}:agent`, TTL ~90s). Distinct from mod-agent tree/blob sync (`/mod-agent/v1/*`).
 
 | Method | Path | Who |
 |--------|------|-----|
@@ -128,8 +128,8 @@ Default remains `true` until ProjectD Host reads live from Control API.
 ## Central mod library (Host picker — preferred)
 
 Source of truth: Hub Postgres `mod_packages` + `mod_artifacts` (catalog metadata).
-ZIP bytes live on game VPS (`storage_origin=edge`); leftover hub master blobs are read/delete only.
-Local cache on each VPS is separate; availability merges central + edge inventory + sync jobs.
+Content lives on each game VPS under `CONTENT_PATH` (`storage_origin=edge_folder`). Peer copy uses slim tree tar; leftover `edge`/`hub` ZIP rows are read-only until re-adopt/GC.
+Local inventory on each VPS is separate; availability merges central + edge inventory + sync jobs.
 
 | Method | Path | Who |
 |--------|------|-----|

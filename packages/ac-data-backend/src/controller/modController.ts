@@ -46,9 +46,6 @@ import {
   resolveFleetEdge,
   resolveFleetEdgeByInstanceId,
 } from '@projectd/ac-data-shared/services/fleet/fleetRegistry.js';
-import fsp from 'node:fs/promises';
-import { openAsBlob } from 'node:fs';
-
 function modDbUnavailable(res: Response): void {
   res.status(503).json({ ok: false, message: 'Mod repository requires DATABASE_URL' });
 }
@@ -556,57 +553,6 @@ export async function modEdgeDeleteContentHandler(req: Request, res: Response): 
   }
 }
 
-/** Proxy ZIP to edge local-upload (hub does not keep master ZIP). */
-export async function modEdgeUploadHandler(req: Request, res: Response): Promise<void> {
-  const edgeId = String(req.params.edgeId || '').trim().toLowerCase();
-  const edge = resolveFleetEdge(edgeId);
-  if (!edge?.baseUrl) {
-    res.status(404).json({ ok: false, message: `Unknown fleet edge: ${edgeId}` });
-    return;
-  }
-  const file = (req as Request & { file?: Express.Multer.File }).file;
-  if (!file?.path) {
-    res.status(400).json({ ok: false, message: 'file required' });
-    return;
-  }
-  const { fleetEdgeSecret } = await import(
-    '@projectd/ac-data-shared/services/secrets/fleetSecrets.js'
-  );
-  const secret = fleetEdgeSecret();
-  if (!secret) {
-    res.status(503).json({ ok: false, message: 'FLEET_EDGE_SECRET or CONVEX_WORKER_SECRET missing' });
-    return;
-  }
-  try {
-    // Stream file to edge (avoid loading multi‑GB ZIP into hub RAM).
-    const blob = await openAsBlob(file.path);
-    const form = new FormData();
-    form.append('file', blob, file.originalname || 'mod.zip');
-    const kind = typeof req.body?.kind === 'string' ? req.body.kind : '';
-    const displayName = typeof req.body?.displayName === 'string' ? req.body.displayName : '';
-    if (kind) form.append('kind', kind);
-    if (displayName) form.append('displayName', displayName);
-
-    const url = new URL(
-      '/admin/mods/local-upload',
-      edge.baseUrl.endsWith('/') ? edge.baseUrl : `${edge.baseUrl}/`,
-    );
-    const upstream = await fetch(url, {
-      method: 'POST',
-      headers: { 'X-Worker-Secret': secret },
-      body: form,
-      signal: AbortSignal.timeout(Number(process.env.FLEET_ADMIN_PROXY_TIMEOUT_MS || 600_000)),
-    });
-    const data = (await upstream.json().catch(() => ({}))) as Record<string, unknown>;
-    res.status(upstream.status).json(data);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(502).json({ ok: false, message });
-  } finally {
-    await fsp.unlink(file.path).catch(() => undefined);
-  }
-}
-
 /** Proxy adopt: link existing CONTENT_PATH folder to hub catalog (no ZIP). */
 export async function modEdgeAdoptHandler(req: Request, res: Response): Promise<void> {
   const edgeId = String(req.params.edgeId || '').trim().toLowerCase();
@@ -669,6 +615,148 @@ export async function modEdgeGcBlobsHandler(req: Request, res: Response): Promis
     const upstream = await fetch(url, {
       method: 'POST',
       headers: { 'X-Worker-Secret': secret },
+      signal: AbortSignal.timeout(Number(process.env.FLEET_ADMIN_PROXY_TIMEOUT_MS || 300_000)),
+    });
+    const data = (await upstream.json().catch(() => ({}))) as Record<string, unknown>;
+    res.status(upstream.status).json(data);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(502).json({ ok: false, message });
+  }
+}
+
+async function fleetEdgeProxySecret(): Promise<
+  { ok: true; secret: string } | { ok: false; status: number; message: string }
+> {
+  const { fleetEdgeSecret } = await import(
+    '@projectd/ac-data-shared/services/secrets/fleetSecrets.js'
+  );
+  const secret = fleetEdgeSecret();
+  if (!secret) {
+    return {
+      ok: false,
+      status: 503,
+      message: 'FLEET_EDGE_SECRET or CONVEX_WORKER_SECRET missing',
+    };
+  }
+  return { ok: true, secret };
+}
+
+/** Slim upload plan: compare client manifest to edge CONTENT_PATH. */
+export async function modEdgeSlimUploadPlanHandler(req: Request, res: Response): Promise<void> {
+  const edgeId = String(req.params.edgeId || '').trim().toLowerCase();
+  const edge = resolveFleetEdge(edgeId);
+  if (!edge?.baseUrl) {
+    res.status(404).json({ ok: false, message: `Unknown fleet edge: ${edgeId}` });
+    return;
+  }
+  const auth = await fleetEdgeProxySecret();
+  if (!auth.ok) {
+    res.status(auth.status).json({ ok: false, message: auth.message });
+    return;
+  }
+  try {
+    const url = new URL(
+      '/admin/mods/slim-upload/plan',
+      edge.baseUrl.endsWith('/') ? edge.baseUrl : `${edge.baseUrl}/`,
+    );
+    const upstream = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'X-Worker-Secret': auth.secret,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(req.body ?? {}),
+      signal: AbortSignal.timeout(Number(process.env.FLEET_ADMIN_PROXY_TIMEOUT_MS || 120_000)),
+    });
+    const data = (await upstream.json().catch(() => ({}))) as Record<string, unknown>;
+    res.status(upstream.status).json(data);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(502).json({ ok: false, message });
+  }
+}
+
+/** Slim upload file put: one slim file to edge (no full ZIP). */
+export async function modEdgeSlimUploadFileHandler(req: Request, res: Response): Promise<void> {
+  const edgeId = String(req.params.edgeId || '').trim().toLowerCase();
+  const edge = resolveFleetEdge(edgeId);
+  if (!edge?.baseUrl) {
+    res.status(404).json({ ok: false, message: `Unknown fleet edge: ${edgeId}` });
+    return;
+  }
+  const auth = await fleetEdgeProxySecret();
+  if (!auth.ok) {
+    res.status(auth.status).json({ ok: false, message: auth.message });
+    return;
+  }
+  const sessionId = String(req.headers['x-slim-session-id'] || '').trim();
+  const rel = String(req.headers['x-slim-rel'] || '').trim();
+  const sha256 = String(req.headers['x-slim-sha256'] || '').trim();
+  if (!sessionId || !rel || !sha256) {
+    res.status(400).json({
+      ok: false,
+      message: 'X-Slim-Session-Id, X-Slim-Rel, X-Slim-Sha256 headers required',
+    });
+    return;
+  }
+  const body = req.body;
+  if (!Buffer.isBuffer(body) && !(body instanceof Uint8Array)) {
+    res.status(400).json({ ok: false, message: 'raw body required' });
+    return;
+  }
+  const buf = Buffer.isBuffer(body) ? body : Buffer.from(body);
+  try {
+    const url = new URL(
+      '/admin/mods/slim-upload/file',
+      edge.baseUrl.endsWith('/') ? edge.baseUrl : `${edge.baseUrl}/`,
+    );
+    const upstream = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        'X-Worker-Secret': auth.secret,
+        'Content-Type': 'application/octet-stream',
+        'X-Slim-Session-Id': sessionId,
+        'X-Slim-Rel': rel,
+        'X-Slim-Sha256': sha256,
+        'Content-Length': String(buf.byteLength),
+      },
+      body: buf,
+      signal: AbortSignal.timeout(Number(process.env.FLEET_ADMIN_PROXY_TIMEOUT_MS || 120_000)),
+    });
+    const data = (await upstream.json().catch(() => ({}))) as Record<string, unknown>;
+    res.status(upstream.status).json(data);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(502).json({ ok: false, message });
+  }
+}
+
+/** Slim upload commit: verify tree hash, merge, register. */
+export async function modEdgeSlimUploadCommitHandler(req: Request, res: Response): Promise<void> {
+  const edgeId = String(req.params.edgeId || '').trim().toLowerCase();
+  const edge = resolveFleetEdge(edgeId);
+  if (!edge?.baseUrl) {
+    res.status(404).json({ ok: false, message: `Unknown fleet edge: ${edgeId}` });
+    return;
+  }
+  const auth = await fleetEdgeProxySecret();
+  if (!auth.ok) {
+    res.status(auth.status).json({ ok: false, message: auth.message });
+    return;
+  }
+  try {
+    const url = new URL(
+      '/admin/mods/slim-upload/commit',
+      edge.baseUrl.endsWith('/') ? edge.baseUrl : `${edge.baseUrl}/`,
+    );
+    const upstream = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'X-Worker-Secret': auth.secret,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(req.body ?? {}),
       signal: AbortSignal.timeout(Number(process.env.FLEET_ADMIN_PROXY_TIMEOUT_MS || 300_000)),
     });
     const data = (await upstream.json().catch(() => ({}))) as Record<string, unknown>;

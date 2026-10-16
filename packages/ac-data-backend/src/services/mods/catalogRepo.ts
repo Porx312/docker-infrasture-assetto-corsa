@@ -210,7 +210,12 @@ export async function createPackageAndArtifact(input: {
 }): Promise<{ packageId: string; artifactId: string }> {
   const pool = getModPool();
   const artifactId = randomUUID();
-  const storageOrigin = input.storageOrigin ?? 'hub';
+  const storageOrigin = input.storageOrigin ?? 'edge_folder';
+  if (storageOrigin !== 'edge_folder') {
+    throw new Error(
+      `storageOrigin=${storageOrigin} is disabled for new artifacts; use edge_folder (legacy hub/edge rows remain readable until GC)`,
+    );
+  }
   const sourceEdgeId = input.sourceEdgeId?.trim() || null;
   const client = await pool.connect();
   try {

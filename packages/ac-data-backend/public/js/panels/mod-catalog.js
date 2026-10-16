@@ -1,10 +1,18 @@
-import { apiGet, apiPost, apiDelete, apiPostForm, apiPostFormWithProgress, apiPatch } from '../lib/api.js';
+import {
+  apiGet,
+  apiPost,
+  apiDelete,
+  apiPostForm,
+  apiPutBinaryWithProgress,
+  apiPatch,
+} from '../lib/api.js';
 import { emptyStateHtml, escapeAttr, escapeHtml, formatSize } from '../lib/dom.js';
 import { distNeedsPolling, renderModSyncStatusCell } from '../lib/modSyncStatus.js';
 import { showConfirm } from '../lib/modal.js';
 import { showToast } from '../lib/toast.js';
 import { getTab } from '../config/tabs.js';
 import { skeletonHtml, renderVariantGrid, variantLabel, previewUrl } from '../ui/content-templates.js';
+import { scanZipForSlimUpload, formatBytes } from '../lib/zipSlimScan.js';
 
 /** @type {Record<string, object[]>} */
 const packagesByType = { cars: [], tracks: [] };
@@ -152,9 +160,9 @@ export function mountModCatalogPanel(type, container) {
         </label>
         <button type="button" class="btn btn-ghost btn-sm" id="${type}InvRefreshBtn">Refresh</button>
       </div>
-      <div class="upload-dropzone" id="${type}InvDropzone" tabindex="0" role="button" aria-label="Upload ZIP to selected VPS">
+      <div class="upload-dropzone" id="${type}InvDropzone" tabindex="0" role="button" aria-label="Smart slim upload ZIP to selected VPS">
         <p>Drag & drop a car/track ZIP here</p>
-        <p class="upload-hint">Prefer Content Manager <strong>Pack</strong> (server files). Full ZIP is OK — only data.acd / track surfaces + UI stubs are kept for the server. Paths: cars/&lt;name&gt;/… or tracks/&lt;name&gt;/…</p>
+        <p class="upload-hint">Smart upload: scans the ZIP in-browser, keeps only <strong>server-slim</strong> Pack files (~2&nbsp;MB), skips identical hashes, uploads changed files only. Full client kn5/dds never leave your PC.</p>
         <input type="file" id="${type}InvFile" accept=".zip,application/zip" hidden>
         <button type="button" class="btn btn-primary btn-sm" id="${type}InvPickBtn">Choose ZIP</button>
         <button type="button" class="btn btn-primary btn-sm" id="${type}InvUploadBtn" disabled>Upload to VPS</button>
@@ -215,12 +223,17 @@ function bindModCatalogPanel(type) {
   });
   fileInput?.addEventListener('change', () => {
     syncUploadEnabled();
-    const name = fileInput.files?.[0]?.name;
+    const file = fileInput.files?.[0];
     const status = document.getElementById(`${type}InvUploadStatus`);
-    if (status) {
-      status.hidden = !name;
-      status.textContent = name ? `Selected: ${name}` : '';
+    if (!status) return;
+    if (!file) {
+      status.hidden = true;
+      status.textContent = '';
+      return;
     }
+    status.hidden = false;
+    status.textContent = `Selected: ${file.name} (${formatSize(file.size)}) — scanning slim files…`;
+    void previewSlimScan(type, file);
   });
   dropzone?.addEventListener('dragover', (e) => {
     e.preventDefault();
@@ -247,8 +260,75 @@ function bindModCatalogPanel(type) {
   uploadBtn?.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    void uploadInventoryZip(type);
+    void uploadInventorySlim(type);
   });
+}
+
+/** @type {Record<string, import('../lib/zipSlimScan.js').SlimZipScan | null>} */
+const slimScanByType = { cars: null, tracks: null };
+
+/**
+ * @param {string} type
+ * @param {File} file
+ */
+async function previewSlimScan(type, file) {
+  const status = document.getElementById(`${type}InvUploadStatus`);
+  try {
+    const scan = await scanZipForSlimUpload(file, kindForType(type));
+    slimScanByType[type] = scan;
+    if (status) {
+      status.textContent = `${file.name}: ${formatBytes(scan.rawBytes)} → ${formatBytes(scan.slimBytes)} (${scan.files.length} slim files, ${scan.slug})`;
+    }
+  } catch (err) {
+    slimScanByType[type] = null;
+    const message = err instanceof Error ? err.message : String(err);
+    if (status) status.textContent = `Scan failed: ${message}`;
+    showToast(message, 'error');
+  }
+}
+
+/**
+ * @template T
+ * @param {Array<() => Promise<T>>} tasks
+ * @param {number} concurrency
+ * @param {(done: number, total: number) => void} [onProgress]
+ * @returns {Promise<T[]>}
+ */
+async function runPool(tasks, concurrency, onProgress) {
+  const results = /** @type {T[]} */ (new Array(tasks.length));
+  let next = 0;
+  let done = 0;
+  async function worker() {
+    while (next < tasks.length) {
+      const i = next++;
+      results[i] = await tasks[i]();
+      done += 1;
+      onProgress?.(done, tasks.length);
+    }
+  }
+  const n = Math.min(concurrency, tasks.length || 1);
+  await Promise.all(Array.from({ length: n }, () => worker()));
+  return results;
+}
+
+/**
+ * @param {() => Promise<void>} fn
+ * @param {number} [attempts]
+ */
+async function withRetry(fn, attempts = 3) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      await fn();
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (i < attempts - 1) {
+        await new Promise((r) => setTimeout(r, 1000 * 2 ** i));
+      }
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
 /** @param {string} type */
@@ -270,79 +350,179 @@ function fillEdgeSelect(type) {
     .join('');
 }
 
-/** @param {string} type */
-async function uploadInventoryZip(type) {
+/**
+ * @param {string} type
+ * @returns {{
+ *   fileInput: HTMLInputElement | null;
+ *   btn: HTMLButtonElement | null;
+ *   pickBtn: HTMLButtonElement | null;
+ *   dropzone: HTMLElement | null;
+ *   progress: HTMLElement | null;
+ *   fill: HTMLElement | null;
+ *   status: HTMLElement | null;
+ * }}
+ */
+function uploadUi(type) {
+  return {
+    fileInput: /** @type {HTMLInputElement | null} */ (document.getElementById(`${type}InvFile`)),
+    btn: /** @type {HTMLButtonElement | null} */ (document.getElementById(`${type}InvUploadBtn`)),
+    pickBtn: /** @type {HTMLButtonElement | null} */ (document.getElementById(`${type}InvPickBtn`)),
+    dropzone: document.getElementById(`${type}InvDropzone`),
+    progress: document.getElementById(`${type}InvProgress`),
+    fill: /** @type {HTMLElement | null} */ (document.getElementById(`${type}InvProgressFill`)),
+    status: document.getElementById(`${type}InvUploadStatus`),
+  };
+}
+
+/** Smart slim upload (default). @param {string} type */
+async function uploadInventorySlim(type) {
   if (!catalogEdgeId) {
     showToast('No VPS selected', 'error');
     return;
   }
-  const fileInput = /** @type {HTMLInputElement | null} */ (document.getElementById(`${type}InvFile`));
-  const file = fileInput?.files?.[0];
+  const ui = uploadUi(type);
+  const file = ui.fileInput?.files?.[0];
   if (!file) {
     showToast('Pick a ZIP first', 'error');
     return;
   }
-  const form = new FormData();
-  form.append('file', file);
-  form.append('kind', kindForType(type));
-  const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById(`${type}InvUploadBtn`));
-  const pickBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById(`${type}InvPickBtn`));
-  const dropzone = document.getElementById(`${type}InvDropzone`);
-  const progress = document.getElementById(`${type}InvProgress`);
-  const fill = /** @type {HTMLElement | null} */ (document.getElementById(`${type}InvProgressFill`));
-  const status = document.getElementById(`${type}InvUploadStatus`);
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = 'Uploading…';
+  if (ui.btn) {
+    ui.btn.disabled = true;
+    ui.btn.textContent = 'Uploading…';
   }
-  if (pickBtn) pickBtn.disabled = true;
-  dropzone?.classList.add('is-uploading');
-  if (progress) progress.hidden = false;
-  if (fill) fill.style.width = '0%';
-  if (status) {
-    status.hidden = false;
-    status.textContent = `Uploading ${file.name}…`;
+  if (ui.pickBtn) ui.pickBtn.disabled = true;
+  ui.dropzone?.classList.add('is-uploading');
+  if (ui.progress) ui.progress.hidden = false;
+  if (ui.fill) ui.fill.style.width = '0%';
+  if (ui.status) {
+    ui.status.hidden = false;
+    ui.status.textContent = 'Scanning ZIP for server-slim files…';
   }
+
   try {
-    const { data } = await apiPostFormWithProgress(
-      `/mods/edges/${encodeURIComponent(catalogEdgeId)}/upload`,
-      form,
-      (loaded, total) => {
-        if (!fill) return;
-        if (total > 0) {
-          const pct = Math.min(99, Math.round((loaded / total) * 100));
-          fill.style.width = `${pct}%`;
-          if (status) status.textContent = `Uploading ${file.name}… ${pct}%`;
-        } else if (status) {
-          status.textContent = `Uploading ${file.name}… ${formatSize(loaded)}`;
+    const scan = await scanZipForSlimUpload(file, kindForType(type));
+    slimScanByType[type] = scan;
+
+    if (ui.status) {
+      ui.status.textContent = `Planning ${scan.slug}: ${formatBytes(scan.rawBytes)} → ${formatBytes(scan.slimBytes)}…`;
+    }
+
+    const planBody = {
+      kind: scan.kind,
+      slug: scan.slug,
+      displayName: file.name.replace(/\.zip$/i, ''),
+      expectedContentHash: scan.expectedContentHash,
+      files: scan.files.map(({ rel, size, sha256 }) => ({ rel, size, sha256 })),
+    };
+    const { data: plan } = await apiPost(
+      `/mods/edges/${encodeURIComponent(catalogEdgeId)}/slim-upload/plan`,
+      planBody,
+    );
+    if (!plan.ok) {
+      showToast(String(plan.message || 'Plan failed'), 'error');
+      if (ui.status) ui.status.textContent = String(plan.message || 'Plan failed');
+      return;
+    }
+
+    if (plan.status === 'already_present') {
+      if (ui.fill) ui.fill.style.width = '100%';
+      showToast('Already installed (same contentHash) — nothing to upload', 'success');
+      if (ui.status) ui.status.textContent = 'Already present on VPS';
+      if (ui.fileInput) ui.fileInput.value = '';
+      slimScanByType[type] = null;
+      await loadModCatalog(type);
+      return;
+    }
+
+    const sessionId = String(plan.sessionId || '');
+    /** @type {Array<{ rel: string; size: number; sha256: string }>} */
+    const needed = Array.isArray(plan.needed) ? plan.needed : [];
+    if (!sessionId && needed.length) {
+      showToast('Plan missing sessionId', 'error');
+      return;
+    }
+
+    const byRel = new Map(scan.files.map((f) => [f.rel, f]));
+    let uploadedBytes = 0;
+    const totalBytes = needed.reduce((n, f) => n + f.size, 0);
+
+    if (ui.status) {
+      ui.status.textContent =
+        needed.length === 0
+          ? 'All slim files already on VPS — committing…'
+          : `Uploading ${needed.length} file(s) (${formatBytes(totalBytes)})…`;
+    }
+
+    await runPool(
+      needed.map((meta) => async () => {
+        const local = byRel.get(meta.rel);
+        if (!local) throw new Error(`Missing local bytes for ${meta.rel}`);
+        await withRetry(async () => {
+          const { data, res } = await apiPutBinaryWithProgress(
+            `/mods/edges/${encodeURIComponent(catalogEdgeId)}/slim-upload/file`,
+            local.bytes,
+            {
+              'X-Slim-Session-Id': sessionId,
+              'X-Slim-Rel': meta.rel,
+              'X-Slim-Sha256': meta.sha256,
+            },
+            (loaded) => {
+              if (!ui.status) return;
+              ui.status.textContent = `Uploading ${meta.rel}… ${formatBytes(loaded)} / ${formatBytes(meta.size)}`;
+            },
+          );
+          if (!res.ok || !data.ok) {
+            throw new Error(String(data.message || `PUT failed for ${meta.rel}`));
+          }
+        });
+        uploadedBytes += meta.size;
+        if (ui.fill && totalBytes > 0) {
+          ui.fill.style.width = `${Math.min(99, Math.round((uploadedBytes / totalBytes) * 100))}%`;
+        }
+      }),
+      3,
+      (done, total) => {
+        if (ui.status) {
+          ui.status.textContent = `Uploaded ${done}/${total} files (${formatBytes(uploadedBytes)})…`;
         }
       },
     );
-    if (!data.ok) {
-      showToast(data.message || 'Upload failed', 'error');
-      if (status) status.textContent = data.message || 'Upload failed';
+
+    if (ui.status) ui.status.textContent = 'Committing & verifying integrity…';
+    const { data: commit } = await apiPost(
+      `/mods/edges/${encodeURIComponent(catalogEdgeId)}/slim-upload/commit`,
+      { sessionId },
+    );
+    if (!commit.ok) {
+      showToast(String(commit.message || 'Commit failed'), 'error');
+      if (ui.status) ui.status.textContent = String(commit.message || 'Commit failed');
       return;
     }
-    if (fill) fill.style.width = '100%';
-    showToast(data.message || 'Uploaded to VPS', 'success');
-    if (status) status.textContent = data.message || 'Uploaded';
-    if (fileInput) fileInput.value = '';
-    if (btn) btn.disabled = true;
+
+    if (ui.fill) ui.fill.style.width = '100%';
+    const msg =
+      String(commit.message || 'Installed') +
+      (needed.length ? ` (${needed.length} uploaded, ${scan.files.length - needed.length} skipped)` : '');
+    showToast(msg, 'success');
+    if (ui.status) ui.status.textContent = msg;
+    if (ui.fileInput) ui.fileInput.value = '';
+    slimScanByType[type] = null;
     await loadModCatalog(type);
-  } catch {
-    showToast('Upload failed', 'error');
-    if (status) status.textContent = 'Upload failed';
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Upload failed';
+    showToast(message, 'error');
+    if (ui.status) ui.status.textContent = message;
   } finally {
-    if (btn) {
-      btn.disabled = !fileInput?.files?.length;
-      btn.textContent = 'Upload to VPS';
+    if (ui.btn) {
+      ui.btn.disabled = !ui.fileInput?.files?.length;
+      ui.btn.textContent = 'Upload to VPS';
     }
-    if (pickBtn) pickBtn.disabled = false;
-    dropzone?.classList.remove('is-uploading');
-    if (progress) {
+    if (ui.pickBtn) ui.pickBtn.disabled = false;
+    ui.dropzone?.classList.remove('is-uploading');
+    if (ui.progress) {
       setTimeout(() => {
-        progress.hidden = true;
-        if (fill) fill.style.width = '0%';
+        ui.progress.hidden = true;
+        if (ui.fill) ui.fill.style.width = '0%';
       }, 800);
     }
   }
@@ -430,7 +610,7 @@ function filterCatalog(type) {
       items.length
         ? 'No matches'
         : catalogEdgeId
-          ? `No ${type} on this VPS yet — upload a ZIP above`
+          ? `No ${type} on this VPS yet — drop a ZIP above (slim upload)`
           : 'No VPS registered',
     );
     return;
@@ -632,7 +812,7 @@ export async function loadModCatalog(type) {
     const edgeLabel = inv.label || inv.edgeId || catalogEdgeId;
     const n = inventoryByType[type].length;
     if (hint) {
-      hint.textContent = `${edgeLabel} · ${n} ${type} on disk. Upload ZIP to this VPS; open a card to sync/copy/remove.`;
+      hint.textContent = `${edgeLabel} · ${n} ${type} on disk. Slim-upload above; open a card to sync/copy/remove.`;
     }
 
     const searchInput = /** @type {HTMLInputElement | null} */ (document.getElementById(`${type}Search`));

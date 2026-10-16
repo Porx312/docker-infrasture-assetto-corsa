@@ -30,7 +30,7 @@ Unified catalog only: cars/tracks share `mod_packages`. Migration `009_drop_unus
 | **Syncable** | Folder **Adopt**ed (or uploaded once) | hub row + `.acmod.json` + `contentHash` |
 | **Catalog** | Hub Postgres | slug, kind, `contentHash` as `sha256`, `storage_key` |
 | **Copy A→B** | Target pulls `GET /api/mod-agent/v1/trees/:kind/:slug` | **server-slim** tar (Pack subset); no ZIP left on disk |
-| **Upload from PC** | Temp ZIP → materialize **server-slim** → delete ZIP | registers as `edge_folder` |
+| **Upload from PC** | Browser filters slim → plan/put/commit (incremental) | registers as `edge_folder` only |
 
 **Identity:** `kind + slug + contentHash` where `contentHash` is the **server-slim** tree (Content Manager Pack–style: `data.acd` / track `surfaces.ini` + small UI stubs — not kn5/dds). Sidecar `.acmod.json`: `{ artifactId, contentHash, kind, slug }`.
 
@@ -101,11 +101,15 @@ Symlink each AC instance: `server/content/cars` → `$CONTENT_PATH/cars` (shared
 3. Edge hashes the tree, writes `.acmod.json`, calls `register-local` with `storage_origin=edge_folder`.
 4. Sync to other VPS is enabled.
 
-### Upload ZIP from admin
+### Smart slim upload from admin (default)
 
-1. Admin → Cars/Tracks → pick VPS → ZIP → Upload (prefer CM **Pack**).
-2. Hub proxies to edge `POST /admin/mods/local-upload` (temp only).
-3. Edge merges **server-slim** files into `CONTENT_PATH`, hashes the slim tree, registers `edge_folder`, **deletes the temp ZIP**.
+1. Admin → Cars/Tracks → pick VPS → drop any car/track ZIP (full client or CM Pack).
+2. Browser scans the ZIP with the same **server-slim** allowlist (`data.acd` / track surfaces + UI stubs), shows `200 MB → ~2 MB`, and hashes each slim file.
+3. `POST /admin/mods/edges/:edgeId/slim-upload/plan` — edge returns `already_present`, or `needed[]` / `skip[]` vs existing `CONTENT_PATH` (+ staging resume).
+4. Client `PUT …/slim-upload/file` only for `needed` (concurrency 3, retry/backoff). Hub streams each file to the edge (no 200 MB ZIP hop).
+5. `POST …/slim-upload/commit` — edge verifies per-file sha256 + tree `contentHash`, merges into `CONTENT_PATH`, registers `edge_folder`.
+
+`POST /admin/mods/edges/:edgeId/upload` and edge `/admin/mods/local-upload` were removed. New catalog writes must use `storage_origin=edge_folder` (`register-local` rejects `edge` / `hub`).
 
 ### Copy VPS A → VPS B
 
@@ -117,15 +121,19 @@ Symlink each AC instance: `server/content/cars` → `$CONTENT_PATH/cars` (shared
 
 Cars/Tracks → **Remove from VPS** or **Delete folder on this VPS**. Catalog row remains until package delete.
 
-### GC leftover ZIP blobs
+### GC leftover ZIP blobs (ops checklist)
 
-After migrating to folder-first:
+Keep peer `GET /api/mod-agent/v1/blobs/:sha256` and `AC_MOD_ROOT` **until** this is done on every edge:
+
+1. Audit hub DB: `SELECT storage_origin, count(*) FROM mod_artifacts GROUP BY 1;`
+2. For any `edge` / `hub` rows: re-adopt or slim-reupload so they become `edge_folder`, or delete the package.
+3. On each VPS: `POST /admin/mods/edges/:edgeId/gc-blobs` (deletes `$AC_MOD_ROOT/blobs`).
+4. Unset `AC_MOD_ROOT` in that edge’s `.env.local`.
+5. Future cleanup (separate PR): remove blob route, agent ZIP branch, hub master serve.
 
 ```http
 POST /admin/mods/edges/:edgeId/gc-blobs
 ```
-
-Deletes files under `$AC_MOD_ROOT/blobs` on that edge (one-shot reclaim of disk).
 
 ## Start flow
 
@@ -150,7 +158,7 @@ Usually: agent off, wrong `EDGE_ID`, hub unreachable (`BACKEND_WORKER_URL`), or 
 | Surface | Paths |
 |---------|--------|
 | Control (worker) | `/v1/mods`, `/v1/mods/availability`, `/v1/instances/:id/mods/ensure` |
-| Admin | `/admin/mods/*`, `…/edges/:id/inventory`, `…/upload`, `…/adopt`, `…/gc-blobs` |
+| Admin | `/admin/mods/*`, `…/edges/:id/inventory`, `…/slim-upload/*`, `…/adopt`, `…/gc-blobs` |
 | Agent | `/api/mod-agent/v1/*` including `register-local` |
 | Peer tree (preferred) | `GET /api/mod-agent/v1/trees/:kind/:slug` on source edge |
 | Peer blob (legacy) | `GET /api/mod-agent/v1/blobs/:sha256` — deprecated for **new** artifacts |

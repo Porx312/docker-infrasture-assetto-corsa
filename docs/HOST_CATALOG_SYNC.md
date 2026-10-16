@@ -27,7 +27,7 @@ flowchart TB
     Presence[listAgentPresenceServers]
   end
   subgraph hub [Hub]
-    ModsZip[mods upload delete ZIP]
+    ModsZip[mods slim-upload adopt delete]
     PresenceAPI[agents register heartbeat]
     Catalog[services/hostCatalog]
     ConvexClient[convexClient]
@@ -45,10 +45,10 @@ flowchart TB
 
 | Hub event | Sync |
 |-----------|------|
-| Edge local-upload → hub `register-local` | `syncHostCatalogUpsert` → upsert car/track |
+| Edge slim-upload/commit or adopt → hub `register-local` (`edge_folder`) | `syncHostCatalogUpsert` → upsert car/track |
 | Force delete (`orchestrator`) | `syncHostCatalogDelete` → delete car/track |
 
-Slug = package `acContentSlug`. Skins / layouts are extracted from ZIP paths when available.
+Slug = package `acContentSlug`. Skins / layouts come from slim tree / manifest entry paths when available.
 
 ### Servers
 
@@ -105,4 +105,4 @@ All accept `workerSecret`.
 - **Not** treating hub `GET /v1/mods` as the Host product catalog (that is Convex `battle_*` / `servers`)
 - **Not** live player presence into Convex (`LIVE_INGEST_CONVEX=false`)
 
-ZIP ensure and mod distribute remain ops APIs; they do not replace this catalog sync.
+Mod ensure and distribute remain ops APIs; they do not replace this catalog sync.
