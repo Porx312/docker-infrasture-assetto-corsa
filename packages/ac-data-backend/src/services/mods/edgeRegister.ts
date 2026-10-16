@@ -31,10 +31,17 @@ function folderKindFromMod(kind: ModKind): EdgeFolderKind | null {
   return null;
 }
 
+export type RegisterEdgeLocalArtifactResult = {
+  packageId: string;
+  artifactId: string;
+  hostCatalogSynced: boolean;
+  hostCatalogSyncError?: string;
+};
+
 /** Catalog row only — content already lives on the reporting edge as edge_folder. */
 export async function registerEdgeLocalArtifact(
   input: RegisterEdgeLocalArtifactInput,
-): Promise<{ packageId: string; artifactId: string }> {
+): Promise<RegisterEdgeLocalArtifactResult> {
   const edgeId = input.edgeId.trim().toLowerCase();
   if (!edgeId) {
     throw new Error('edgeId required');
@@ -85,15 +92,32 @@ export async function registerEdgeLocalArtifact(
     sha256: input.sha256.toLowerCase(),
     bytesOnDisk: input.sizeBytes,
   });
-  await syncHostCatalogUpsert({
-    kind: input.kind,
-    displayName: input.displayName.trim(),
-    acContentSlug: input.acContentSlug.trim(),
-    manifest: input.manifest,
-    zipPaths: input.manifest.entryPaths,
-  }).catch((err: unknown) => {
+  let hostCatalogSynced = false;
+  let hostCatalogSyncError: string | undefined;
+  try {
+    const sync = await syncHostCatalogUpsert({
+      kind: input.kind,
+      displayName: input.displayName.trim(),
+      acContentSlug: input.acContentSlug.trim(),
+      manifest: input.manifest,
+      zipPaths: input.manifest.entryPaths,
+    });
+    hostCatalogSynced = sync.synced;
+    if (!sync.synced) {
+      hostCatalogSyncError = sync.error;
+      console.warn(
+        `[edge-register] host catalog sync skipped: ${sync.error || 'unknown'}`,
+      );
+    }
+  } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
+    hostCatalogSyncError = message;
     console.warn(`[edge-register] host catalog sync skipped: ${message}`);
-  });
-  return { packageId, artifactId };
+  }
+  return {
+    packageId,
+    artifactId,
+    hostCatalogSynced,
+    ...(hostCatalogSyncError ? { hostCatalogSyncError } : {}),
+  };
 }

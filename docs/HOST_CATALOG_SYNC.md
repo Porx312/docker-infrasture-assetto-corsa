@@ -74,28 +74,86 @@ Hub only upserts/deletes Convex `servers` when the **set of folder names** chang
 | `CONVEX_HOST_CATALOG_DELETE_TRACK` | … |
 | `CONVEX_HOST_CATALOG_UPSERT_SERVER` | … |
 | `CONVEX_HOST_CATALOG_DELETE_SERVER` | … |
+| `HOST_CATALOG_DEFAULT_REGION` | Fallback region for server upsert (`EU` if unset). Must be `EU` / `NA` / `SA` / `APAC` |
 
 Defined in `services/hostCatalog/env.ts`.
+
+Hub client uses `CONVEX_DEPLOYMENT_URL` + `CONVEX_PRODUCT_KEY` (see `isConvexConfigured`), not a bare `CONVEX_URL`.
+
+Server upsert also reads `FLEET_EDGE_REGISTRY` (by `instanceId`) for `region` / `vpsLabel` / `linkServers` when present.
+
+### Diagnose: upload OK but Convex empty
+
+After a slim-upload / adopt, watch the **hub** process logs:
+
+| Log | Meaning |
+|-----|---------|
+| `[host-catalog] upsert car\|track …` | Sync succeeded |
+| `[host-catalog] upsert failed …` or `[edge-register] host catalog sync skipped` | Mutation/secret/path error (upload still `ok`) |
+| `[host-catalog] sync disabled …` | Flag off, Convex not configured, or missing `CONVEX_WORKER_SECRET` |
+| No host-catalog line at all | Old hub build, or register-local never reached |
+
+Admin / register-local JSON also includes `hostCatalogSynced` + optional `hostCatalogSyncError`.
 
 ---
 
 ## ProjectD worker contract
 
-Implement in ProjectD: `convex/worker/hostCatalogSync.ts` (not in this repo).
+Implement in ProjectD: `convex/worker/hostCatalogSync.ts` (not in this repo).  
+Payloads are **metadata only** (no ZIPs / binaries). Every mutation includes `workerSecret`.
 
 Default mutation paths:
 
 | Op | Path |
 |----|------|
-| Upsert car | `worker/hostCatalogSync:workerUpsertBattleCar` — `carModel`, `name`, optional `skins[]` |
-| Delete car | `worker/hostCatalogSync:workerDeleteBattleCar` — `carModel` |
-| Upsert track | `worker/hostCatalogSync:workerUpsertBattleTrack` — `track`, `name`, optional `configTrack[]` |
-| Delete track | `worker/hostCatalogSync:workerDeleteBattleTrack` — `track` |
-| Upsert server | `worker/hostCatalogSync:workerUpsertServer` — `instanceId`, `name`, `isActive` |
-| Delete server | `worker/hostCatalogSync:workerDeleteServer` — `instanceId`, `name` |
+| Upsert car | `worker/hostCatalogSync:workerUpsertBattleCar` |
+| Delete car | `worker/hostCatalogSync:workerDeleteBattleCar` |
+| Upsert track | `worker/hostCatalogSync:workerUpsertBattleTrack` |
+| Delete track | `worker/hostCatalogSync:workerDeleteBattleTrack` |
+| Upsert server | `worker/hostCatalogSync:workerUpsertServer` |
+| Delete server | `worker/hostCatalogSync:workerDeleteServer` |
 
-All accept `workerSecret`.  
-`workerUpsertServer` must resolve `vps_hosts` by `instanceId` (= edge `AC_INSTANCE_ID`).
+`workerUpsertServer` resolves `vps_hosts` by `instanceId` (= edge `AC_INSTANCE_ID`).
+
+### Car — `workerUpsertBattleCar`
+
+| Field | Notes |
+|-------|--------|
+| `workerSecret` | required |
+| `carModel` | required — AC slug / key |
+| `name` | required |
+| `skins` | optional `string[]` |
+| `coverImageId` | optional — hub does not send |
+| `isEventOnly` | optional — worker default `true`; hub does not send |
+
+Delete: `{ workerSecret, carModel }`
+
+### Track — `workerUpsertBattleTrack`
+
+| Field | Notes |
+|-------|--------|
+| `workerSecret` | required |
+| `track` | required — slug / key |
+| `name` | required |
+| `configTrack` | **required** `string[]` — hub sends `["default"]` when no layouts detected |
+| `coverImageId` | optional — hub does not send (no `mapImageId`) |
+| `isEventOnly` | optional — worker default `true`; hub does not send |
+
+Delete: `{ workerSecret, track }`
+
+### Server — `workerUpsertServer`
+
+| Field | Notes |
+|-------|--------|
+| `workerSecret` | required |
+| `instanceId` | required — e.g. `vps-eu-2` |
+| `name` | required — AC folder, e.g. `server-1` |
+| `region` | conditional — `EU` / `NA` / `SA` / `APAC`; needed when VPS row is new. Hub always sends (presence / fleet / `HOST_CATALOG_DEFAULT_REGION` / `EU`) |
+| `linkServers` | optional — join URL (from fleet `joinIp` when available) |
+| `vpsLabel` | optional — from fleet registry `label` |
+| `isActive` / `publicAccess` | optional — **create** ignores and forces `isActive: false`, `publicAccess: true`. Hub **does not** send `isActive` on folder discovery (presence ≠ start). Send `isActive` only from start/stop lifecycle |
+
+Delete: `{ workerSecret, instanceId, name }`
 
 ---
 

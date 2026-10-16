@@ -126,6 +126,7 @@ export async function postAgentRegisterHandler(req: Request, res: Response): Pro
       instanceId: doc.instanceId,
       previous: previousServers,
       current: doc.servers,
+      region: doc.region,
     }).catch((err: unknown) => {
       console.warn(
         '[control-api] syncHostCatalogServersFromPresence failed:',
@@ -176,6 +177,7 @@ export async function postAgentHeartbeatHandler(req: Request, res: Response): Pr
       instanceId: doc.instanceId,
       previous: previousServers,
       current: doc.servers,
+      region: doc.region,
     }).catch((err: unknown) => {
       console.warn(
         '[control-api] syncHostCatalogServersFromPresence failed:',

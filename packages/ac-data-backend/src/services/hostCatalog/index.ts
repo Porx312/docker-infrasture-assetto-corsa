@@ -1,5 +1,6 @@
 export {
   isHostCatalogSyncEnabled,
+  hostCatalogSyncDisableReason,
   HOST_CATALOG_MUTATIONS,
   mutationPath,
   workerSecret,
@@ -12,4 +13,5 @@ export {
   syncHostCatalogServersFromPresence,
   type HostCatalogUpsertInput,
   type HostCatalogDeleteInput,
+  type HostCatalogSyncResult,
 } from './sync.js';

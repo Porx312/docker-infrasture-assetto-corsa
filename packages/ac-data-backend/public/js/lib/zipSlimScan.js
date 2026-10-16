@@ -113,13 +113,21 @@ export async function scanZipForSlimUpload(file, kindHint) {
   /** @type {Record<string, Uint8Array>} */
   let unzipped;
   try {
-    unzipped = unzipSync(new Uint8Array(ab), { filter: (path) => !path.endsWith('/') });
+    // fflate filter receives { name, size, originalSize, compression } — not a string path.
+    unzipped = unzipSync(new Uint8Array(ab), {
+      filter: (file) => {
+        const name = typeof file === 'string' ? file : String(file?.name || '');
+        return Boolean(name) && !name.endsWith('/');
+      },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`Invalid ZIP: ${message}`);
   }
 
-  const paths = Object.keys(unzipped).map((p) => p.replace(/\\/g, '/'));
+  const paths = Object.keys(unzipped)
+    .map((p) => p.replace(/\\/g, '/'))
+    .filter((p) => p && !p.endsWith('/'));
   const kind =
     kindHint && (kindHint === 'car' || kindHint === 'track' || kindHint === 'weather')
       ? kindHint

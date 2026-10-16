@@ -3,24 +3,34 @@
  * See docs/HOST_CATALOG_SYNC.md. Failures are logged; they do not fail hub ops.
  */
 import { ensureConvexClient } from '@projectd/ac-data-shared/services/convexClient.js';
+import {
+  resolveFleetEdgeByInstanceId,
+  resolveFleetJoinIp,
+} from '@projectd/ac-data-shared/services/fleet/fleetRegistry.js';
 import type { ModKind, ModManifest } from '@projectd/ac-data-shared/mods/types.js';
 import type { AgentServerSlot } from '../controlApi/agentPresence.js';
 import {
   HOST_CATALOG_MUTATIONS,
+  hostCatalogSyncDisableReason,
   isHostCatalogSyncEnabled,
   workerSecret,
 } from './env.js';
 
-export { isHostCatalogSyncEnabled } from './env.js';
+export { isHostCatalogSyncEnabled, hostCatalogSyncDisableReason } from './env.js';
 
-/** Skins under cars/<slug>/skins/<skinId>/ or <slug>/skins/<skinId>/. */
+const CONVEX_REGIONS = new Set(['EU', 'NA', 'SA', 'APAC']);
+
+/**
+ * Skins from ZIP-style paths (cars/<slug>/skins/…) or slim-relative (skins/<skinId>/…).
+ */
 export function extractCarSkinsFromZipPaths(paths: string[], carModel: string): string[] {
   const skins = new Set<string>();
   const re = new RegExp(`(?:^|/)${escapeRegExp(carModel)}/skins/([^/]+)/`, 'i');
   const reCars = new RegExp(`cars/${escapeRegExp(carModel)}/skins/([^/]+)/`, 'i');
+  const reSlim = /^skins\/([^/]+)\//i;
   for (const raw of paths) {
     const p = raw.replace(/\\/g, '/');
-    const m = p.match(reCars) || p.match(re);
+    const m = p.match(reCars) || p.match(re) || p.match(reSlim);
     const skin = m?.[1];
     if (skin && !skin.startsWith('.')) skins.add(skin);
   }
@@ -31,16 +41,30 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** Layout configs under tracks/<slug>/<layout>/ */
+const TRACK_LAYOUT_SKIP = new Set([
+  'ui',
+  'data',
+  'skins',
+  'extension',
+  'models',
+  'texture',
+  'textures',
+]);
+
+/**
+ * Layout configs from ZIP-style tracks/<slug>/<layout>/ or slim-relative
+ * <layout>/data/…, ui/<layout>/….
+ */
 export function extractTrackConfigsFromZipPaths(paths: string[], track: string): string[] {
   const configs = new Set<string>();
-  const re = new RegExp(`(?:^|/)tracks/${escapeRegExp(track)}/([^/]+)/`, 'i');
-  const skip = new Set(['ui', 'data', 'skins', 'extension', 'models', 'texture', 'textures']);
+  const reZip = new RegExp(`(?:^|/)tracks/${escapeRegExp(track)}/([^/]+)/`, 'i');
+  const reSlimLayoutData = /^([^/]+)\/data\//i;
+  const reSlimUiLayout = /^ui\/([^/]+)\//i;
   for (const raw of paths) {
     const p = raw.replace(/\\/g, '/');
-    const m = p.match(re);
+    const m = p.match(reZip) || p.match(reSlimLayoutData) || p.match(reSlimUiLayout);
     const layout = m?.[1];
-    if (layout && !layout.startsWith('.') && !skip.has(layout.toLowerCase())) {
+    if (layout && !layout.startsWith('.') && !TRACK_LAYOUT_SKIP.has(layout.toLowerCase())) {
       configs.add(layout);
     }
   }
@@ -61,6 +85,69 @@ export type HostCatalogDeleteInput = {
   displayName?: string;
 };
 
+/** Normalize to Convex region enum; fallback HOST_CATALOG_DEFAULT_REGION or EU. */
+export function resolveHostCatalogRegion(raw?: string | null): string {
+  const fromEnv = (process.env.HOST_CATALOG_DEFAULT_REGION || '').trim().toUpperCase();
+  const candidate = (raw || '').trim().toUpperCase() || fromEnv || 'EU';
+  if (CONVEX_REGIONS.has(candidate)) return candidate;
+  // Map common labels (e.g. fleet "EU-West" → EU)
+  for (const r of CONVEX_REGIONS) {
+    if (candidate.startsWith(r)) return r;
+  }
+  return 'EU';
+}
+
+/** Pure args for car upsert (workerSecret added at call site). */
+export function buildCarUpsertArgs(input: {
+  carModel: string;
+  name: string;
+  paths?: string[];
+}): Record<string, unknown> {
+  const skins = extractCarSkinsFromZipPaths(input.paths ?? [], input.carModel);
+  return {
+    carModel: input.carModel,
+    name: input.name,
+    ...(skins.length ? { skins } : {}),
+  };
+}
+
+/** Pure args for track upsert — configTrack always present (Convex required). */
+export function buildTrackUpsertArgs(input: {
+  track: string;
+  name: string;
+  paths?: string[];
+}): Record<string, unknown> {
+  const layouts = extractTrackConfigsFromZipPaths(input.paths ?? [], input.track);
+  return {
+    track: input.track,
+    name: input.name,
+    configTrack: layouts.length ? layouts : ['default'],
+  };
+}
+
+/**
+ * Pure args for server folder upsert (presence discovery).
+ * Do not set isActive — Convex create forces false; updates omit unless start/stop.
+ */
+export function buildServerUpsertArgs(input: {
+  instanceId: string;
+  name: string;
+  region?: string | null;
+  vpsLabel?: string | null;
+  linkServers?: string | null;
+}): Record<string, unknown> {
+  const args: Record<string, unknown> = {
+    instanceId: input.instanceId,
+    name: input.name,
+    region: resolveHostCatalogRegion(input.region),
+  };
+  const label = (input.vpsLabel || '').trim();
+  if (label) args.vpsLabel = label;
+  const link = (input.linkServers || '').trim();
+  if (link) args.linkServers = link;
+  return args;
+}
+
 async function runMutation(path: string, args: Record<string, unknown>): Promise<void> {
   const client = ensureConvexClient();
   await client.mutation(path, {
@@ -74,6 +161,21 @@ function folderName(slot: AgentServerSlot): string | null {
   return name || null;
 }
 
+function fleetHintsForInstance(instanceId: string): {
+  region?: string;
+  vpsLabel?: string;
+  linkServers?: string;
+} {
+  const edge = resolveFleetEdgeByInstanceId(instanceId);
+  if (!edge) return {};
+  const joinIp = resolveFleetJoinIp(edge);
+  return {
+    region: resolveHostCatalogRegion(edge.label),
+    vpsLabel: edge.label,
+    ...(joinIp ? { linkServers: `https://${joinIp}` } : {}),
+  };
+}
+
 /**
  * Diff previous vs current agent servers[] and upsert/delete Convex `servers` rows.
  * Only mutates when the set of folder names changes (not every heartbeat).
@@ -82,6 +184,8 @@ export async function syncHostCatalogServersFromPresence(input: {
   instanceId: string;
   previous: AgentServerSlot[];
   current: AgentServerSlot[];
+  /** From agent presence / AC_REGION when available. */
+  region?: string;
 }): Promise<void> {
   if (!isHostCatalogSyncEnabled()) {
     return;
@@ -107,17 +211,25 @@ export async function syncHostCatalogServersFromPresence(input: {
     return;
   }
 
+  const fleet = fleetHintsForInstance(instanceId);
+  const region = input.region?.trim() || fleet.region;
+
   const upsertPath = HOST_CATALOG_MUTATIONS.upsertServer();
   const deletePath = HOST_CATALOG_MUTATIONS.deleteServer();
 
   for (const name of toUpsert) {
     try {
-      await runMutation(upsertPath, {
+      const args = buildServerUpsertArgs({
         instanceId,
         name,
-        isActive: true,
+        region,
+        vpsLabel: fleet.vpsLabel,
+        linkServers: fleet.linkServers,
       });
-      console.log(`[host-catalog] upsert server instanceId=${instanceId} name=${name}`);
+      await runMutation(upsertPath, args);
+      console.log(
+        `[host-catalog] upsert server instanceId=${instanceId} name=${name} region=${args.region}`,
+      );
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       console.warn(`[host-catalog] upsert server failed (${name}): ${message}`);
@@ -135,41 +247,58 @@ export async function syncHostCatalogServersFromPresence(input: {
   }
 }
 
-export async function syncHostCatalogUpsert(input: HostCatalogUpsertInput): Promise<void> {
-  if (!isHostCatalogSyncEnabled()) {
-    return;
+export type HostCatalogSyncResult = {
+  synced: boolean;
+  error?: string;
+};
+
+export async function syncHostCatalogUpsert(
+  input: HostCatalogUpsertInput,
+): Promise<HostCatalogSyncResult> {
+  const disabled = hostCatalogSyncDisableReason();
+  if (disabled) {
+    console.warn(`[host-catalog] sync disabled (${input.kind}/${input.acContentSlug}): ${disabled}`);
+    return { synced: false, error: disabled };
   }
   if (input.kind !== 'car' && input.kind !== 'track') {
-    return;
+    return { synced: false, error: `kind ${input.kind} is not synced to Convex` };
   }
   const slug = input.acContentSlug.trim();
   if (!slug) {
-    return;
+    return { synced: false, error: 'acContentSlug empty' };
   }
   const paths = input.zipPaths?.length ? input.zipPaths : (input.manifest?.rootPaths ?? []);
 
   try {
     if (input.kind === 'car') {
-      const skins = extractCarSkinsFromZipPaths(paths, slug);
-      await runMutation(HOST_CATALOG_MUTATIONS.upsertCar(), {
+      const args = buildCarUpsertArgs({
         carModel: slug,
         name: input.displayName,
-        skins: skins.length ? skins : undefined,
+        paths,
       });
-      console.log(`[host-catalog] upsert car carModel=${slug}`);
-      return;
+      await runMutation(HOST_CATALOG_MUTATIONS.upsertCar(), args);
+      const skinCount = Array.isArray(args.skins) ? args.skins.length : 0;
+      console.log(
+        `[host-catalog] upsert car carModel=${slug}${skinCount ? ` skins=${skinCount}` : ''}`,
+      );
+      return { synced: true };
     }
 
-    const configTrack = extractTrackConfigsFromZipPaths(paths, slug);
-    await runMutation(HOST_CATALOG_MUTATIONS.upsertTrack(), {
+    const args = buildTrackUpsertArgs({
       track: slug,
       name: input.displayName,
-      configTrack: configTrack.length ? configTrack : undefined,
+      paths,
     });
-    console.log(`[host-catalog] upsert track track=${slug}`);
+    await runMutation(HOST_CATALOG_MUTATIONS.upsertTrack(), args);
+    const layouts = args.configTrack as string[];
+    console.log(
+      `[host-catalog] upsert track track=${slug} layouts=${layouts.length}`,
+    );
+    return { synced: true };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`[host-catalog] upsert failed (${input.kind}/${slug}): ${message}`);
+    return { synced: false, error: message };
   }
 }
 

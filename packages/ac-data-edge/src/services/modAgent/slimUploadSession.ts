@@ -427,6 +427,8 @@ export async function handleSlimUploadCommit(req: Request, res: Response): Promi
       message?: string;
       packageId?: string;
       artifactId?: string;
+      hostCatalogSynced?: boolean;
+      hostCatalogSyncError?: string;
     };
     if (!registerRes.ok || !body.ok) {
       res.status(registerRes.status || 502).json({
@@ -466,6 +468,10 @@ export async function handleSlimUploadCommit(req: Request, res: Response): Promi
       edgeId: id,
       uploadedFiles: session.needed.length,
       skippedFiles: session.skip.length,
+      hostCatalogSynced: body.hostCatalogSynced === true,
+      ...(body.hostCatalogSyncError
+        ? { hostCatalogSyncError: body.hostCatalogSyncError }
+        : {}),
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

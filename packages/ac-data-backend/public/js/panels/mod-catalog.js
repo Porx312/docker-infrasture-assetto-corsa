@@ -500,10 +500,15 @@ async function uploadInventorySlim(type) {
     }
 
     if (ui.fill) ui.fill.style.width = '100%';
-    const msg =
+    let msg =
       String(commit.message || 'Installed') +
       (needed.length ? ` (${needed.length} uploaded, ${scan.files.length - needed.length} skipped)` : '');
-    showToast(msg, 'success');
+    if (commit.hostCatalogSynced === false) {
+      msg += ` — Convex sync skipped${commit.hostCatalogSyncError ? `: ${commit.hostCatalogSyncError}` : ''}`;
+      showToast(msg, 'error');
+    } else {
+      showToast(msg, 'success');
+    }
     if (ui.status) ui.status.textContent = msg;
     if (ui.fileInput) ui.fileInput.value = '';
     slimScanByType[type] = null;

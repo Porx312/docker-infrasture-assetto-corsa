@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  buildServerUpsertArgs,
+  buildTrackUpsertArgs,
   extractCarSkinsFromZipPaths,
   extractTrackConfigsFromZipPaths,
+  resolveHostCatalogRegion,
 } from './sync.js';
 
 describe('hostCatalog path helpers', () => {
@@ -12,6 +15,20 @@ describe('hostCatalog path helpers', () => {
         'cars/bmw_m3/skins/05_white/preview.jpg',
         'cars/bmw_m3/skins/00_black/livery.dds',
         'cars/other/skins/x/a.png',
+      ],
+      'bmw_m3',
+    );
+    assert.deepEqual(skins, ['00_black', '05_white']);
+  });
+
+  it('extracts car skins from slim-relative entryPaths', () => {
+    const skins = extractCarSkinsFromZipPaths(
+      [
+        'data.acd',
+        'ui/ui_car.json',
+        'skins/05_white/ui_skin.json',
+        'skins/05_white/preview.jpg',
+        'skins/00_black/ui_skin.json',
       ],
       'bmw_m3',
     );
@@ -28,5 +45,86 @@ describe('hostCatalog path helpers', () => {
       'akina',
     );
     assert.deepEqual(configs, ['layout_down', 'layout_up']);
+  });
+
+  it('extracts track layouts from slim-relative entryPaths', () => {
+    const configs = extractTrackConfigsFromZipPaths(
+      [
+        'models.ini',
+        'layout_down/data/surfaces.ini',
+        'layout_up/data/surfaces.ini',
+        'ui/layout_down/ui_track.json',
+        'ui/ui_track.json',
+        'data/surfaces.ini',
+      ],
+      'akina',
+    );
+    assert.deepEqual(configs, ['layout_down', 'layout_up']);
+  });
+});
+
+describe('hostCatalog Convex payload builders', () => {
+  it('buildTrackUpsertArgs defaults configTrack to ["default"] when empty', () => {
+    const args = buildTrackUpsertArgs({
+      track: 'monza',
+      name: 'Monza',
+      paths: ['models.ini', 'ui/ui_track.json'],
+    });
+    assert.deepEqual(args, {
+      track: 'monza',
+      name: 'Monza',
+      configTrack: ['default'],
+    });
+  });
+
+  it('buildTrackUpsertArgs keeps detected layouts', () => {
+    const args = buildTrackUpsertArgs({
+      track: 'akina',
+      name: 'Akina',
+      paths: ['layout_down/data/surfaces.ini'],
+    });
+    assert.deepEqual(args.configTrack, ['layout_down']);
+  });
+
+  it('buildServerUpsertArgs omits isActive and always sets region', () => {
+    const prev = process.env.HOST_CATALOG_DEFAULT_REGION;
+    delete process.env.HOST_CATALOG_DEFAULT_REGION;
+    try {
+      const args = buildServerUpsertArgs({
+        instanceId: 'vps-eu-2',
+        name: 'server-1',
+      });
+      assert.equal(args.instanceId, 'vps-eu-2');
+      assert.equal(args.name, 'server-1');
+      assert.equal(args.region, 'EU');
+      assert.equal('isActive' in args, false);
+      assert.equal('publicAccess' in args, false);
+    } finally {
+      if (prev !== undefined) process.env.HOST_CATALOG_DEFAULT_REGION = prev;
+      else delete process.env.HOST_CATALOG_DEFAULT_REGION;
+    }
+  });
+
+  it('buildServerUpsertArgs includes optional fleet fields', () => {
+    const args = buildServerUpsertArgs({
+      instanceId: 'vps-na-1',
+      name: 'lobby-a',
+      region: 'NA',
+      vpsLabel: 'US East',
+      linkServers: 'https://185.1.2.3',
+    });
+    assert.deepEqual(args, {
+      instanceId: 'vps-na-1',
+      name: 'lobby-a',
+      region: 'NA',
+      vpsLabel: 'US East',
+      linkServers: 'https://185.1.2.3',
+    });
+  });
+
+  it('resolveHostCatalogRegion maps labels and falls back to EU', () => {
+    assert.equal(resolveHostCatalogRegion('na'), 'NA');
+    assert.equal(resolveHostCatalogRegion('EU-West'), 'EU');
+    assert.equal(resolveHostCatalogRegion(''), 'EU');
   });
 });

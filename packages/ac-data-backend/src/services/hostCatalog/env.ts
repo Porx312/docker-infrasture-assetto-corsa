@@ -46,14 +46,19 @@ export const HOST_CATALOG_MUTATIONS = {
  * Set `CONVEX_HOST_CATALOG_SYNC=false` to disable.
  */
 export function isHostCatalogSyncEnabled(): boolean {
+  return hostCatalogSyncDisableReason() === null;
+}
+
+/** Why sync would no-op, or null when enabled. */
+export function hostCatalogSyncDisableReason(): string | null {
   if (!envFlagEnabled('CONVEX_HOST_CATALOG_SYNC', true)) {
-    return false;
+    return 'CONVEX_HOST_CATALOG_SYNC is false';
   }
   if (!isConvexConfigured()) {
-    return false;
+    return 'CONVEX_DEPLOYMENT_URL / CONVEX_PRODUCT_KEY not configured';
   }
   if (!workerSecret()) {
-    return false;
+    return 'CONVEX_WORKER_SECRET missing';
   }
-  return true;
+  return null;
 }

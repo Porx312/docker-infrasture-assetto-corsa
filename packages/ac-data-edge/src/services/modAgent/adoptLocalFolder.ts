@@ -109,6 +109,8 @@ export async function handleAdoptLocalFolder(req: Request, res: Response): Promi
       message?: string;
       packageId?: string;
       artifactId?: string;
+      hostCatalogSynced?: boolean;
+      hostCatalogSyncError?: string;
     };
     if (!registerRes.ok || !body.ok) {
       res.status(registerRes.status || 502).json({
@@ -137,6 +139,10 @@ export async function handleAdoptLocalFolder(req: Request, res: Response): Promi
     res.json({
       ok: true,
       message: `Adopted ${folder}/${slug} into catalog`,
+      hostCatalogSynced: body.hostCatalogSynced === true,
+      ...(body.hostCatalogSyncError
+        ? { hostCatalogSyncError: body.hostCatalogSyncError }
+        : {}),
       packageId: body.packageId,
       artifactId: body.artifactId,
       contentHash,
