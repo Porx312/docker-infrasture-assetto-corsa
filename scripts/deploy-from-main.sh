@@ -32,8 +32,22 @@ esac
 echo -e "${GREEN}=== deploy-from-main ($ROLE) ===${NC}"
 echo "Repo: $ROOT_DIR"
 
+# Runtime state written by telemetry (gitignored; may still be tracked on older clones).
+# Discard local edits so the dirty check / reset --hard can proceed; process recreates it.
+RUNTIME_DIRTY_ALLOWLIST=(
+  "telemetry-data/redis_applied_config_versions.json"
+)
+for runtime_path in "${RUNTIME_DIRTY_ALLOWLIST[@]}"; do
+  if git ls-files --error-unmatch "$runtime_path" >/dev/null 2>&1; then
+    git restore --worktree --staged --source=HEAD -- "$runtime_path" 2>/dev/null \
+      || git checkout HEAD -- "$runtime_path" 2>/dev/null \
+      || true
+  fi
+done
+
 # Refuse to wipe uncommitted work outside server/ (runtime AC binaries/content
 # are still tracked historically and get mutated on fleet VPS; reset --hard below).
+# Also ignore known runtime allowlist paths (belt-and-suspenders for mid-migration hosts).
 # Porcelain: XY PATH  |  XY ORIG -> PATH  |  untracked "?? PATH"
 non_server_dirty="$(
   git status --porcelain | awk '
@@ -46,7 +60,9 @@ non_server_dirty="$(
       }
       gsub(/^"/, "", line)
       gsub(/"$/, "", line)
-      if (line !~ /^server\//) print $0
+      if (line ~ /^server\//) next
+      if (line == "telemetry-data/redis_applied_config_versions.json") next
+      print $0
     }
   '
 )"
@@ -56,7 +72,7 @@ if [[ -n "$non_server_dirty" ]]; then
   exit 1
 fi
 if [[ -n "$(git status --porcelain)" ]]; then
-  echo -e "${YELLOW}Ignoring dirty server/ paths (will be reset to origin/main).${NC}"
+  echo -e "${YELLOW}Ignoring dirty server/ (and allowed runtime) paths (will be reset to origin/main).${NC}"
 fi
 
 echo -e "${YELLOW}Fetching origin/main...${NC}"
