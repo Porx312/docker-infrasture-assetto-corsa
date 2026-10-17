@@ -177,11 +177,22 @@ fi
 
 URL="${HUB_URL}/v1/internal/host-catalog/sync-servers"
 echo "POST $URL"
-RESP="$(curl -sS -X POST "$URL" \
+HTTP_CODE="$(curl -sS -o /tmp/sync-host-catalog-resp.json -w '%{http_code}' -X POST "$URL" \
   -H "Content-Type: application/json" \
   -H "X-Worker-Secret: $SECRET" \
   -d "$PAYLOAD")"
+RESP="$(cat /tmp/sync-host-catalog-resp.json 2>/dev/null || true)"
+echo "HTTP $HTTP_CODE"
 echo "$RESP" | python3 -m json.tool 2>/dev/null || echo "$RESP"
+
+if echo "$RESP" | grep -q 'Cannot POST /v1/internal/host-catalog/sync-servers'; then
+  echo >&2
+  echo "Hub has no sync-servers route yet (running old ac-data-backend)." >&2
+  echo "Deploy/restart the hub with this repo's controlApiRoutes, then retry." >&2
+  echo "  On hub host: git pull && ./scripts/deploy-from-main.sh hub" >&2
+  echo "  Or: npm run sync:hub-repo + redeploy ProjectD-Backend-Servers" >&2
+  exit 1
+fi
 
 OK="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("ok", False))' "$RESP" 2>/dev/null || echo False)"
 if [[ "$OK" != "True" ]]; then
