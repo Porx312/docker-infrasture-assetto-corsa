@@ -5,6 +5,7 @@ import {
   buildTrackUpsertArgs,
   extractCarSkinsFromZipPaths,
   extractTrackConfigsFromZipPaths,
+  planServerPresenceSync,
   resolveHostCatalogRegion,
 } from './sync.js';
 
@@ -151,5 +152,33 @@ describe('hostCatalog Convex payload builders', () => {
     assert.equal(resolveHostCatalogRegion('na'), 'NA');
     assert.equal(resolveHostCatalogRegion('EU-West'), 'EU');
     assert.equal(resolveHostCatalogRegion(''), 'EU');
+  });
+
+  it('planServerPresenceSync without force only upserts added', () => {
+    const previous = [{ name: 'server-1' }, { name: 'server-2' }];
+    const current = [{ name: 'server-1' }, { name: 'server-2' }, { name: 'server-3' }];
+    const plan = planServerPresenceSync({ previous, current });
+    assert.deepEqual(plan.toUpsert, ['server-3']);
+    assert.deepEqual(plan.toDelete, []);
+  });
+
+  it('planServerPresenceSync force upserts all current even if unchanged', () => {
+    const slots = [{ name: 'server-1' }, { name: 'server-2' }];
+    const plan = planServerPresenceSync({
+      previous: slots,
+      current: slots,
+      force: true,
+    });
+    assert.deepEqual(plan.toUpsert, ['server-1', 'server-2']);
+    assert.deepEqual(plan.toDelete, []);
+  });
+
+  it('planServerPresenceSync deletes removed unless force', () => {
+    const plan = planServerPresenceSync({
+      previous: [{ name: 'server-1' }, { name: 'old' }],
+      current: [{ name: 'server-1' }],
+    });
+    assert.deepEqual(plan.toUpsert, []);
+    assert.deepEqual(plan.toDelete, ['old']);
   });
 });

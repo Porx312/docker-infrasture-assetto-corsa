@@ -27,7 +27,10 @@ import {
   upsertServerSlot,
   type ServerSlotStatus,
 } from '../services/controlApi/serverSlots.js';
-import { syncHostCatalogServersFromPresence } from '../services/hostCatalog/index.js';
+import {
+  backfillHostCatalogServers,
+  syncHostCatalogServersFromPresence,
+} from '../services/hostCatalog/index.js';
 import {
   ensureModsOnInstance,
   getCentralModBySlug,
@@ -407,6 +410,42 @@ export async function ensureInstanceModsHandler(req: Request, res: Response): Pr
     const status =
       message === 'fleet_edge_not_found' ? 404 : message === 'database_unavailable' ? 503 : 400;
     res.status(status).json({ ok: false, error: message });
+  }
+}
+
+export async function postHostCatalogSyncServersHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  if (!requireWorker(req, res)) {
+    return;
+  }
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const instanceId = typeof body.instanceId === 'string' ? body.instanceId.trim() : '';
+  if (!instanceId) {
+    res.status(400).json({ ok: false, error: 'instanceId_required' });
+    return;
+  }
+  const region = typeof body.region === 'string' ? body.region.trim() : undefined;
+  const servers = parseAgentServers(body.servers);
+  try {
+    const result = await backfillHostCatalogServers({
+      instanceId,
+      region,
+      servers,
+    });
+    const status = result.ok ? 200 : result.error === 'host_catalog_sync_disabled' || result.error?.includes('disabled') || result.error?.includes('CONVEX') ? 503 : 400;
+    res.status(status).json({
+      ok: result.ok,
+      instanceId: result.instanceId,
+      upserted: result.upserted,
+      deleted: result.deleted,
+      errors: result.errors.length ? result.errors : undefined,
+      error: result.error,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ ok: false, error: message });
   }
 }
 

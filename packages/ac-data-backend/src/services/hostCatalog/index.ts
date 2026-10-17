@@ -8,10 +8,16 @@ export {
 export {
   extractCarSkinsFromZipPaths,
   extractTrackConfigsFromZipPaths,
+  planServerPresenceSync,
+  buildServerUpsertArgs,
+  buildTrackUpsertArgs,
   syncHostCatalogUpsert,
   syncHostCatalogDelete,
   syncHostCatalogServersFromPresence,
+  backfillHostCatalogServers,
   type HostCatalogUpsertInput,
   type HostCatalogDeleteInput,
   type HostCatalogSyncResult,
+  type SyncHostCatalogServersResult,
+  type BackfillHostCatalogServersResult,
 } from './sync.js';

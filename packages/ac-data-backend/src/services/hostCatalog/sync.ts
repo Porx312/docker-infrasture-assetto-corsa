@@ -9,7 +9,10 @@ import {
   resolveFleetJoinIp,
 } from '@projectd/ac-data-shared/services/fleet/fleetRegistry.js';
 import type { ModKind, ModManifest } from '@projectd/ac-data-shared/mods/types.js';
-import type { AgentServerSlot } from '../controlApi/agentPresence.js';
+import {
+  getAgentPresence,
+  type AgentServerSlot,
+} from '../controlApi/agentPresence.js';
 import {
   HOST_CATALOG_MUTATIONS,
   hostCatalogSyncDisableReason,
@@ -195,9 +198,42 @@ function httpPortForFolder(
   return null;
 }
 
+/** Pure plan: which folder names to upsert / delete. */
+export function planServerPresenceSync(input: {
+  previous: AgentServerSlot[];
+  current: AgentServerSlot[];
+  /** When true, upsert every current folder (backfill). */
+  force?: boolean;
+}): { toUpsert: string[]; toDelete: string[] } {
+  const prevNames = new Set(
+    input.previous.map(folderName).filter((n): n is string => Boolean(n)),
+  );
+  const currNames = new Set(
+    input.current.map(folderName).filter((n): n is string => Boolean(n)),
+  );
+  const added = [...currNames].filter((n) => !prevNames.has(n));
+  const removed = [...prevNames].filter((n) => !currNames.has(n));
+  const toUpsert = input.force
+    ? [...currNames]
+    : prevNames.size === 0 && currNames.size > 0
+      ? [...currNames]
+      : added;
+  return {
+    toUpsert: toUpsert.sort(),
+    toDelete: input.force ? [] : removed.sort(),
+  };
+}
+
+export type SyncHostCatalogServersResult = {
+  upserted: string[];
+  deleted: string[];
+  errors: string[];
+};
+
 /**
  * Diff previous vs current agent servers[] and upsert/delete Convex `servers` rows.
- * Only mutates when the set of folder names changes (not every heartbeat).
+ * Default: only when the set of folder names changes (not every heartbeat).
+ * `force: true`: upsert all current folders (backfill / re-sync).
  */
 export async function syncHostCatalogServersFromPresence(input: {
   instanceId: string;
@@ -205,29 +241,25 @@ export async function syncHostCatalogServersFromPresence(input: {
   current: AgentServerSlot[];
   /** From agent presence / AC_REGION when available. */
   region?: string;
-}): Promise<void> {
+  force?: boolean;
+}): Promise<SyncHostCatalogServersResult> {
+  const empty: SyncHostCatalogServersResult = { upserted: [], deleted: [], errors: [] };
   if (!isHostCatalogSyncEnabled()) {
-    return;
+    return empty;
   }
   const instanceId = input.instanceId.trim();
   if (!instanceId) {
-    return;
+    return empty;
   }
 
-  const prevNames = new Set(
-    input.previous.map(folderName).filter((n): n is string => Boolean(n)),
-  );
-  const currNames = new Set(
-    input.current.map(folderName).filter((n): n is string => Boolean(n)),
-  );
+  const { toUpsert, toDelete } = planServerPresenceSync({
+    previous: input.previous,
+    current: input.current,
+    force: input.force,
+  });
 
-  const added = [...currNames].filter((n) => !prevNames.has(n));
-  const removed = [...prevNames].filter((n) => !currNames.has(n));
-  const toUpsert =
-    prevNames.size === 0 && currNames.size > 0 ? [...currNames] : added;
-
-  if (toUpsert.length === 0 && removed.length === 0) {
-    return;
+  if (toUpsert.length === 0 && toDelete.length === 0) {
+    return empty;
   }
 
   const fleet = fleetHintsForInstance(instanceId);
@@ -235,6 +267,9 @@ export async function syncHostCatalogServersFromPresence(input: {
 
   const upsertPath = HOST_CATALOG_MUTATIONS.upsertServer();
   const deletePath = HOST_CATALOG_MUTATIONS.deleteServer();
+  const upserted: string[] = [];
+  const deleted: string[] = [];
+  const errors: string[] = [];
 
   for (const name of toUpsert) {
     try {
@@ -247,6 +282,7 @@ export async function syncHostCatalogServersFromPresence(input: {
         httpPort: httpPortForFolder(input.current, name),
       });
       await runMutation(upsertPath, args);
+      upserted.push(name);
       console.log(
         `[host-catalog] upsert server instanceId=${instanceId} name=${name} region=${args.region}${
           args.linkServers ? ` linkServers=${args.linkServers}` : ''
@@ -254,19 +290,24 @@ export async function syncHostCatalogServersFromPresence(input: {
       );
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
+      errors.push(`upsert ${name}: ${message}`);
       console.warn(`[host-catalog] upsert server failed (${name}): ${message}`);
     }
   }
 
-  for (const name of removed) {
+  for (const name of toDelete) {
     try {
       await runMutation(deletePath, { instanceId, name });
+      deleted.push(name);
       console.log(`[host-catalog] delete server instanceId=${instanceId} name=${name}`);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
+      errors.push(`delete ${name}: ${message}`);
       console.warn(`[host-catalog] delete server failed (${name}): ${message}`);
     }
   }
+
+  return { upserted, deleted, errors };
 }
 
 export type HostCatalogSyncResult = {
@@ -347,4 +388,74 @@ export async function syncHostCatalogDelete(input: HostCatalogDeleteInput): Prom
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`[host-catalog] delete failed (${input.kind}/${slug}): ${message}`);
   }
+}
+
+export type BackfillHostCatalogServersResult = SyncHostCatalogServersResult & {
+  instanceId: string;
+  ok: boolean;
+  error?: string;
+};
+
+/**
+ * Force-upsert all servers for one VPS.
+ * Prefer explicit `servers` from edge disk scan; else Redis agent presence.
+ */
+export async function backfillHostCatalogServers(input: {
+  instanceId: string;
+  region?: string;
+  servers?: AgentServerSlot[];
+}): Promise<BackfillHostCatalogServersResult> {
+  const instanceId = input.instanceId.trim();
+  if (!instanceId) {
+    return {
+      ok: false,
+      instanceId: '',
+      upserted: [],
+      deleted: [],
+      errors: [],
+      error: 'instanceId_required',
+    };
+  }
+  if (!isHostCatalogSyncEnabled()) {
+    const reason = hostCatalogSyncDisableReason() || 'host_catalog_sync_disabled';
+    return {
+      ok: false,
+      instanceId,
+      upserted: [],
+      deleted: [],
+      errors: [],
+      error: reason,
+    };
+  }
+
+  let current = input.servers;
+  let region = input.region?.trim();
+  if (!current?.length) {
+    const presence = await getAgentPresence(instanceId);
+    if (!presence?.servers?.length) {
+      return {
+        ok: false,
+        instanceId,
+        upserted: [],
+        deleted: [],
+        errors: [],
+        error: 'no_servers_in_body_or_presence',
+      };
+    }
+    current = presence.servers;
+    region = region || presence.region;
+  }
+
+  const result = await syncHostCatalogServersFromPresence({
+    instanceId,
+    previous: [],
+    current,
+    region,
+    force: true,
+  });
+  return {
+    ok: result.errors.length === 0,
+    instanceId,
+    ...result,
+  };
 }

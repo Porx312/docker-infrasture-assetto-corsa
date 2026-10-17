@@ -54,10 +54,27 @@ Slug = package `acContentSlug`. Skins / layouts come from slim tree / manifest e
 
 | Hub event | Sync |
 |-----------|------|
-| Agent register / heartbeat with `servers[]` | `syncHostCatalogServersFromPresence` |
+| Agent register / heartbeat with `servers[]` | `syncHostCatalogServersFromPresence` (only **added/removed** folders) |
+| Backfill / re-sync | `POST /v1/internal/host-catalog/sync-servers` (`force`) |
 
-Edge sole source of `servers[]`: `listAgentPresenceServers` in `controlApiAgentPresence.ts` (folder names on the VPS).  
-Hub only upserts/deletes Convex `servers` when the **set of folder names** changes (not every heartbeat).
+Edge sole source of `servers[]` on heartbeat: `listAgentPresenceServers` in `controlApiAgentPresence.ts`.  
+Hub only upserts/deletes on heartbeat when the **set of folder names** changes — existing folders are **not** re-sent. Use backfill to push a full fleet (e.g. after fixing `linkServers` / empty Convex).
+
+#### Backfill / re-sync (per VPS)
+
+On the **edge**:
+
+```bash
+./scripts/sync-host-catalog-servers.sh --dry-run
+./scripts/sync-host-catalog-servers.sh
+# or: --servers-path /root/assetto-infra/server
+```
+
+Scans local `server` / `server-N`, reads `HTTP_PORT`, POSTs to hub:
+
+`POST /v1/internal/host-catalog/sync-servers` with `X-Worker-Secret` (`FLEET_EDGE_SECRET`).
+
+Body: `{ instanceId, region?, servers: [{ name, httpPort, ... }] }` — hub force-upserts all to Convex (acstuff `linkServers` when `joinIp` + port known).
 
 ---
 

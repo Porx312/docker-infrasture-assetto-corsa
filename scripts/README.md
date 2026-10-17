@@ -1,24 +1,71 @@
 # Scripts (ops)
 
-Only scripts that are part of normal fleet ops live here. One-off verify/debug/load-test tools are under [`archive/`](./archive/).
+Scripts for normal fleet ops live here. One-off verify/debug/load-test tools are under [`archive/`](./archive/).
+
+---
+
+## Deploy / day-to-day
 
 | Script | Use |
 |--------|-----|
-| [`sync-projectd-backend-servers.sh`](./sync-projectd-backend-servers.sh) | Ship hub → `ProjectD-Backend-Servers` (`npm run sync:hub-repo`) |
-| [`package-backend-hub.sh`](./package-backend-hub.sh) | Tarball hub (`npm run package:hub`) — use `npm run verify:hub-package` / `release:hub-package` before upload |
-| [`verify-backend-hub-package.sh`](./verify-backend-hub-package.sh) | Pack + content checks + isolated build (`npm run verify:hub-package`) |
-| [`deploy-from-main.sh`](./deploy-from-main.sh) | On-VPS deploy to `origin/main` (`edge`\|`hub`); edge uses infra reload (keeps lobbies) |
+| [`deploy-from-main.sh`](./deploy-from-main.sh) | On-VPS deploy to `origin/main` (`edge`\|`hub`); edge reloads infra (keeps lobbies) and runs symlink fix |
 | [`../reload-infra.sh`](../reload-infra.sh) | Restart edge + telemetry **without** killing `acServer` (repo root; default `dev`) |
 | [`smoke-vps-fleet.sh`](./smoke-vps-fleet.sh) | Quick hub/edge health smoke (`npm run smoke:fleet`) |
-| [`rotate-assetto-logs.sh`](./rotate-assetto-logs.sh) + [`logrotate-assetto.conf`](./logrotate-assetto.conf) | Log rotation under `logs/` (`LOG_DIR`, default `$ROOT/logs`) |
-| [`rotate-vps-secrets.sh`](./rotate-vps-secrets.sh) | Secret rotation helper |
+| [`wait-edge-health.sh`](./wait-edge-health.sh) | Wait until an edge `/api/health` (or similar) is ready |
+
+---
+
+## VPS servers (ports, binaries, Convex)
+
+Typical new/broken VPS:
+
+```bash
+./scripts/open-server-ports.sh --servers-path "$SERVERS_PATH"          # dry-run
+sudo ./scripts/open-server-ports.sh --servers-path "$SERVERS_PATH" --apply
+./scripts/fix-server-symlinks.sh --servers-path "$SERVERS_PATH" --apply
+./scripts/sync-host-catalog-servers.sh                                 # push all folders → Convex
+```
+
+| Script | Use |
+|--------|-----|
+| [`open-server-ports.sh`](./open-server-ports.sh) | Open game/HTTP/CM ports from each folder’s INI (dry-run default; `--apply`) |
+| [`fix-server-symlinks.sh`](./fix-server-symlinks.sh) | Repair `acServer`/`system` links (`../acServer`; rewrite `/home/jose` → host). Edge deploy runs `--apply` |
+| [`sync-host-catalog-servers.sh`](./sync-host-catalog-servers.sh) | On edge: force-upsert all local `server`/`server-N` to Convex via hub |
+
+See also [`docs/HOST_CATALOG_SYNC.md`](../docs/HOST_CATALOG_SYNC.md).
+
+---
+
+## Packaging / hub release
+
+| Script | Use |
+|--------|-----|
+| [`package-backend-hub.sh`](./package-backend-hub.sh) | Tarball hub (`npm run package:hub`) |
+| [`verify-backend-hub-package.sh`](./verify-backend-hub-package.sh) | Pack + content checks + isolated build (`npm run verify:hub-package`) |
+| [`sync-projectd-backend-servers.sh`](./sync-projectd-backend-servers.sh) | Ship hub → `ProjectD-Backend-Servers` (`npm run sync:hub-repo`) |
+
+---
+
+## Redis / HUD / ingest
+
+| Script | Use |
+|--------|-----|
 | [`apply-redis-local-auth.sh`](./apply-redis-local-auth.sh) | Redis AUTH (sudo; restarts Redis) |
-| [`audit-firewall.sh`](./audit-firewall.sh) | Firewall audit |
-| [`open-server-ports.sh`](./open-server-ports.sh) | Open game/HTTP/CM ports for existing `server`/`server-N` folders (dry-run default; `--apply`) |
-| [`fix-server-symlinks.sh`](./fix-server-symlinks.sh) | Repair instance `acServer`/`system` links (relative `../acServer`; rewrite `/home/jose` → host). Edge deploy runs `--apply` |
-| [`clear-ingest-pending.sh`](./clear-ingest-pending.sh) | Reclaim stuck `ac:events` consumers |
 | [`clear-hud-presence.sh`](./clear-hud-presence.sh) | Clear HUD presence keys for a steamId |
-| [`start-cm-proxies.sh`](./start-cm-proxies.sh) / [`stop-cm-proxies.sh`](./stop-cm-proxies.sh) | CM wrappers |
+| [`clear-ingest-pending.sh`](./clear-ingest-pending.sh) | Reclaim stuck `ac:events` consumers |
+
+---
+
+## Security / capacity / CM / logs
+
+| Script | Use |
+|--------|-----|
+| [`audit-firewall.sh`](./audit-firewall.sh) | Firewall audit (read-only) |
+| [`rotate-vps-secrets.sh`](./rotate-vps-secrets.sh) | Secret rotation helper |
 | [`vps-capacity-check.sh`](./vps-capacity-check.sh) | Host capacity snapshot |
+| [`start-cm-proxies.sh`](./start-cm-proxies.sh) / [`stop-cm-proxies.sh`](./stop-cm-proxies.sh) | CM details wrappers |
+| [`rotate-assetto-logs.sh`](./rotate-assetto-logs.sh) + [`logrotate-assetto.conf`](./logrotate-assetto.conf) | Log rotation under `logs/` (`LOG_DIR`, default `$ROOT/logs`) |
+
+---
 
 HUD require checks live in [`ProjectD-HUD/scripts/`](../ProjectD-HUD/scripts/), not here.

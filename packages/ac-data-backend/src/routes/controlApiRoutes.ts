@@ -17,6 +17,7 @@ import {
   postAgentModsHandler,
   postAgentRegisterHandler,
   postDesiredConfigHandler,
+  postHostCatalogSyncServersHandler,
   restartServerSlotHandler,
   startServerSlotHandler,
   stopServerSlotHandler,
@@ -67,6 +68,9 @@ router.post('/instances/:instanceId/mods/ensure', (req, res) => {
 
 router.post('/internal/desired-config', (req, res) => {
   void postDesiredConfigHandler(req, res);
+});
+router.post('/internal/host-catalog/sync-servers', (req, res) => {
+  void postHostCatalogSyncServersHandler(req, res);
 });
 
 // Server slots platform — register before /servers/:serverId/live
