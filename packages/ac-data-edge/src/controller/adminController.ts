@@ -20,7 +20,10 @@ import {
   startServerCore,
   stopServerCore,
 } from './controller.js';
-import { provisionServerInstance } from '../services/serverProvision.js';
+import {
+  deprovisionServerInstance,
+  provisionServerInstance,
+} from '../services/serverProvision.js';
 
 export {
   getContent,
@@ -145,6 +148,23 @@ export async function provisionServerAdminHandler(req: Request, res: Response): 
       message: result.message,
       server: result.server,
       runtime: result.runtime,
+      servers: summarizeServers(),
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(400).json({ ok: false, message });
+  }
+}
+
+export async function deprovisionServerAdminHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const serverName = String(req.params.name || '');
+    const result = await deprovisionServerInstance(serverName);
+    res.json({
+      ok: true,
+      message: result.message,
+      serverName: result.serverName,
+      stopped: result.stopped,
       servers: summarizeServers(),
     });
   } catch (err: unknown) {

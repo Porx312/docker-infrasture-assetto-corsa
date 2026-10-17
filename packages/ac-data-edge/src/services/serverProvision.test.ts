@@ -4,7 +4,10 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { copyDirRecursiveForTest } from './serverProvision.js';
+import {
+  copyDirRecursiveForTest,
+  deprovisionServerInstance,
+} from './serverProvision.js';
 
 test('copyDirRecursive preserves symlink-to-directory (no EISDIR)', async () => {
   const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'ac-provision-'));
@@ -39,6 +42,48 @@ test('copyDirRecursive preserves symlink-to-directory (no EISDIR)', async () => 
     } catch {
       /* ignore */
     }
+    await fsp.rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test('deprovisionServerInstance rejects unsafe names', async () => {
+  const prev = process.env.SERVERS_PATH;
+  const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'ac-deprov-'));
+  process.env.SERVERS_PATH = tmp;
+  try {
+    await assert.rejects(
+      () => deprovisionServerInstance('../etc'),
+      /Invalid server name/,
+    );
+    await assert.rejects(
+      () => deprovisionServerInstance('server-template'),
+      /Invalid server name/,
+    );
+    await assert.rejects(
+      () => deprovisionServerInstance('server-99'),
+      /not found/,
+    );
+  } finally {
+    if (prev !== undefined) process.env.SERVERS_PATH = prev;
+    else delete process.env.SERVERS_PATH;
+    await fsp.rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test('deprovisionServerInstance removes folder', async () => {
+  const prev = process.env.SERVERS_PATH;
+  const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'ac-deprov-'));
+  process.env.SERVERS_PATH = tmp;
+  try {
+    const dir = path.join(tmp, 'server-3');
+    await fsp.mkdir(path.join(dir, 'cfg'), { recursive: true });
+    await fsp.writeFile(path.join(dir, 'cfg', 'server_cfg.ini'), 'NAME=x\n');
+    const result = await deprovisionServerInstance('server-3');
+    assert.equal(result.serverName, 'server-3');
+    assert.equal(fs.existsSync(dir), false);
+  } finally {
+    if (prev !== undefined) process.env.SERVERS_PATH = prev;
+    else delete process.env.SERVERS_PATH;
     await fsp.rm(tmp, { recursive: true, force: true });
   }
 });

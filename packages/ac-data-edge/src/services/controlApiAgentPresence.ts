@@ -41,6 +41,7 @@ export function listAgentPresenceServers(): Array<{
   name: string;
   status: string;
   playerCount: number;
+  httpPort?: number;
 }> {
   let names: string[] = [];
   try {
@@ -50,13 +51,27 @@ export function listAgentPresenceServers(): Array<{
   }
   return names.map((name) => {
     let status = 'idle';
+    let httpPort: number | undefined;
     try {
       const runtime = getServerRuntime(name);
       if (runtime.running) status = 'live';
+      if (
+        typeof runtime.httpPort === 'number' &&
+        Number.isFinite(runtime.httpPort) &&
+        runtime.httpPort > 0
+      ) {
+        httpPort = Math.trunc(runtime.httpPort);
+      }
     } catch {
       /* ignore */
     }
-    return { serverId: name, name, status, playerCount: 0 };
+    return {
+      serverId: name,
+      name,
+      status,
+      playerCount: 0,
+      ...(httpPort != null ? { httpPort } : {}),
+    };
   });
 }
 

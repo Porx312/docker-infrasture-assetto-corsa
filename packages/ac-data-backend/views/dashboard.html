@@ -103,6 +103,11 @@
                         <ul id="serverModReadinessList" class="server-mod-readiness-list"></ul>
                         <button type="button" class="btn btn-sm btn-ghost hidden" id="serverModSyncMissingBtn">Sync missing mods</button>
                     </div>
+                    <div class="server-deprovision-block">
+                        <p class="modal-mod-section">Remove instance</p>
+                        <p class="panel-hint">Stops the process if running and deletes the folder on this VPS. Cannot be undone.</p>
+                        <button type="button" class="btn btn-danger btn-sm" id="serverDeprovisionBtn">Remove instance…</button>
+                    </div>
                 </section>
                 <form id="serverLobbyForm" class="server-manage-panel hidden" data-server-panel="lobby" novalidate>
                     <p class="modal-mod-section">Lobby &amp; content</p>

@@ -6,6 +6,8 @@ export type AgentServerSlot = {
   name?: string;
   status?: string;
   playerCount?: number;
+  /** HTTP_PORT from edge server_cfg — used for acstuff join URLs. */
+  httpPort?: number;
 };
 
 export type AgentPresenceDoc = {
@@ -32,12 +34,22 @@ function normalizeServers(raw: unknown): AgentServerSlot[] {
   }
   return raw
     .filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === 'object')
-    .map((row) => ({
-      serverId: typeof row.serverId === 'string' ? row.serverId : undefined,
-      name: typeof row.name === 'string' ? row.name : undefined,
-      status: typeof row.status === 'string' ? row.status : undefined,
-      playerCount: typeof row.playerCount === 'number' ? row.playerCount : undefined,
-    }));
+    .map((row) => {
+      const httpPortRaw = row.httpPort;
+      const httpPort =
+        typeof httpPortRaw === 'number' &&
+        Number.isFinite(httpPortRaw) &&
+        httpPortRaw > 0
+          ? Math.trunc(httpPortRaw)
+          : undefined;
+      return {
+        serverId: typeof row.serverId === 'string' ? row.serverId : undefined,
+        name: typeof row.name === 'string' ? row.name : undefined,
+        status: typeof row.status === 'string' ? row.status : undefined,
+        playerCount: typeof row.playerCount === 'number' ? row.playerCount : undefined,
+        ...(httpPort != null ? { httpPort } : {}),
+      };
+    });
 }
 
 export async function storeAgentPresence(
@@ -64,11 +76,12 @@ export async function storeAgentPresence(
     prev = await getAgentPresence(instanceId);
   }
 
-  let servers = normalizeServers(input.servers);
-  // Heartbeat with empty servers[] must not wipe a good previous list (edge glitch).
-  if (input.isHeartbeat && servers.length === 0 && prev?.servers?.length) {
-    servers = prev.servers;
-  }
+  // Omitted `servers` on heartbeat keeps previous (glitch / partial payload).
+  // Explicit `servers: []` clears (e.g. last folder deprovisioned).
+  let servers =
+    input.isHeartbeat && input.servers === undefined && prev?.servers?.length
+      ? prev.servers
+      : normalizeServers(input.servers);
 
   const doc: AgentPresenceDoc = {
     instanceId,

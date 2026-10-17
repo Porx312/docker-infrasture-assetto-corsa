@@ -27,6 +27,7 @@ import {
     stopServerAdminHandler,
     restartServerAdminHandler,
     provisionServerAdminHandler,
+    deprovisionServerAdminHandler,
     getHudReleasesHandler,
     uploadHudReleaseHandler,
     deleteHudReleaseHandler,
@@ -148,6 +149,7 @@ router.post(
   },
 );
 router.post('/servers/provision', adminAuth, provisionServerAdminHandler);
+router.delete('/servers/:name', adminAuth, deprovisionServerAdminHandler);
 router.get('/servers/:name/config', adminAuth, getServerInstanceConfigHandler);
 router.put('/servers/:name/config', adminAuth, updateServerInstanceConfigHandler);
 router.get('/servers/:name/runtime', adminAuth, getServerRuntimeHandler);

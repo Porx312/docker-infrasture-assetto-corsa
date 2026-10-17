@@ -105,21 +105,46 @@ describe('hostCatalog Convex payload builders', () => {
     }
   });
 
-  it('buildServerUpsertArgs includes optional fleet fields', () => {
+  it('buildServerUpsertArgs builds acstuff linkServers from joinIp + httpPort', () => {
     const args = buildServerUpsertArgs({
-      instanceId: 'vps-na-1',
-      name: 'lobby-a',
-      region: 'NA',
-      vpsLabel: 'US East',
-      linkServers: 'https://185.1.2.3',
+      instanceId: 'vps-eu-2',
+      name: 'server-5',
+      region: 'EU',
+      vpsLabel: 'EU',
+      joinIp: '13.140.160.131',
+      httpPort: 8086,
     });
     assert.deepEqual(args, {
-      instanceId: 'vps-na-1',
-      name: 'lobby-a',
-      region: 'NA',
-      vpsLabel: 'US East',
-      linkServers: 'https://185.1.2.3',
+      instanceId: 'vps-eu-2',
+      name: 'server-5',
+      region: 'EU',
+      vpsLabel: 'EU',
+      linkServers:
+        'https://acstuff.club/s/q:race/online/join?ip=13.140.160.131&httpPort=8086',
     });
+  });
+
+  it('buildServerUpsertArgs omits linkServers when httpPort missing', () => {
+    const args = buildServerUpsertArgs({
+      instanceId: 'vps-eu-2',
+      name: 'server-1',
+      joinIp: '13.140.160.131',
+    });
+    assert.equal('linkServers' in args, false);
+  });
+
+  it('buildServerUpsertArgs does not use bare https://ip as linkServers', () => {
+    const args = buildServerUpsertArgs({
+      instanceId: 'vps-eu-2',
+      name: 'server-1',
+      joinIp: '13.140.160.131',
+      httpPort: 8081,
+    });
+    assert.equal(
+      args.linkServers,
+      'https://acstuff.club/s/q:race/online/join?ip=13.140.160.131&httpPort=8081',
+    );
+    assert.notEqual(args.linkServers, 'https://13.140.160.131');
   });
 
   it('resolveHostCatalogRegion maps labels and falls back to EU', () => {

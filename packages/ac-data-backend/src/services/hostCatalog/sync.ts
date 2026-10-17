@@ -2,6 +2,7 @@
  * Hub → Convex Host catalog (`battle_cars` / `battle_tracks` / `servers`).
  * See docs/HOST_CATALOG_SYNC.md. Failures are logged; they do not fail hub ops.
  */
+import { buildAcstuffJoinUrl } from '@projectd/ac-data-shared/services/acstuffJoinUrl.js';
 import { ensureConvexClient } from '@projectd/ac-data-shared/services/convexClient.js';
 import {
   resolveFleetEdgeByInstanceId,
@@ -128,6 +129,7 @@ export function buildTrackUpsertArgs(input: {
 /**
  * Pure args for server folder upsert (presence discovery).
  * Do not set isActive — Convex create forces false; updates omit unless start/stop.
+ * `linkServers` must be a full acstuff join URL when present.
  */
 export function buildServerUpsertArgs(input: {
   instanceId: string;
@@ -135,6 +137,9 @@ export function buildServerUpsertArgs(input: {
   region?: string | null;
   vpsLabel?: string | null;
   linkServers?: string | null;
+  /** Public join IP + HTTP_PORT → acstuff URL when both present. */
+  joinIp?: string | null;
+  httpPort?: number | null;
 }): Record<string, unknown> {
   const args: Record<string, unknown> = {
     instanceId: input.instanceId,
@@ -143,7 +148,9 @@ export function buildServerUpsertArgs(input: {
   };
   const label = (input.vpsLabel || '').trim();
   if (label) args.vpsLabel = label;
-  const link = (input.linkServers || '').trim();
+  const explicit = (input.linkServers || '').trim();
+  const fromPorts = buildAcstuffJoinUrl(input.joinIp, input.httpPort);
+  const link = explicit || fromPorts || '';
   if (link) args.linkServers = link;
   return args;
 }
@@ -164,7 +171,7 @@ function folderName(slot: AgentServerSlot): string | null {
 function fleetHintsForInstance(instanceId: string): {
   region?: string;
   vpsLabel?: string;
-  linkServers?: string;
+  joinIp?: string;
 } {
   const edge = resolveFleetEdgeByInstanceId(instanceId);
   if (!edge) return {};
@@ -172,8 +179,20 @@ function fleetHintsForInstance(instanceId: string): {
   return {
     region: resolveHostCatalogRegion(edge.label),
     vpsLabel: edge.label,
-    ...(joinIp ? { linkServers: `https://${joinIp}` } : {}),
+    ...(joinIp ? { joinIp } : {}),
   };
+}
+
+function httpPortForFolder(
+  slots: AgentServerSlot[],
+  folder: string,
+): number | null {
+  const slot = slots.find((s) => folderName(s) === folder);
+  const port = slot?.httpPort;
+  if (typeof port === 'number' && Number.isFinite(port) && port > 0) {
+    return Math.trunc(port);
+  }
+  return null;
 }
 
 /**
@@ -224,11 +243,14 @@ export async function syncHostCatalogServersFromPresence(input: {
         name,
         region,
         vpsLabel: fleet.vpsLabel,
-        linkServers: fleet.linkServers,
+        joinIp: fleet.joinIp,
+        httpPort: httpPortForFolder(input.current, name),
       });
       await runMutation(upsertPath, args);
       console.log(
-        `[host-catalog] upsert server instanceId=${instanceId} name=${name} region=${args.region}`,
+        `[host-catalog] upsert server instanceId=${instanceId} name=${name} region=${args.region}${
+          args.linkServers ? ` linkServers=${args.linkServers}` : ''
+        }`,
       );
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);

@@ -19,6 +19,7 @@ import {
     stopServerAdminHandler,
     restartServerAdminHandler,
     provisionServerAdminHandler,
+    deprovisionServerAdminHandler,
     getHudReleasesHandler,
     uploadHudReleaseHandler,
     deleteHudReleaseHandler,
@@ -94,6 +95,7 @@ router.get('/hud/releases/:filename/download', hubOrAdminAuth, downloadHudReleas
 router.get('/branding', hubOrAdminAuth, getServerBrandingHandler);
 router.put('/branding', hubOrAdminAuth, updateServerBrandingHandler);
 router.post('/servers/provision', hubOrAdminAuth, provisionServerAdminHandler);
+router.delete('/servers/:name', hubOrAdminAuth, deprovisionServerAdminHandler);
 router.get('/servers/:name/config', hubOrAdminAuth, getServerInstanceConfigHandler);
 router.put('/servers/:name/config', hubOrAdminAuth, updateServerInstanceConfigHandler);
 router.get('/servers/:name/runtime', hubOrAdminAuth, getServerRuntimeHandler);

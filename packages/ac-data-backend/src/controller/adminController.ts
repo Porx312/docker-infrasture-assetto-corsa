@@ -276,6 +276,14 @@ export async function provisionServerAdminHandler(req: Request, res: Response): 
   });
 }
 
+export async function deprovisionServerAdminHandler(req: Request, res: Response): Promise<void> {
+  if (await proxyOrLocalRuntimeUnavailable(req, res)) return;
+  res.status(501).json({
+    ok: false,
+    message: 'Remove server requires ac-data-edge on this VPS (use fleet edge targeting)',
+  });
+}
+
 export async function getServerInstanceConfigHandler(req: Request, res: Response): Promise<void> {
   if (await proxyFleetAdminIfNeeded(req, res)) return;
   try {

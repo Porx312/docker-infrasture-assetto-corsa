@@ -167,7 +167,10 @@ export function apiPutBinaryWithProgress(path, body, headers = {}, onProgress, t
   });
 }
 
-/** @param {string} path */
-export function apiDelete(path) {
-  return apiFetch(path, { method: 'DELETE' });
+/**
+ * @param {string} path
+ * @param {string} [fleetEdgeId]
+ */
+export function apiDelete(path, fleetEdgeId) {
+  return apiFetch(path, { method: 'DELETE' }, fleetEdgeId);
 }

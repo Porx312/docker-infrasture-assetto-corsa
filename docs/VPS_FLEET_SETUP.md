@@ -201,6 +201,25 @@ Expect `mode: edge_push` when registry resolves the edge.
 
 ---
 
+## Open ports for existing server folders
+
+When a VPS already has `server` / `server-1` … `server-N` under `SERVERS_PATH` but the host (or cloud panel) never opened their ports, run on that VPS:
+
+```bash
+# dry-run — prints UDP/TCP/HTTP/CM wrapper from each server_cfg.ini
+./scripts/open-server-ports.sh --servers-path /path/to/servers
+
+# apply idempotent iptables ACCEPT rules (needs root)
+sudo ./scripts/open-server-ports.sh --servers-path /path/to/servers --apply
+```
+
+Does **not** open plugin UDP (`12xxx`) or telemetry `9000–9020` (local).  
+Also open the printed port list in the **provider firewall** (Contabo / Hetzner / security group) if traffic is blocked before the host.
+
+See [`scripts/open-server-ports.sh`](../scripts/open-server-ports.sh) and [`scripts/audit-firewall.sh`](../scripts/audit-firewall.sh).
+
+---
+
 ## Lobby names
 
 Live roster keys are scoped by **`instanceId` + normalized lobby name** (`ac:hud:presence:roster:{instanceId}:{lobby}`).  

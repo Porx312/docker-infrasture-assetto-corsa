@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { applyCmNameSuffix } from '@projectd/ac-data-shared/controller/cmWrapper.js';
 import { derivePortsFromFolderName } from '../controller/serverPorts.js';
-import { startServerCore } from '../controller/controller.js';
+import { startServerCore, stopServerCore } from '../controller/controller.js';
 import { listServerInstanceNames } from '@projectd/ac-data-shared/services/serverBranding.js';
 import { getServerRuntime, serverBinaryExists, type ServerRuntimeInfo } from './serverRuntime.js';
 import { readServerInstanceConfig } from '@projectd/ac-data-shared/services/serverInstanceConfig.js';
@@ -195,5 +195,57 @@ export async function provisionServerInstance(options: {
       wrapperPort,
     },
     runtime,
+  };
+}
+
+const SAFE_SERVER_FOLDER = /^(server|server-\d+)$/;
+
+export type DeprovisionServerResult = {
+  message: string;
+  serverName: string;
+  stopped: boolean;
+};
+
+/**
+ * Stop (if running) and delete a provisioned server folder under SERVERS_PATH.
+ * Rejects path traversal and non-instance folders (e.g. server-template).
+ */
+export async function deprovisionServerInstance(
+  rawName: string,
+): Promise<DeprovisionServerResult> {
+  const serverName = rawName.trim();
+  if (!SAFE_SERVER_FOLDER.test(serverName)) {
+    throw new Error(`Invalid server name: ${serverName || '(empty)'}`);
+  }
+
+  const root = path.resolve(serversPath());
+  const destDir = path.resolve(root, serverName);
+  if (destDir !== root && !destDir.startsWith(`${root}${path.sep}`)) {
+    throw new Error('Invalid server path');
+  }
+  if (!fs.existsSync(destDir) || !fs.statSync(destDir).isDirectory()) {
+    throw new Error(`Server instance not found: ${serverName}`);
+  }
+
+  let wasRunning = false;
+  try {
+    const stopResult = await stopServerCore(serverName);
+    wasRunning = stopResult.ok;
+    // ok:false with "no estaba activo" / not active = already stopped — fine to delete
+  } catch {
+    /* best-effort stop before delete */
+  }
+
+  fs.rmSync(destDir, { recursive: true, force: true });
+  if (fs.existsSync(destDir)) {
+    throw new Error(`Failed to remove ${serverName}`);
+  }
+
+  return {
+    message: wasRunning
+      ? `Stopped and removed ${serverName}`
+      : `Removed ${serverName}`,
+    serverName,
+    stopped: wasRunning,
   };
 }

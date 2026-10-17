@@ -80,7 +80,8 @@ Defined in `services/hostCatalog/env.ts`.
 
 Hub client uses `CONVEX_DEPLOYMENT_URL` + `CONVEX_PRODUCT_KEY` (see `isConvexConfigured`), not a bare `CONVEX_URL`.
 
-Server upsert also reads `FLEET_EDGE_REGISTRY` (by `instanceId`) for `region` / `vpsLabel` / `linkServers` when present.
+Server upsert reads `FLEET_EDGE_REGISTRY` (by `instanceId`) for `region` / `vpsLabel` / public `joinIp`.  
+`linkServers` is built per folder as an [acstuff join URL](https://acstuff.club/s/q:race/online/join?ip=13.140.160.131&httpPort=8086) from that `joinIp` + the folder’s `httpPort` (from agent presence).
 
 ### Diagnose: upload OK but Convex empty
 
@@ -149,7 +150,7 @@ Delete: `{ workerSecret, track }`
 | `instanceId` | required — e.g. `vps-eu-2` |
 | `name` | required — AC folder, e.g. `server-1` |
 | `region` | conditional — `EU` / `NA` / `SA` / `APAC`; needed when VPS row is new. Hub always sends (presence / fleet / `HOST_CATALOG_DEFAULT_REGION` / `EU`) |
-| `linkServers` | optional — join URL (from fleet `joinIp` when available) |
+| `linkServers` | optional — acstuff URL `https://acstuff.club/s/q:race/online/join?ip=…&httpPort=…` (fleet `joinIp` + presence `httpPort`; omitted if either missing) |
 | `vpsLabel` | optional — from fleet registry `label` |
 | `isActive` / `publicAccess` | optional — **create** ignores and forces `isActive: false`, `publicAccess: true`. Hub **does not** send `isActive` on folder discovery (presence ≠ start). Send `isActive` only from start/stop lifecycle |
 

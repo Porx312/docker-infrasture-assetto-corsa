@@ -454,6 +454,42 @@ async function runServerLifecycle(action) {
   }
 }
 
+async function deprovisionActiveServer() {
+  if (!activeServerName) return;
+  const name = activeServerName;
+  const confirmed = await showConfirm(
+    'Remove instance?',
+    `Stop and permanently delete folder "${name}" on this VPS? This cannot be undone.`,
+    'Remove',
+  );
+  if (!confirmed) return;
+  const btn = document.getElementById('serverDeprovisionBtn');
+  if (btn instanceof HTMLButtonElement) {
+    btn.disabled = true;
+    btn.textContent = 'Removing…';
+  }
+  try {
+    const { data } = await apiDelete(
+      `/servers/${encodeURIComponent(name)}`,
+      activeFleetEdgeId || undefined,
+    );
+    if (!data.ok) {
+      showToast(data.message || 'Remove failed', 'error');
+      return;
+    }
+    showToast(data.message || `Removed ${name}`);
+    closeServerConfig();
+    await loadServersPanel();
+  } catch {
+    showToast('Connection error', 'error');
+  } finally {
+    if (btn instanceof HTMLButtonElement) {
+      btn.disabled = false;
+      btn.textContent = 'Remove instance…';
+    }
+  }
+}
+
 async function reloadServerModReadiness() {
   const listEl = document.getElementById('serverModReadinessList');
   const syncBtn = document.getElementById('serverModSyncMissingBtn');
@@ -1055,6 +1091,9 @@ export function initServerConfigModal() {
   });
   document.getElementById('serverLobbyRestartBtn')?.addEventListener('click', () => {
     void runServerLifecycle('restart');
+  });
+  document.getElementById('serverDeprovisionBtn')?.addEventListener('click', () => {
+    void deprovisionActiveServer();
   });
   document.getElementById('serverProvisionForm')?.addEventListener('submit', (e) => {
     void submitServerProvision(e);
