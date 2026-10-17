@@ -7,6 +7,8 @@ import path from 'node:path';
 import {
   copyDirRecursiveForTest,
   deprovisionServerInstance,
+  ensureInstanceLinks,
+  rewriteAbsoluteSymlinkTarget,
 } from './serverProvision.js';
 
 test('copyDirRecursive preserves symlink-to-directory (no EISDIR)', async () => {
@@ -42,6 +44,73 @@ test('copyDirRecursive preserves symlink-to-directory (no EISDIR)', async () => 
     } catch {
       /* ignore */
     }
+    await fsp.rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test('rewriteAbsoluteSymlinkTarget maps /home/jose paths to servers root layout', () => {
+  const serversRoot = '/root/assetto-infra/server';
+  assert.equal(
+    rewriteAbsoluteSymlinkTarget('/home/jose/assetto-infra/server/acServer', serversRoot),
+    '/root/assetto-infra/server/acServer',
+  );
+  assert.equal(
+    rewriteAbsoluteSymlinkTarget('/home/jose/assetto-install/content/cars', serversRoot),
+    '/root/assetto-install/content/cars',
+  );
+  assert.equal(rewriteAbsoluteSymlinkTarget('../acServer', serversRoot), '../acServer');
+});
+
+test('ensureInstanceLinks creates relative ../acServer', async () => {
+  const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'ac-links-'));
+  const prev = process.env.SERVERS_PATH;
+  process.env.SERVERS_PATH = tmp;
+  try {
+    await fsp.writeFile(path.join(tmp, 'acServer'), 'fake-bin');
+    await fsp.mkdir(path.join(tmp, 'system'), { recursive: true });
+    const inst = path.join(tmp, 'server');
+    await fsp.mkdir(inst, { recursive: true });
+    // Broken absolute link like Contabo clones
+    await fsp.symlink('/home/jose/assetto-infra/server/acServer', path.join(inst, 'acServer'));
+
+    ensureInstanceLinks(inst, tmp);
+
+    const link = path.join(inst, 'acServer');
+    assert.ok(fs.lstatSync(link).isSymbolicLink());
+    assert.equal(fs.readlinkSync(link), '../acServer');
+    assert.ok(fs.existsSync(link), 'relative link must resolve');
+    assert.equal(fs.readlinkSync(path.join(inst, 'system')), '../system');
+  } finally {
+    if (prev !== undefined) process.env.SERVERS_PATH = prev;
+    else delete process.env.SERVERS_PATH;
+    await fsp.rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test('copyDirRecursive rewrites jose abs symlink then ensureInstanceLinks wins for acServer', async () => {
+  const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'ac-clone-'));
+  const prev = process.env.SERVERS_PATH;
+  process.env.SERVERS_PATH = tmp;
+  try {
+    await fsp.writeFile(path.join(tmp, 'acServer'), 'bin');
+    const src = path.join(tmp, 'template');
+    await fsp.mkdir(src, { recursive: true });
+    await fsp.symlink(
+      '/home/jose/assetto-infra/server/acServer',
+      path.join(src, 'acServer'),
+    );
+    const dest = path.join(tmp, 'server-9');
+    copyDirRecursiveForTest(src, dest, tmp);
+    assert.equal(
+      fs.readlinkSync(path.join(dest, 'acServer')),
+      path.join(tmp, 'acServer'),
+    );
+    ensureInstanceLinks(dest, tmp);
+    assert.equal(fs.readlinkSync(path.join(dest, 'acServer')), '../acServer');
+    assert.ok(fs.existsSync(path.join(dest, 'acServer')));
+  } finally {
+    if (prev !== undefined) process.env.SERVERS_PATH = prev;
+    else delete process.env.SERVERS_PATH;
     await fsp.rm(tmp, { recursive: true, force: true });
   }
 });

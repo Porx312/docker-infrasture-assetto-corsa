@@ -58,8 +58,86 @@ function nextServerFolderName(): string {
 /** Runtime dirs that must not be cloned from a dirty source (often mode 0000). */
 const SKIP_COPY_DIR_NAMES = new Set(['results', 'logs']);
 
-function copyDirRecursive(src: string, dest: string): void {
+/**
+ * Rewrite absolute symlink targets that hardcode another host's home
+ * (e.g. /home/jose/assetto-infra/server → SERVERS_PATH when on /root).
+ * `serversRoot` is SERVERS_PATH (the directory that contains acServer + server-N).
+ */
+export function rewriteAbsoluteSymlinkTarget(target: string, serversRoot: string): string {
+  if (!target.startsWith('/')) {
+    return target;
+  }
+  const root = path.resolve(serversRoot);
+  const repoRootDir = path.dirname(root);
+  const parentOfRepo = path.dirname(repoRootDir);
+  const joseServers = '/home/jose/assetto-infra/server';
+  const joseInfra = '/home/jose/assetto-infra';
+  const joseInstall = '/home/jose/assetto-install';
+
+  if (target === joseServers || target.startsWith(`${joseServers}/`)) {
+    const rest = target.slice(joseServers.length).replace(/^\//, '');
+    return rest ? path.join(root, rest) : root;
+  }
+  if (target === joseInfra || target.startsWith(`${joseInfra}/`)) {
+    const rest = target.slice(joseInfra.length).replace(/^\//, '');
+    return rest ? path.join(repoRootDir, rest) : repoRootDir;
+  }
+  if (target === joseInstall || target.startsWith(`${joseInstall}/`)) {
+    const rest = target.slice(joseInstall.length).replace(/^\//, '');
+    return rest
+      ? path.join(parentOfRepo, 'assetto-install', rest)
+      : path.join(parentOfRepo, 'assetto-install');
+  }
+  if (target.startsWith('/home/jose/')) {
+    return path.join(parentOfRepo, target.slice('/home/jose/'.length));
+  }
+  return target;
+}
+
+function unlinkIfPresent(filePath: string): void {
+  try {
+    fs.lstatSync(filePath);
+    fs.unlinkSync(filePath);
+  } catch {
+    /* missing */
+  }
+}
+
+function pathExistsOrSymlink(filePath: string): boolean {
+  try {
+    fs.lstatSync(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Force portable relative links for acServer / system inside an instance folder.
+ * Relative ../acServer works on /home/jose and /root without rewrites.
+ */
+export function ensureInstanceLinks(destDir: string, serversRoot?: string): void {
+  const root = path.resolve(serversRoot ?? serversPath());
+  const dest = path.resolve(destDir);
+  const relAc = path.relative(dest, path.join(root, 'acServer')) || '../acServer';
+  const acLink = path.join(dest, 'acServer');
+  unlinkIfPresent(acLink);
+  fs.symlinkSync(relAc, acLink);
+
+  const systemSrc = path.join(root, 'system');
+  if (pathExistsOrSymlink(systemSrc)) {
+    const relSys = path.relative(dest, systemSrc) || '../system';
+    const sysLink = path.join(dest, 'system');
+    unlinkIfPresent(sysLink);
+    fs.symlinkSync(relSys, sysLink);
+  }
+}
+
+function copyDirRecursive(src: string, dest: string, serversRoot?: string): void {
   fs.mkdirSync(dest, { recursive: true });
+  const rootForRewrite =
+    serversRoot ??
+    (process.env.SERVERS_PATH?.trim() ? path.resolve(process.env.SERVERS_PATH.trim()) : undefined);
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
     if (SKIP_COPY_DIR_NAMES.has(entry.name)) {
       continue;
@@ -69,10 +147,13 @@ function copyDirRecursive(src: string, dest: string): void {
     // Template often has content/cars|tracks|weather as symlinks to shared dirs.
     // Dirent.isDirectory() is false for symlinks; copyFileSync would follow and throw EISDIR.
     if (entry.isSymbolicLink()) {
-      const target = fs.readlinkSync(srcPath);
+      const raw = fs.readlinkSync(srcPath);
+      const target = rootForRewrite
+        ? rewriteAbsoluteSymlinkTarget(raw, rootForRewrite)
+        : raw;
       fs.symlinkSync(target, destPath);
     } else if (entry.isDirectory()) {
-      copyDirRecursive(srcPath, destPath);
+      copyDirRecursive(srcPath, destPath, rootForRewrite);
     } else {
       fs.copyFileSync(srcPath, destPath);
     }
@@ -80,8 +161,12 @@ function copyDirRecursive(src: string, dest: string): void {
 }
 
 /** Exported for unit tests. */
-export function copyDirRecursiveForTest(src: string, dest: string): void {
-  copyDirRecursive(src, dest);
+export function copyDirRecursiveForTest(
+  src: string,
+  dest: string,
+  serversRoot?: string,
+): void {
+  copyDirRecursive(src, dest, serversRoot);
 }
 
 function patchIniField(content: string, field: string, value: string): string {
@@ -121,6 +206,7 @@ export async function provisionServerInstance(options: {
 
   const sourceDir = templateSourceDir();
   copyDirRecursive(sourceDir, destDir);
+  ensureInstanceLinks(destDir);
   // Fresh empty results (never clone locked/mode-0000 results from source).
   fs.mkdirSync(path.join(destDir, 'results'), { recursive: true, mode: 0o775 });
   try {

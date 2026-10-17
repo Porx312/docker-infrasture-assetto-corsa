@@ -103,6 +103,16 @@ echo -e "${YELLOW}npm ci...${NC}"
 npm ci
 
 if [[ "$ROLE" == "edge" ]]; then
+  # Recreate portable ../acServer links (Git no longer tracks abs /home/jose paths).
+  if [[ -x "$ROOT_DIR/scripts/fix-server-symlinks.sh" ]]; then
+    echo -e "${YELLOW}Fixing server instance symlinks...${NC}"
+    chmod +x "$ROOT_DIR/scripts/fix-server-symlinks.sh"
+    # Prefer SERVERS_PATH from env files; script resolves .env.local / .env.production.
+    "$ROOT_DIR/scripts/fix-server-symlinks.sh" --apply || {
+      echo -e "${YELLOW}fix-server-symlinks failed (non-fatal); continue deploy${NC}"
+    }
+  fi
+
   # Fleet VPS run start.sh dev (.env.local + telemetry on host).
   echo -e "${YELLOW}Reloading infra (dev; keep acServer)...${NC}"
   chmod +x reload-infra.sh

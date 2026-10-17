@@ -15,6 +15,7 @@ Only scripts that are part of normal fleet ops live here. One-off verify/debug/l
 | [`apply-redis-local-auth.sh`](./apply-redis-local-auth.sh) | Redis AUTH (sudo; restarts Redis) |
 | [`audit-firewall.sh`](./audit-firewall.sh) | Firewall audit |
 | [`open-server-ports.sh`](./open-server-ports.sh) | Open game/HTTP/CM ports for existing `server`/`server-N` folders (dry-run default; `--apply`) |
+| [`fix-server-symlinks.sh`](./fix-server-symlinks.sh) | Repair instance `acServer`/`system` links (relative `../acServer`; rewrite `/home/jose` → host). Edge deploy runs `--apply` |
 | [`clear-ingest-pending.sh`](./clear-ingest-pending.sh) | Reclaim stuck `ac:events` consumers |
 | [`clear-hud-presence.sh`](./clear-hud-presence.sh) | Clear HUD presence keys for a steamId |
 | [`start-cm-proxies.sh`](./start-cm-proxies.sh) / [`stop-cm-proxies.sh`](./stop-cm-proxies.sh) | CM wrappers |
