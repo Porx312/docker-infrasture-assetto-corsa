@@ -1,6 +1,4 @@
 import '@projectd/ac-data-shared/config/loadEnv.js';
-import fs from 'node:fs';
-import path from 'node:path';
 import type { RedisClientType } from 'redis';
 import {
   activeServers,
@@ -29,6 +27,7 @@ import {
   processConfigApplyOutcome,
   type ConfigAckRedis,
 } from './configApplierAck.js';
+import { getAvailableCars, resolveEntriesForApply } from './configCarAvailability.js';
 
 const REDIS_CONFIG_STREAM_KEY = process.env.REDIS_CONFIG_STREAM_KEY || 'ac:config';
 const AC_INSTANCE_ID = process.env.AC_INSTANCE_ID || 'default';
@@ -123,58 +122,15 @@ async function applyServerBrandingIfPresent(row: ServerRow): Promise<string[]> {
   return ['description/branding'];
 }
 
-function getAvailableCars(): Set<string> {
-  const serversPath = process.env.SERVERS_PATH;
-  if (!serversPath) return new Set();
-  const contentBase = path.join(serversPath, 'content');
-  const carsPath = path.join(contentBase, 'cars');
-  const available = new Set<string>();
-  try {
-    const entries = fs.readdirSync(carsPath, { withFileTypes: true });
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        const carPath = path.join(carsPath, entry.name);
-        const files = fs.readdirSync(carPath);
-        const hasKn5 = files.some(f => f.endsWith('.kn5'));
-        const hasDataAcd = files.includes('data.acd');
-        if (hasKn5 || hasDataAcd) {
-          available.add(entry.name);
-        }
-      }
-    }
-  } catch (err) {
-    console.error('[redis-config-applier] error scanning cars:', err);
-  }
-  return available;
-}
-
-function filterValidEntries(
-  entries: Array<{ model: string; skin?: string; count?: number }>,
-  availableCars: Set<string>,
-): Array<{ model: string; skin?: string; count?: number }> | null {
-  if (!entries || entries.length === 0) return null;
-  const validEntries = entries.filter(e => availableCars.has(e.model));
-  if (validEntries.length === 0) return null;
-  if (validEntries.length !== entries.length) {
-    const missing = entries.map(e => e.model).filter(m => !availableCars.has(m));
-    console.warn(`[redis-config-applier] skipping cars not available locally: ${missing.join(', ')}`);
-  }
-  return validEntries;
-}
-
 async function reconcileServer(row: ServerRow, isFirstSnapshot: boolean): Promise<void> {
   if (!row || !row.serverName) return;
   if (row.instanceId && row.instanceId !== AC_INSTANCE_ID) return;
 
   const availableCars = getAvailableCars();
-  const entries = row.entries ? filterValidEntries(row.entries, availableCars) : undefined;
-  if (entries === null && row.entries && row.entries.length > 0) {
-    console.warn(`[redis-config-applier] ${row.serverName} no valid cars locally, applying config without entries`);
-  }
-  if (entries) {
+  // Throws if desired entries exist but none are local — avoid name/track-only apply leaving stale cars.
+  const entries = resolveEntriesForApply(row.entries, availableCars, row.serverName);
+  if (entries !== undefined) {
     row = { ...row, entries };
-  } else {
-    delete row.entries;
   }
 
   const signature = buildSignature(row);
