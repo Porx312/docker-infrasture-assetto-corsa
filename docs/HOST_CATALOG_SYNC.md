@@ -177,7 +177,7 @@ Delete: `{ workerSecret, instanceId, name }`
 
 ## What this is **not**
 
-- **Not** allocate / `server_slots` / Host start (phase 2 / Redis desired-config) — see [SERVER_PLATFORM.md](./SERVER_PLATFORM.md)
+- **Not** Host ops slots (retired) / product start — start = Convex→Redis; live = hub — see [SERVER_PLATFORM.md](./SERVER_PLATFORM.md)
 - **Not** treating hub `GET /v1/mods` as the Host product catalog (that is Convex `battle_*` / `servers`)
 - **Not** live player presence into Convex (`LIVE_INGEST_CONVEX=false`)
 

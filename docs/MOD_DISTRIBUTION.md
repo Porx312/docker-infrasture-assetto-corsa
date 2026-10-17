@@ -138,10 +138,11 @@ POST /admin/mods/edges/:edgeId/gc-blobs
 ## Start flow
 
 ```text
-allocate → resolve preset → resolve required mods → ensure → wait LOCAL → apply-config → start AC
+Convex start (desired-config) → edge apply → start AC
+(optional ops) ensure → wait LOCAL before start if content may be missing
 ```
 
-AC must not depend on hub / peer download mid-session. Prefetch only.
+Host ops `/v1/servers` allocate/lifecycle **retired**. AC must not depend on hub / peer download mid-session. Prefetch only.
 
 ## Admin UI
 

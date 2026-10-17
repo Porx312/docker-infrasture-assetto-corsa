@@ -5,32 +5,28 @@
 
 Paste this file (or the Cursor prompt in §7) into a ProjectD chat. Do not implement Host UI inside assetto-infra.
 
-**Start here (MVP):** [PROJECTD_WEB_CONVEX_HUB_HANDOFF.md](./PROJECTD_WEB_CONVEX_HUB_HANDOFF.md) — Convex workers + Redis start; hub ≈ **live** players; `CONTROL_API_HOST_OPS` **off** (no allocate).  
+**Start here:** [PROJECTD_WEB_CONVEX_HUB_HANDOFF.md](./PROJECTD_WEB_CONVEX_HUB_HANDOFF.md) — Convex workers + Redis start; hub ≈ **live** players.  
 **Catalog sync hub→Convex:** [HOST_CATALOG_SYNC.md](../HOST_CATALOG_SYNC.md).  
-This longer doc is **phase 2 / ops only** (hub mod ensure / inventory + allocate when `CONTROL_API_HOST_OPS` is on).
+**Host ops slots retired:** no `allocate` / `/v1/servers/:slotId/*` — start = Convex→Redis; live = hub; ops UI = `/admin/servers/*`.
 
 ---
 
 ## 1. Mental model (one sentence)
 
-> **MVP:** Convex owns product catalog + start (Redis desired-config); hub owns **live roster** (and ZIP ensure when disk is empty).  
-> **Phase 2** (`CONTROL_API_HOST_OPS`): hub can also own idle pool allocate + central mod library UI — see sections below.
+> Convex owns product catalog + start (Redis desired-config); hub owns **live roster** (and ZIP ensure when disk is empty). Host ops `/v1/servers` slots API is **retired**.
 
 ```text
-MVP:
-  Host UI → Convex (catalog/start) + /api/control (live only)
-Phase 2 (+ CONTROL_API_HOST_OPS):
-  Host UI → /api/control → Hub /v1 (mods ensure, allocate, …)
+Host UI → Convex (catalog/start) + /api/control (live only)
+Ops UI  → /admin/servers/:name/start|stop
 ```
 
 | Concept | What it is | Host reads/writes |
 |---------|------------|-------------------|
-| **Product catalog (MVP)** | Convex `battle_cars` / `battle_tracks` / `servers` | Convex queries + workers |
-| **Central ZIP library (ops / phase 2)** | Hub Postgres `mod_packages` + artifacts | `GET /v1/mods` when ops flag on |
+| **Product catalog** | Convex `battle_cars` / `battle_tracks` / `servers` | Convex queries + workers |
+| **Central ZIP library (ops)** | Hub Postgres `mod_packages` + artifacts | `GET /v1/mods` when ops flag on |
 | **Local cache** | Materialized content on that VPS | via `availability` / `ensure` |
 | **Inventory** | Disk observation (Redis scan) | skins / layouts when LOCAL — **not** the library list |
-| **Slot (phase 2)** | Physical lobby `idle` / `allocated` / `live` in hub Postgres | Only if `CONTROL_API_HOST_OPS=true`: `allocate` / `apply-config` / `start` |
-| **MVP start** | Convex `servers` + Redis desired-config | See [PROJECTD_WEB_CONVEX_HUB_HANDOFF.md](./PROJECTD_WEB_CONVEX_HUB_HANDOFF.md) — **no** allocate |
+| **Start** | Convex `servers` + Redis desired-config | See [PROJECTD_WEB_CONVEX_HUB_HANDOFF.md](./PROJECTD_WEB_CONVEX_HUB_HANDOFF.md) — **no** hub allocate |
 
 Convex remains: auth, presets, laps/battles. **Not** `live_players` for Host dashboards after cutover (`LIVE_INGEST_CONVEX=false`).
 
@@ -41,35 +37,32 @@ Convex remains: auth, presets, laps/battles. **Not** `live_players` for Host das
 ```bash
 CONTROL_API_URL=https://hub.example.com
 CONVEX_WORKER_SECRET=…   # same as hub X-Worker-Secret; NEVER NEXT_PUBLIC_
-# CONTROL_API_HOST_OPS=true   # phase 2 only — allocate / hub mod catalog as Host SoT
+# CONTROL_API_HOST_OPS=true   # optional hub mod catalog extras only
 ```
 
-Browser calls Convex (catalog/auth/start MVP) and **`/api/control/*`** for hub live (and phase-2 ops). DevTools must never show the hub hostname or worker secret.
+Browser calls Convex (catalog/auth/start) and **`/api/control/*`** for hub live. DevTools must never show the hub hostname or worker secret.
 
 ---
 
 ## 3. BFF to implement
 
-**MVP:** live (+ optional ensure). **Phase 2** (`CONTROL_API_HOST_OPS`): also mods catalog / allocate / hub lifecycle.
+**Required:** live (+ optional ensure). Do **not** wire allocate / slot lifecycle — those routes are retired.
 
 1. `src/lib/controlApi/server.ts` — Clerk `requireUser` + `controlGet` / `controlPost` (header `X-Worker-Secret`, base `CONTROL_API_URL`).
 2. Route Handlers under `app/api/control/...` that mirror hub `/v1/...`.
 
 | Host need | BFF → hub | When |
 |-----------|-----------|------|
-| Live roster | `GET /v1/servers/:lobbyName/live?instanceId=` | MVP |
-| Live summary | `GET /v1/live/summary` | MVP |
-| Share / join link | Same live responses → `joinUrl` (acstuff `ip` + `httpPort`) | MVP |
-| Mod catalog | `GET /v1/mods?kind=car\|track` | Phase 2 / ops |
-| Detail + versions | `GET /v1/mods/:slug` | Phase 2 / ops |
-| VPS badges | `GET /v1/mods/availability?instanceId=` | Phase 2 / ops |
-| Prefetch | `POST /v1/instances/:id/mods/ensure` | Ops / phase 2 |
-| Free slots | `GET /v1/servers?region=&status=idle` | Phase 2 |
-| Reserve | `POST /v1/servers/allocate` | Phase 2 |
-| Config / lifecycle | `POST /v1/servers/:slotId/apply-config`, `…/start\|stop` | Phase 2 hub path |
-| Skins / layouts (when LOCAL) | `GET /v1/instances/:id/mods/cars\|tracks` | Ops / phase 2 |
+| Live roster | `GET /v1/servers/:lobbyName/live?instanceId=` | Always |
+| Live summary | `GET /v1/live/summary` | Always |
+| Share / join link | Same live responses → `joinUrl` (acstuff `ip` + `httpPort`) | Always |
+| Mod catalog | `GET /v1/mods?kind=car\|track` | Ops only |
+| Detail + versions | `GET /v1/mods/:slug` | Ops only |
+| VPS badges | `GET /v1/mods/availability?instanceId=` | Ops only |
+| Prefetch | `POST /v1/instances/:id/mods/ensure` | Ops only |
+| Skins / layouts (when LOCAL) | `GET /v1/instances/:id/mods/cars\|tracks` | Ops only |
 
-Client: Convex for MVP catalog/start; `fetch('/api/control/…')` for live ~5s (and phase-2 mods/allocate when flagged).
+Client: Convex for catalog/start; `fetch('/api/control/…')` for live ~5s.
 
 ---
 
@@ -179,19 +172,16 @@ When the user selects a **LOCAL** car/track for the preset/server:
 ### C. Create / start server
 
 ```text
-allocate
-  → ensure cars/tracks
-  → wait LOCAL
-  → GET inventory (fresh skins/configs)
-  → UI or preset picks skin + layout
-  → apply-config
-  → start
+Convex startHostSession / setPhysicalServerActive
+  → Redis desired-config
+  → edge apply + start
 ```
 
-Do not put a skin/layout in apply-config that is missing from inventory.
+Optional ops: ensure cars/tracks LOCAL before start if content may be missing on the VPS.
 
 ### D. Do not
 
+- Call hub `allocate` / `/v1/servers/:slotId/*` (retired).
 - Use inventory alone as the library list.
 - Assume skins from the ZIP without inventory.
 - Invent layouts if `configs` is empty (default layout only).
@@ -201,29 +191,20 @@ Do not put a skin/layout in apply-config that is missing from inventory.
 ## 5. Server flow (Host UX)
 
 ```text
-User picks region + preset (Convex)
+User picks preset / physical server (Convex)
         ↓
-POST /v1/servers/allocate  { region, presetRef }
+startHostSession → setPhysicalServerActive
         ↓
-Resolve cars/track from preset (slugs; version if present)
+Redis desired-config → edge
         ↓
-POST /v1/instances/{instanceId}/mods/ensure
-        ↓
-Poll availability / ensure until LOCAL  (ERROR → do not start)
-        ↓
-GET inventory → skins / layouts for LOCAL mods
-        ↓
-POST /v1/servers/{slotId}/apply-config
-        ↓
-POST /v1/servers/{slotId}/start
+Live: GET /v1/servers/{lobbyName}/live?instanceId=
 ```
 
 Notes:
 
-- Hub also runs ensure+wait on apply/start (safety net). Host should still call ensure explicitly for progress UX.
-- **Never** start AC if required mods are not LOCAL.
 - **Never** depend on Hub/S3/R2 during a race — content must already be on the VPS.
 - Live path uses **lobby name** (e.g. `ProjectD`), not Convex `servers._id`. Map `_id` → lobby + `instanceId` (`AC_INSTANCE_ID`).
+- Ops start/stop without Host: hub `/admin/servers/:name/start|stop`.
 
 More detail: [SERVER_PLATFORM.md](../SERVER_PLATFORM.md).
 
@@ -231,14 +212,11 @@ More detail: [SERVER_PLATFORM.md](../SERVER_PLATFORM.md).
 
 ## 6. Acceptance checklist
 
-1. Browser only hits `/api/control/*`.
-2. Picker shows central catalog + per-VPS badges; thumbs when `imageUrl` is set.
-3. When a mod is LOCAL, Host shows skins (cars) / layouts `configs` (tracks) from inventory joined by `acContentSlug`; not before LOCAL.
-4. Ensure on MISSING → DOWNLOADING → LOCAL; spamming ensure does not create duplicate jobs.
-5. **MVP:** start via Convex + Redis (no allocate). **Phase 2** (`CONTROL_API_HOST_OPS`): allocate → ensure → inventory → apply-config → start on an idle slot.
-6. Start with missing/ERROR mod does not leave the server racing (when using hub ensure).
-7. Live roster uses lobby name + `instanceId` (hub BFF) — not Convex presence loop.
-8. Hub smoke curls ([PROJECTD_BFF_INSTALL.md](./PROJECTD_BFF_INSTALL.md)) OK for **live** before UI work; idle/allocate curls only if phase 2.
+1. Browser only hits `/api/control/*` for hub (live).
+2. Start via Convex + Redis desired-config — **no** hub allocate / slotId lifecycle.
+3. Live roster uses lobby name + `instanceId` (hub BFF) — not Convex presence loop.
+4. Hub smoke curls ([PROJECTD_BFF_INSTALL.md](./PROJECTD_BFF_INSTALL.md)) OK for **live** before UI work.
+5. Optional ops: ensure LOCAL + inventory skins/layouts when using hub mod extras.
 
 After Host no longer needs Convex `live_players`: ops sets `LIVE_INGEST_CONVEX=false` on every edge ([HUD_HARDENING_CUTOVER.md](../HUD_HARDENING_CUTOVER.md)).
 
@@ -247,17 +225,17 @@ After Host no longer needs Convex `live_players`: ops sets `LIVE_INGEST_CONVEX=f
 ## 7. Cursor prompt (paste into ProjectD)
 
 ```text
-Implement Host per assetto-infra docs/examples/PROJECTD_WEB_CONVEX_HUB_HANDOFF.md (MVP):
+Implement Host per assetto-infra docs/examples/PROJECTD_WEB_CONVEX_HUB_HANDOFF.md:
 
 - Catalog cars/tracks/servers = Convex (workerUpsert* / queries) — NOT GET /v1/mods as Host library
-- Start = startHostSession → setPhysicalServerActive → Redis desired-config (NO allocate unless CONTROL_API_HOST_OPS)
+- Start = startHostSession → setPhysicalServerActive → Redis desired-config (Host ops slots / allocate RETIRED)
 - Live = BFF GET /api/control/live/summary and /servers/:lobby/live?instanceId= (lobby name, not servers._id)
 - Do NOT flood Convex with connected-user presence (LIVE_INGEST_CONVEX=false on edge after cutover)
 - Optional ops: hub ensure ZIP when VPS missing content — see PROJECTD_HOST_TEAM_HANDOFF.md
 - Do NOT put CONVEX_WORKER_SECRET in the browser / NEXT_PUBLIC_
 - Clerk on BFF for live proxy to CONTROL_API_URL with X-Worker-Secret
 
-Contracts: CONTROL_API_V1.md (live), SERVER_PLATFORM.md (MVP + phase 2)
+Contracts: CONTROL_API_V1.md (live), SERVER_PLATFORM.md (start = Convex→Redis; live = hub)
 ```
 
 ---
@@ -270,13 +248,12 @@ export SECRET=…
 export INSTANCE=vps-eu-2
 export LOBBY=ProjectD
 
-# MVP — live
+# Live
 curl -sS "$HUB/v1/live/summary" -H "X-Worker-Secret: $SECRET"
 curl -sS "$HUB/v1/servers/$LOBBY/live?instanceId=$INSTANCE" -H "X-Worker-Secret: $SECRET"
 # Expect nullable joinUrl like https://acstuff.club/s/q:race/online/join?ip=…&httpPort=…
 
-# Phase 2 / ops
+# Optional ops — hub mod catalog
 # curl -sS "$HUB/v1/mods" -H "X-Worker-Secret: $SECRET" | head -c 400
 # curl -sS "$HUB/v1/mods/availability?instanceId=$INSTANCE" -H "X-Worker-Secret: $SECRET" | head -c 400
-# curl -sS "$HUB/v1/servers?region=eu&status=idle" -H "X-Worker-Secret: $SECRET"
 ```

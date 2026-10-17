@@ -2,7 +2,7 @@
 
 Documento para el equipo **ProjectD Host**. Implementar en el repo web/BFF y Convex, **no** en `assetto-infra` salvo ops de ZIPs.
 
-**Contratos hub** (este repo): [CONTROL_API_V1.md](../CONTROL_API_V1.md) (live), [SERVER_PLATFORM.md](../SERVER_PLATFORM.md) (allocate = fase 2), **[HOST_CATALOG_SYNC.md](../HOST_CATALOG_SYNC.md)** (hub → Convex cars/tracks/servers — SoT).
+**Contratos hub** (este repo): [CONTROL_API_V1.md](../CONTROL_API_V1.md) (live), [SERVER_PLATFORM.md](../SERVER_PLATFORM.md) (start = Convex→Redis; Host ops slots **retired**), **[HOST_CATALOG_SYNC.md](../HOST_CATALOG_SYNC.md)** (hub → Convex cars/tracks/servers — SoT).
 
 **HUD sin `live_players` (Convex):** [HUD_HARDENING_CUTOVER.md](../HUD_HARDENING_CUTOVER.md) (handoff archivado: [archive/examples/PROJECTD_HUD_PRESENCE_NO_LIVE_PLAYERS.md](../archive/examples/PROJECTD_HUD_PRESENCE_NO_LIVE_PLAYERS.md)).
 
@@ -12,7 +12,7 @@ Documento para el equipo **ProjectD Host**. Implementar en el repo web/BFF y Con
 
 ## Una frase
 
-> Convex workers inyectan cars/tracks/servers (como los laps). Redis desired-config activa la instancia. La API del hub se usa sobre todo para **live players** — no reinyectéis a Convex la lista de conectados cada pocos segundos. Allocate / `server_slots` **no** es el happy path del Host.
+> Convex workers inyectan cars/tracks/servers (como los laps). Redis desired-config activa la instancia. La API del hub se usa sobre todo para **live players** — no reinyectéis a Convex la lista de conectados cada pocos segundos. Host ops slots (`allocate` / `/v1/servers/:slotId/…`) **retirados**; start = Convex→Redis; live = hub.
 
 ```mermaid
 sequenceDiagram
@@ -41,7 +41,7 @@ sequenceDiagram
 | ZIP en disco VPS | Hub `ensure` (ops) | Solo si falta content; no es el catálogo de Host |
 | Jugadores conectados | Hub Redis live API | BFF → `GET /v1/servers/:lobby/live?instanceId=` y/o `GET /v1/live/summary` |
 | Join / Share link | Hub live (`joinUrl`) | Mostrar botón Share con `joinUrl` (acstuff); `ip`/`httpPort` nullable si falta fleet `joinIp` |
-| Pool idle Postgres | Hub `server_slots` | **Aplazado** — no usar `allocate` en Host MVP |
+| Pool idle Postgres | Hub `server_slots` | **Retirado** — API slots eliminada; tabla puede existir en DB sin uso |
 
 Workers Convex (ProjectD): `convex/worker/hostCatalogSync.ts`.  
 Hub sync env + mutation paths: **[HOST_CATALOG_SYNC.md](../HOST_CATALOG_SYNC.md)** (no duplicar aquí).
@@ -53,7 +53,7 @@ Hub sync env + mutation paths: **[HOST_CATALOG_SYNC.md](../HOST_CATALOG_SYNC.md)
 | Flag | Env | Default |
 |------|-----|---------|
 | Live BFF | `CONTROL_API_URL` set | On cuando hay URL |
-| Host ops (allocate, hub mod catalog) | `CONTROL_API_HOST_OPS=true` | **Off** |
+| Host ops (hub mod catalog extras) | `CONTROL_API_HOST_OPS=true` | **Off** (allocate/slots API already removed) |
 
 Query ProjectD: `getHubIntegrationFlags` en `convex/controlApiConfig.ts`. Hooks: `useHubLiveEnabled`, `useHubHostOpsEnabled`.
 
@@ -75,10 +75,10 @@ Usar:
 1. **Live** — BFF `GET /api/control/live/summary`, `GET /api/control/servers/:lobby/live?instanceId=`
 2. **Ensure ZIP** — ops cuando falta content en VPS
 
-No usar en MVP:
+No usar:
 
 - Presence loop a Convex (`LIVE_INGEST_CONVEX=false` en edge; ver `LIVE_INGEST_CUTOVER.md` en ProjectD)
-- `POST /v1/servers/allocate` como start obligatorio (salvo `CONTROL_API_HOST_OPS=true`)
+- `POST /v1/servers/allocate` / lifecycle por `slotId` — **retirados** del hub
 
 Lobby name ≠ Convex `servers._id`. Pasar siempre `instanceId` (ej. `vps-eu-2`). Host deriva lobby de `servers.name` + `vpsInstanceId` en assignments.
 
@@ -89,7 +89,7 @@ Lobby name ≠ Convex `servers._id`. Pasar siempre `instanceId` (ej. `vps-eu-2`)
 1. Auth + preset en Convex.
 2. `startHostSession` elige pool slot / cola / official.
 3. `setPhysicalServerActive` → config refresh → Redis → edge.
-4. Stop: `stopMyHostSession` (sin `server_slots`).
+4. Stop: `stopMyHostSession` (sin hub slots API).
 
 ---
 
@@ -97,7 +97,7 @@ Lobby name ≠ Convex `servers._id`. Pasar siempre `instanceId` (ej. `vps-eu-2`)
 
 ```bash
 CONTROL_API_URL=https://<hub-público>   # live + ensure
-# CONTROL_API_HOST_OPS=true             # fase 2 allocate — off by default
+# CONTROL_API_HOST_OPS=true             # optional hub mod extras — off by default
 CONVEX_WORKER_SECRET=…                  # workers; NUNCA NEXT_PUBLIC_
 ```
 
@@ -108,16 +108,15 @@ Browser: Next `/api/control/*` (live) + Convex client (catálogo/auth).
 ## Checklist equipo web
 
 1. Catálogo cars/tracks/servers = Convex (queries + workers de alta).
-2. Start = Convex + Redis desired-config, **sin** allocate (salvo `CONTROL_API_HOST_OPS`).
+2. Start = Convex + Redis desired-config (Host ops slots **retired**).
 3. Connected players = hub live BFF; **no** tabla Convex de presence en loop (`LIVE_INGEST_CUTOVER.md` en ProjectD).
 4. Live: lobby name + `instanceId`.
 5. Ensure hub solo cuando falte ZIP en el VPS.
-6. `no_idle_slot` no debería aparecer en MVP; si aparece, algo llama allocate por error.
 
 ---
 
-## Fuera de alcance (fase 2 / ops)
+## Fuera de alcance / retirado
 
-- Bootstrap `server_slots` + Host allocate por región (`CONTROL_API_HOST_OPS=true`).
+- Hub `allocate` / `/v1/servers/:slotId/*` — **removed**; do not reintroduce in Host.
 - Espejar idle/allocated/live en Convex.
 - Volumen Dokploy `MOD_UPLOAD_ROOT` — ops infra.

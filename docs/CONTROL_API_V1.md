@@ -239,24 +239,17 @@ Existing `POST /hud/worker/refresh-config` remains for migration.
 
 ---
 
-## Server slots platform (Host allocate)
+## Host ops slots — retired
 
-Postgres table `server_slots` (migration `003_server_slots.sql`, needs `DATABASE_URL`) is the **operational SoT** for physical lobbies. Convex keeps presets/auth; Host picks **region + preset** → hub allocate → apply-config → start.
+**Removed** from the hub Control API: `GET/POST /v1/servers` (slots), `POST /v1/servers/allocate`, and `POST /v1/servers/:slotId/apply-config|start|stop|restart`.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/v1/servers` | List slots (`?region=&status=idle&instanceId=`) |
-| `POST` | `/v1/servers` | Upsert/bootstrap slot (`instanceId`, `region`, `lobbyName`, `folderSlug`) |
-| `POST` | `/v1/servers/allocate` | `{ region, presetRef? }` → idle slot → `allocated` |
-| `GET` | `/v1/servers/:slotId` | Slot detail + `appliedConfig` |
-| `POST` | `/v1/servers/:slotId/apply-config` | Validate mods + push (same as desired-config for that lobby) |
-| `POST` | `/v1/servers/:slotId/start\|stop\|restart` | Proxy to edge `/admin/servers/{folderSlug}/…` |
+| Concern | Path now |
+|---------|----------|
+| Start / stop (product) | Convex → Redis desired-config → edge |
+| Start / stop (ops UI) | Hub `/admin/servers/:name/start\|stop` |
+| Live roster | `GET /v1/servers/:lobbyName/live` (Redis) — **unchanged** |
 
-Agent register/heartbeat with `servers[]` upserts/syncs `playerCount` / status when `DATABASE_URL` is set.
-
-Live roster path `/v1/servers/:lobbyName/live` is unchanged (Redis). Do not confuse lobby name with slot UUID.
-
-Full Host flow: [SERVER_PLATFORM.md](./SERVER_PLATFORM.md).
+Postgres table `server_slots` (migration `003`) may still exist in DB; hub code no longer reads or writes it. See [SERVER_PLATFORM.md](./SERVER_PLATFORM.md).
 
 ---
 
@@ -293,7 +286,7 @@ CONVEX_WORKER_SECRET=…
 
 ```bash
 CONVEX_WORKER_SECRET=…
-DATABASE_URL=postgres://…         # mods + server_slots
+DATABASE_URL=postgres://…         # mods catalog (server_slots table unused by API)
 REDIS_HOST=…
 FLEET_EDGE_REGISTRY=…
 # CONTROL_API is this process — no extra service
@@ -315,5 +308,5 @@ CONVEX_WORKER_SECRET=…            # Next /api/control BFF only — never NEXT_
 3. Live roster via hub GET is &lt; ~10s stale; no `live_players` query for Host.
 4. Laps / battles / HUD WSS still work.
 5. Multiple `AC_INSTANCE_ID` values report to one Control API.
-6. Host can allocate idle slot by region, ensure mods LOCAL, apply config, start/stop via Control API.
+6. Host start = Convex → Redis desired-config; live = hub; ops start/stop = `/admin/servers/*` (Host ops slots API retired).
 7. AC never downloads from Hub/S3 during a race — only local `CONTENT_PATH`.

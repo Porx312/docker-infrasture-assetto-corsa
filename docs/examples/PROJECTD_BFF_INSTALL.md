@@ -36,10 +36,10 @@ CONVEX_WORKER_SECRET=…    # same as hub X-Worker-Secret; NEVER NEXT_PUBLIC_
 4. Live path uses **lobby name**, not Convex `servers._id`
 5. After Host no longer needs `live_players`: ops sets `LIVE_INGEST_CONVEX=false` on every edge
 
-## Phase 2 extras (only if flag on)
+## Optional ops extras (hub mod catalog)
 
 - Central library: `GET /v1/mods`, availability, ensure, inventory skins/layouts when LOCAL
-- Flow: catalog → ensure LOCAL → allocate → apply-config → start
+- Start remains Convex → Redis (Host ops slots / `allocate` **retired**)
 - Do **not** build the global library from per-VPS inventory alone
 
 Hub contracts: [CONTROL_API_V1.md](../CONTROL_API_V1.md), [MOD_DISTRIBUTION.md](../MOD_DISTRIBUTION.md), [SERVER_PLATFORM.md](../SERVER_PLATFORM.md), [HUD_HARDENING_CUTOVER.md](../HUD_HARDENING_CUTOVER.md), [openapi/control-api-v1.yaml](../openapi/control-api-v1.yaml).
@@ -52,11 +52,10 @@ export SECRET=…
 export INSTANCE=vps-eu-2
 export LOBBY=ProjectD
 
-# MVP — live
+# Live (required)
 curl -sS "$HUB/v1/live/summary" -H "X-Worker-Secret: $SECRET"
 curl -sS "$HUB/v1/servers/$LOBBY/live?instanceId=$INSTANCE" -H "X-Worker-Secret: $SECRET"
 
-# Phase 2 — only if using allocate / hub catalog
+# Optional — hub mod catalog
 # curl -sS "$HUB/v1/mods" -H "X-Worker-Secret: $SECRET" | head -c 400
-# curl -sS "$HUB/v1/servers?region=eu&status=idle" -H "X-Worker-Secret: $SECRET"
 ```

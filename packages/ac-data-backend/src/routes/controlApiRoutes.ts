@@ -1,7 +1,5 @@
 import { Router } from 'express';
 import {
-  allocateServerSlotHandler,
-  applyServerSlotConfigHandler,
   ensureInstanceModsHandler,
   getAgentPresenceHandler,
   getCentralModBySlugHandler,
@@ -10,18 +8,12 @@ import {
   getLiveSummaryHandler,
   getModsAvailabilityHandler,
   getServerLiveHandler,
-  getServerSlotHandler,
   listCentralModsHandler,
-  listServerSlotsHandler,
   postAgentHeartbeatHandler,
   postAgentModsHandler,
   postAgentRegisterHandler,
   postDesiredConfigHandler,
   postHostCatalogSyncServersHandler,
-  restartServerSlotHandler,
-  startServerSlotHandler,
-  stopServerSlotHandler,
-  upsertServerSlotHandler,
 } from '../controller/controlApiController.js';
 
 const router = Router();
@@ -44,7 +36,7 @@ router.post('/agents/:instanceId/mods', (req, res) => {
   void postAgentModsHandler(req, res);
 });
 
-// Central library (Postgres catalog) — register before /mods/:slug
+// Central library (Postgres catalog)
 router.get('/mods/availability', (req, res) => {
   void getModsAvailabilityHandler(req, res);
 });
@@ -55,7 +47,7 @@ router.get('/mods/:slug', (req, res) => {
   void getCentralModBySlugHandler(req, res);
 });
 
-// Legacy LOCAL CONTENT / INVENTORY (Redis disk scan) — kept for Host cutover
+// Legacy LOCAL CONTENT / INVENTORY (Redis disk scan)
 router.get('/instances/:instanceId/mods/cars', (req, res) => {
   void getInstanceModsCarsHandler(req, res);
 });
@@ -73,33 +65,9 @@ router.post('/internal/host-catalog/sync-servers', (req, res) => {
   void postHostCatalogSyncServersHandler(req, res);
 });
 
-// Server slots platform — register before /servers/:serverId/live
-router.get('/servers', (req, res) => {
-  void listServerSlotsHandler(req, res);
-});
-router.post('/servers', (req, res) => {
-  void upsertServerSlotHandler(req, res);
-});
-router.post('/servers/allocate', (req, res) => {
-  void allocateServerSlotHandler(req, res);
-});
+// Live roster by lobby name (not server_slots)
 router.get('/servers/:serverId/live', (req, res) => {
   void getServerLiveHandler(req, res);
-});
-router.post('/servers/:slotId/apply-config', (req, res) => {
-  void applyServerSlotConfigHandler(req, res);
-});
-router.post('/servers/:slotId/start', (req, res) => {
-  void startServerSlotHandler(req, res);
-});
-router.post('/servers/:slotId/stop', (req, res) => {
-  void stopServerSlotHandler(req, res);
-});
-router.post('/servers/:slotId/restart', (req, res) => {
-  void restartServerSlotHandler(req, res);
-});
-router.get('/servers/:slotId', (req, res) => {
-  void getServerSlotHandler(req, res);
 });
 
 export default router;
