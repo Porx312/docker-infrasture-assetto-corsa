@@ -78,10 +78,15 @@ export async function getAcDataHealth(): Promise<AcDataHealth> {
       streamLength = await client.xLen(REDIS_STREAM_KEY);
       try {
         const pending = await client.xPending(REDIS_STREAM_KEY, REDIS_CONSUMER_GROUP);
-        pendingEvents =
-          typeof pending === 'object' && pending !== null && 'count' in pending
-            ? Number((pending as { count: number }).count)
-            : null;
+        // node-redis v4+ summary shape uses `pending`; older typings used `count`.
+        if (pending && typeof pending === 'object') {
+          const row = pending as { pending?: number; count?: number };
+          if (typeof row.pending === 'number') pendingEvents = row.pending;
+          else if (typeof row.count === 'number') pendingEvents = row.count;
+          else pendingEvents = null;
+        } else {
+          pendingEvents = null;
+        }
         const warnAt = Number(process.env.REDIS_STREAM_PENDING_WARN || 500);
         if (
           pendingEvents !== null &&

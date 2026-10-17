@@ -63,6 +63,8 @@ See also [`docs/HOST_CATALOG_SYNC.md`](../docs/HOST_CATALOG_SYNC.md).
 | [`audit-firewall.sh`](./audit-firewall.sh) | Firewall audit (read-only) |
 | [`rotate-vps-secrets.sh`](./rotate-vps-secrets.sh) | Secret rotation helper |
 | [`vps-capacity-check.sh`](./vps-capacity-check.sh) | Host capacity snapshot |
+| [`cleanup-stale-procs.sh`](./cleanup-stale-procs.sh) | List/kill stale node/tsx/CM/telemetry + hung `*.test.js`/`*.test.ts` (dry-run default; `--apply`; never acServer/Redis/Cursor). If edge dies: `./reload-infra.sh` |
+| [`resilience-probe.sh`](./resilience-probe.sh) | Curl `/api/live` (timeout + HTTP check; exit ≠0 on failure; optional webhook). See [docs/RESILIENCE.md](../docs/RESILIENCE.md) |
 | [`start-cm-proxies.sh`](./start-cm-proxies.sh) / [`stop-cm-proxies.sh`](./stop-cm-proxies.sh) | CM details wrappers |
 | [`rotate-assetto-logs.sh`](./rotate-assetto-logs.sh) + [`logrotate-assetto.conf`](./logrotate-assetto.conf) | Log rotation under `logs/` (`LOG_DIR`, default `$ROOT/logs`) |
 

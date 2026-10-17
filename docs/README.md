@@ -12,6 +12,7 @@ Fleet model: **hub** (`ac-data-backend`) + **edges** (`ac-data-edge`) + **shared
 | [MOD_DISTRIBUTION.md](./MOD_DISTRIBUTION.md) | Folder-first CONTENT_PATH, tree peer pull, hub catalog |
 | [VPS_SECURITY_HARDENING.md](./VPS_SECURITY_HARDENING.md) | Secrets, firewall, Redis AUTH |
 | [VPS_CAPACITY.md](./VPS_CAPACITY.md) | Host sizing |
+| [RESILIENCE.md](./RESILIENCE.md) | Liveness/readiness, ingest timeout, config DLQ, UDP limits |
 
 ## Product / APIs
 

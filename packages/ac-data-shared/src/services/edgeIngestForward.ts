@@ -5,6 +5,29 @@ const backendIngestUrl = (): string =>
   (process.env.BACKEND_INGEST_URL || '').trim().replace(/\/+$/, '');
 const instanceId = (): string => (process.env.AC_INSTANCE_ID || 'default').trim();
 
+/** Default 15s. Repo requires Node 20+ (AbortSignal.timeout). */
+export function ingestForwardTimeoutMs(): number {
+  const raw = Number(process.env.INGEST_FORWARD_TIMEOUT_MS || 15_000);
+  if (!Number.isFinite(raw) || raw <= 0) return 15_000;
+  return Math.trunc(raw);
+}
+
+/**
+ * AbortSignal for ingest forward. Node 20+ uses AbortSignal.timeout;
+ * polyfill keeps older runtimes from hanging forever.
+ */
+export function createIngestForwardAbortSignal(timeoutMs: number = ingestForwardTimeoutMs()): AbortSignal {
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(timeoutMs);
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  if (typeof timer === 'object' && timer && 'unref' in timer) {
+    (timer as NodeJS.Timeout).unref();
+  }
+  return controller.signal;
+}
+
 export function isBackendIngestForwardConfigured(): boolean {
   return backendIngestUrl().length > 0;
 }
@@ -45,6 +68,16 @@ export function resolveIngestForwardResponse(
   throw new Error(`missing ingestResult on HTTP ${status}`);
 }
 
+/**
+ * Forward a batch to hub. On timeout/network/HTTP failure throws so the Redis
+ * bridge keeps messages unacked for PEL reclaim — never treat hang as success.
+ *
+ * No HTTP retries here: the bridge/PEL already retry. Retrying fetch would
+ * increase duplicate risk when Convex accepted but the response was lost.
+ *
+ * Duplicate window (documented): Convex/hub may have accepted events while
+ * edge never got ingestResult → at-least-once; destination must dedupe by eventId.
+ */
 export async function forwardIngestBatchToBackend(
   payloads: Record<string, unknown>[],
 ): Promise<IngestBatchResult> {
@@ -61,17 +94,30 @@ export async function forwardIngestBatchToBackend(
   }
 
   const url = `${baseUrl}/worker/ingest-events`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-worker-secret': secret,
-    },
-    body: JSON.stringify({
-      instanceId: instanceId(),
-      events: payloads,
-    }),
-  });
+  const signal = createIngestForwardAbortSignal();
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-worker-secret': secret,
+      },
+      body: JSON.stringify({
+        instanceId: instanceId(),
+        events: payloads,
+      }),
+      signal,
+    });
+  } catch (err: unknown) {
+    const name = err instanceof Error ? err.name : '';
+    if (name === 'AbortError' || name === 'TimeoutError') {
+      throw new Error(
+        `backend ingest timeout after ${ingestForwardTimeoutMs()}ms (message left unacked for PEL reclaim)`,
+      );
+    }
+    throw err;
+  }
 
   const body = (await response.json().catch(() => ({}))) as IngestForwardResponseBody;
 

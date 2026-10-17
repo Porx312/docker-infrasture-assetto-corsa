@@ -15,8 +15,12 @@ import { startRedisConfigApplier } from './services/redisConfigApplier.js';
 import { bootstrapManagedServersFromDisk } from './services/hud/hudManagedServers.js';
 import { publishHudRegistryToHubIfConfigured } from './services/hud/edgeHudRegistryPublish.js';
 import { startServerPoolMonitor } from './services/serverPool.js';
-import { getPublicHealthHandler } from '@projectd/ac-data-shared/controller/healthController.js';
+import {
+  getPublicHealthHandler,
+  getPublicLiveHandler,
+} from '@projectd/ac-data-shared/controller/healthController.js';
 import { resolveEnvFilePath } from '@projectd/ac-data-shared/config/loadEnv.js';
+import { installFatalProcessHandlers } from '@projectd/ac-data-shared/services/fatalProcessHandlers.js';
 import { attachHudWs } from './services/hud/hudWs.js';
 import { isBackendIngestForwardConfigured } from '@projectd/ac-data-shared/services/edgeIngestForward.js';
 import { startModAgentLoop } from './services/modAgent/modAgentLoop.js';
@@ -39,13 +43,7 @@ if (!SERVERS_PATH) {
 assertSecurityConfiguration();
 assertFleetBootGuards('edge');
 
-process.on('unhandledRejection', (reason) => {
-  console.error('[ac-data-edge] unhandledRejection:', reason);
-});
-
-process.on('uncaughtException', (err) => {
-  console.error('[ac-data-edge] uncaughtException:', err);
-});
+installFatalProcessHandlers({ serviceName: 'ac-data-edge' });
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -104,6 +102,7 @@ const apiKeyMiddleware = (
   next();
 };
 
+app.get('/api/live', getPublicLiveHandler);
 app.get('/api/health', getPublicHealthHandler);
 
 app.use('/ac-server', apiKeyMiddleware, acServerRoutes);

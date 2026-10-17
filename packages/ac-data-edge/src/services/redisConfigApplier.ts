@@ -24,6 +24,11 @@ import {
   type ManagedServerRow,
 } from './hud/hudManagedServers.js';
 import { connectRedisClient, createRedisClient, isRedisConfigured } from '@projectd/ac-data-shared/services/redisClient.js';
+import {
+  CONFIG_DLQ_STREAM_KEY,
+  processConfigApplyOutcome,
+  type ConfigAckRedis,
+} from './configApplierAck.js';
 
 const REDIS_CONFIG_STREAM_KEY = process.env.REDIS_CONFIG_STREAM_KEY || 'ac:config';
 const AC_INSTANCE_ID = process.env.AC_INSTANCE_ID || 'default';
@@ -332,6 +337,19 @@ export async function startRedisConfigApplier(): Promise<void> {
 
   await cleanupOrphanProcesses();
 
+  const ackRedis: ConfigAckRedis = {
+    incr: (key) => client.incr(key),
+    ttl: (key) => client.ttl(key),
+    expire: (key, seconds) => client.expire(key, seconds),
+    del: (key) => client.del(key),
+    setNx: async (key, value, ttlSec) => {
+      const result = await client.set(key, value, { NX: true, EX: ttlSec });
+      return result === 'OK';
+    },
+    xAdd: (key, id, message) => client.xAdd(key, id, message),
+    xAck: (stream, group, id) => client.xAck(stream, group, id),
+  };
+
   let isFirstSnapshot = true;
   while (true) {
     try {
@@ -351,13 +369,50 @@ export async function startRedisConfigApplier(): Promise<void> {
             await client.xAck(REDIS_CONFIG_STREAM_KEY, APPLIER_GROUP, msg.id);
             continue;
           }
+          const rawFields = msg.fields ?? msg.message ?? {};
+          const payloadJson =
+            typeof rawFields.payload === 'string'
+              ? rawFields.payload
+              : JSON.stringify(payload);
+          let applyOk = false;
+          let applyError: string | null = null;
           try {
             await handleSnapshot(payload, isFirstSnapshot);
+            applyOk = true;
             isFirstSnapshot = false;
           } catch (err) {
+            applyError = err instanceof Error ? err.message : String(err);
             console.error('[redis-config-applier] snapshot handler error:', err);
           }
-          await client.xAck(REDIS_CONFIG_STREAM_KEY, APPLIER_GROUP, msg.id);
+          try {
+            const outcome = await processConfigApplyOutcome({
+              redis: ackRedis,
+              streamKey: REDIS_CONFIG_STREAM_KEY,
+              group: APPLIER_GROUP,
+              msgId: msg.id,
+              instanceId: AC_INSTANCE_ID,
+              payloadJson,
+              applyError,
+              applyOk,
+              dlqStreamKey: CONFIG_DLQ_STREAM_KEY,
+            });
+            if (outcome.decision.action === 'nack') {
+              console.warn(
+                `[redis-config-applier] leave unacked msg=${msg.id} fails=${outcome.failCount} (PEL reclaim)`,
+              );
+            } else if (outcome.decision.action === 'dlq_failed') {
+              console.error(
+                `[redis-config-applier] DLQ write failed (left unacked) msg=${msg.id}: ${outcome.decision.reason}`,
+              );
+            } else if (outcome.decision.action === 'dlq_then_ack') {
+              console.error(
+                `[redis-config-applier] poison → DLQ ${CONFIG_DLQ_STREAM_KEY} originalMsgId=${msg.id} dlqId=${outcome.dlqId} (at-least-once; may duplicate if crash before XACK)`,
+              );
+            }
+          } catch (ackErr) {
+            // Do not ACK if fail-counter / DLQ path throws — leave for PEL.
+            console.error('[redis-config-applier] ack/dlq path error (left unacked):', ackErr);
+          }
         }
       }
     } catch (err) {

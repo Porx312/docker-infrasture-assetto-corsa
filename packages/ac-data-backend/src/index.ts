@@ -18,10 +18,14 @@ import modAgentRoutes from './routes/modAgentRoutes.js';
 import controlApiRoutes from './routes/controlApiRoutes.js';
 import { runModMigrationsIfConfigured } from './services/mods/migrate.js';
 import { loadFleetRegistryFromDb } from './services/mods/loadFleetRegistryFromDb.js';
-import { getPublicHealthHandler } from '@projectd/ac-data-shared/controller/healthController.js';
+import {
+  getPublicHealthHandler,
+  getPublicLiveHandler,
+} from '@projectd/ac-data-shared/controller/healthController.js';
 import { attachHudGatewayWs } from './services/hud/hudGateway.js';
 import { loadHudDynamicRegistryFromRedis } from './services/hud/hudDynamicRegistry.js';
 import { resolveEnvFilePath } from '@projectd/ac-data-shared/config/loadEnv.js';
+import { installFatalProcessHandlers } from '@projectd/ac-data-shared/services/fatalProcessHandlers.js';
 import { getPublicBrandingImageHandler } from './controller/brandingImagesController.js';
 import { getPublicModPreviewImageHandler } from './controller/modPreviewImagesController.js';
 import {
@@ -36,9 +40,7 @@ import {
 assertSecurityConfiguration();
 assertFleetBootGuards('hub');
 
-process.on('unhandledRejection', (reason) => {
-  console.error('[ac-data-backend] unhandledRejection:', reason);
-});
+installFatalProcessHandlers({ serviceName: 'ac-data-backend' });
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -66,6 +68,7 @@ const acDataRoot = path.dirname(fileURLToPath(import.meta.url));
 const ADMIN_VIEWS_PATH = process.env.ADMIN_VIEWS_PATH || path.join(acDataRoot, '..', 'views');
 const ADMIN_PUBLIC_PATH = process.env.ADMIN_PUBLIC_PATH || path.join(acDataRoot, '..', 'public');
 
+app.get('/api/live', getPublicLiveHandler);
 app.get('/api/health', getPublicHealthHandler);
 app.get('/branding/images/:filename', (req, res) => {
   void getPublicBrandingImageHandler(req, res);

@@ -1,0 +1,44 @@
+# Example systemd unit for ac-data-edge on a Linux game VPS.
+# INSTALLATION IS OPERATOR-OWNED — copy, edit placeholders, then enable.
+# Do NOT invent paths: set WorkingDirectory / EnvironmentFile / User to your host.
+#
+#   sudo cp deploy/systemd/ac-data-edge.service.example /etc/systemd/system/ac-data-edge.service
+#   # edit paths/user
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now ac-data-edge
+#
+# Restart policy uses process exit codes only — do NOT bind Restart= to /api/health
+# (Redis down would thrash). Use /api/live for process liveness probes.
+
+[Unit]
+Description=ProjectD ac-data-edge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# REPLACE: dedicated service user (must own SERVERS_PATH / logs)
+User=__SERVICE_USER__
+Group=__SERVICE_GROUP__
+# REPLACE: absolute path to assetto-infra checkout
+WorkingDirectory=__INSTALL_ROOT__
+# REPLACE: absolute path to env file (e.g. __INSTALL_ROOT__/.env.local)
+EnvironmentFile=__ENV_FILE__
+Environment=ASSETTO_ENV_FILE=__ENV_FILE__
+Environment=NODE_ENV=production
+
+# Prefer built dist; run `npm run build -w @projectd/ac-data-edge` (and shared) first.
+# REPLACE __NODE_BIN__ if needed (e.g. /home/USER/.nvm/versions/node/v20.*/bin/node)
+ExecStart=__NODE_BIN__ __INSTALL_ROOT__/packages/ac-data-edge/dist/index.js
+
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=120
+
+# Optional hardening (uncomment after verifying paths)
+# NoNewPrivileges=true
+# PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
