@@ -239,6 +239,7 @@ export async function createPackageAndArtifact(input: {
         [resolvedPackageId, input.slug, input.displayName, input.kind, input.acContentSlug],
       );
     }
+    // Preserve existing s3* manifest fields on re-register (same package_id+sha256).
     await client.query(
       `INSERT INTO mod_artifacts (id, package_id, version_label, size_bytes, sha256, storage_key, manifest_json, storage_origin, source_edge_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
@@ -246,7 +247,16 @@ export async function createPackageAndArtifact(input: {
          storage_key = EXCLUDED.storage_key,
          storage_origin = EXCLUDED.storage_origin,
          source_edge_id = COALESCE(EXCLUDED.source_edge_id, mod_artifacts.source_edge_id),
-         manifest_json = EXCLUDED.manifest_json`,
+         manifest_json = CASE
+           WHEN mod_artifacts.manifest_json ? 's3Key' THEN
+             EXCLUDED.manifest_json || jsonb_build_object(
+               's3Key', mod_artifacts.manifest_json->'s3Key',
+               's3Sha256', mod_artifacts.manifest_json->'s3Sha256',
+               's3SizeBytes', mod_artifacts.manifest_json->'s3SizeBytes',
+               's3Format', mod_artifacts.manifest_json->'s3Format'
+             )
+           ELSE EXCLUDED.manifest_json
+         END`,
       [
         artifactId,
         resolvedPackageId,
@@ -271,6 +281,48 @@ export async function createPackageAndArtifact(input: {
   } finally {
     client.release();
   }
+}
+
+/**
+ * Merge validated S3 fields into manifest_json only when missing or matching.
+ * Never clears existing s3Key. Returns false if another s3Key already set (conflict).
+ */
+export async function mergeArtifactManifestS3(
+  artifactId: string,
+  fields: {
+    s3Key: string;
+    s3Sha256: string;
+    s3SizeBytes: number;
+    s3Format: string;
+  },
+): Promise<{ ok: boolean; reason?: string }> {
+  const pool = getModPool();
+  const patch = JSON.stringify({
+    s3Key: fields.s3Key,
+    s3Sha256: fields.s3Sha256,
+    s3SizeBytes: fields.s3SizeBytes,
+    s3Format: fields.s3Format,
+  });
+  const result = await pool.query<{ id: string }>(
+    `UPDATE mod_artifacts SET manifest_json = manifest_json || $2::jsonb
+     WHERE id = $1
+       AND (
+         NOT (manifest_json ? 's3Key')
+         OR (manifest_json->>'s3Key') = $3
+       )
+     RETURNING id`,
+    [artifactId, patch, fields.s3Key],
+  );
+  if (result.rows[0]) {
+    return { ok: true };
+  }
+  const exists = await pool.query(`SELECT id, manifest_json->>'s3Key' AS k FROM mod_artifacts WHERE id = $1`, [
+    artifactId,
+  ]);
+  if (!exists.rows[0]) {
+    return { ok: false, reason: 'artifact_not_found' };
+  }
+  return { ok: false, reason: 's3_key_conflict' };
 }
 
 /** Mark inventory READY after edge-local upload (no install job). */

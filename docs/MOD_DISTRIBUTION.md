@@ -74,7 +74,28 @@ CONVEX_WORKER_SECRET=...   # same as edges (admin proxy + agent + peer tree pull
 
 # Optional cover images (metadata only)
 # MOD_PREVIEW_IMAGES_PATH=/var/lib/ac-data/mod-previews
+
+# --- Contabo / S3 canonical packs (Phase 1, optional; default off) ---
+# Bucket MUST stay private. Keys only on hub. Edges use hub-presigned GET.
+# MOD_STORAGE_MODE=s3
+# MOD_S3_BUCKET=projectd-mods-staging
+# MOD_S3_ENDPOINT=https://eu2.contabostorage.com
+# MOD_S3_REGION=eu2
+# MOD_S3_ACCESS_KEY_ID=...
+# MOD_S3_SECRET_ACCESS_KEY=...
+# MOD_PRESIGN_TTL_SEC=3600
+# MOD_S3_CANONICAL_UPLOAD=1   # after register-local, promote slim tar.gz to S3 → manifest.s3Key
+# MOD_S3_PULL_ENABLED=1       # ensure/acquire: local → peer → S3 if no peer READY
 ```
+
+### Contabo S3 (canonical) + local cache
+
+When flags are on and `MOD_STORAGE_MODE=s3`:
+
+1. Slim commit / adopt still writes `CONTENT_PATH` and registers `storage_origin=edge_folder` (unchanged).
+2. Hub best-effort promotes a **server-slim tar.gz** to Contabo; on success sets `manifest_json.s3Key` / `s3Sha256` / `s3SizeBytes` / `s3Format` (never changes `storage_origin`). Promote failure does **not** break register.
+3. Ensure on a cold VPS: verify local → peer tree → S3 presigned download (hash object bytes, extract, verify tree `contentHash`). Incomplete downloads never become READY.
+4. Rollback: set `MOD_S3_CANONICAL_UPLOAD=0` and `MOD_S3_PULL_ENABLED=0` (peer-only again). No S3 lifecycle/GC in this phase.
 
 Migrations run on hub startup (`001` … `011_mod_artifact_edge_folder.sql`).
 

@@ -24,7 +24,7 @@ import {
   contentPoolPath,
   writeAcModSidecar,
 } from './materialize.js';
-import { pullAndInstallContentTree } from './contentTreeSync.js';
+import { pullAndInstallContentTree, pullAndInstallS3TarGz } from './contentTreeSync.js';
 
 const POLL_MS = Number(process.env.MOD_AGENT_POLL_MS || 1500);
 /** How many jobs to drain back-to-back before yielding to the poll interval. */
@@ -66,9 +66,13 @@ async function processJob(job: ModAgentJobPayload): Promise<void> {
     typeof job.treeDownloadUrl === 'string' && job.treeDownloadUrl.trim()
       ? job.treeDownloadUrl.trim()
       : '';
+  const s3Url =
+    typeof job.s3DownloadUrl === 'string' && job.s3DownloadUrl.trim()
+      ? job.s3DownloadUrl.trim()
+      : '';
 
-  // Folder already on this edge (peer === self): verify pool, refresh sidecar, done.
-  if (!treeUrl && isEdgeFolderStorageKey(job.storageKey)) {
+  // Folder already on this edge (peer === self, no remote URL): verify pool, refresh sidecar.
+  if (!treeUrl && !s3Url && isEdgeFolderStorageKey(job.storageKey)) {
     const ok = await verifyPoolSlug(job.manifest, acSlug);
     if (!ok) {
       await failModJob(job.jobId, 'folder_missing', 'Content folder missing on this VPS', true);
@@ -100,6 +104,37 @@ async function processJob(job: ModAgentJobPayload): Promise<void> {
       },
       (pct) => {
         void reportJobProgress(job.jobId, pct, 'tree_download').catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          console.warn(`[mod-agent] progress report failed: ${message}`);
+        });
+      },
+    );
+    await completeModJob(job.jobId, result.contentHash);
+    return;
+  }
+
+  if (s3Url) {
+    const objectSha =
+      typeof job.s3ObjectSha256 === 'string' ? job.s3ObjectSha256.trim().toLowerCase() : '';
+    const objectSize = Number(job.s3ObjectSizeBytes);
+    if (!/^[a-f0-9]{64}$/.test(objectSha) || !Number.isFinite(objectSize) || objectSize <= 0) {
+      await failModJob(job.jobId, 's3_meta_invalid', 'Missing validated s3 object hash/size', false);
+      return;
+    }
+    await reportJobProgress(job.jobId, 5, 's3_download');
+    const result = await pullAndInstallS3TarGz(
+      s3Url,
+      job.manifest.kind,
+      acSlug,
+      objectSha,
+      objectSize,
+      {
+        artifactId: job.artifactId,
+        contentHash: job.sha256,
+        versionLabel: job.versionLabel,
+      },
+      (pct) => {
+        void reportJobProgress(job.jobId, pct, 's3_download').catch((err: unknown) => {
           const message = err instanceof Error ? err.message : String(err);
           console.warn(`[mod-agent] progress report failed: ${message}`);
         });

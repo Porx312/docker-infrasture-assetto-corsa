@@ -10,6 +10,7 @@ import {
 } from './catalogRepo.js';
 import { syncFleetEdgesToDb } from './fleetEdgeDb.js';
 import { syncHostCatalogUpsert } from '../hostCatalog/index.js';
+import { schedulePromoteArtifactToS3 } from './promoteArtifactToS3.js';
 
 export type RegisterEdgeLocalArtifactInput = {
   edgeId: string;
@@ -114,6 +115,9 @@ export async function registerEdgeLocalArtifact(
     hostCatalogSyncError = message;
     console.warn(`[edge-register] host catalog sync skipped: ${message}`);
   }
+  // Best-effort Contabo promote (flagged). Failure must not break register / edge_folder.
+  schedulePromoteArtifactToS3(artifactId);
+
   return {
     packageId,
     artifactId,

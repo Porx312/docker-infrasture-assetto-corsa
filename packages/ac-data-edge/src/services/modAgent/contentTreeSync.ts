@@ -292,3 +292,45 @@ export async function pullAndInstallContentTree(
   onProgress?.(100);
   return result;
 }
+
+/**
+ * Canonical S3 pull: download tar.gz (hash of object bytes) → gunzip → install tree
+ * (contentHash of slim tree must match meta.contentHash). Partial files never published.
+ */
+export async function pullAndInstallS3TarGz(
+  s3Url: string,
+  kind: ModKind,
+  slug: string,
+  objectSha256: string,
+  objectSizeBytes: number,
+  meta: { artifactId?: string; contentHash?: string; versionLabel?: string },
+  onProgress?: (pct: number) => void,
+): Promise<{ contentHash: string; sizeBytes: number }> {
+  const { downloadWithResume } = await import('./downloadArtifact.js');
+  const { createGunzip } = await import('node:zlib');
+  const { createReadStream } = await import('node:fs');
+
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'ac-s3-pull-'));
+  const gzPath = path.join(tmpDir, `${objectSha256}.tar.gz`);
+  try {
+    onProgress?.(5);
+    await downloadWithResume(
+      s3Url,
+      gzPath,
+      objectSizeBytes,
+      (pct) => onProgress?.(Math.min(70, Math.round(pct * 0.7))),
+      objectSha256.toLowerCase(),
+    );
+    onProgress?.(75);
+    const gunzip = createGunzip();
+    const tarStream = createReadStream(gzPath).pipe(gunzip);
+    const result = await installContentTreeFromStream(kind, slug, tarStream, {
+      ...meta,
+      register: false,
+    });
+    onProgress?.(100);
+    return result;
+  } finally {
+    await fsp.rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}

@@ -19,6 +19,16 @@ export type ModManifest = {
   contentTypeFolder?: 'cars' | 'tracks' | 'weather';
   /** All zip entry paths (for skins / track layouts). Optional for older rows. */
   entryPaths?: string[];
+  /**
+   * Optional Contabo/S3 canonical server-slim tar.gz (Phase 1).
+   * Present only after successful promote; storage_origin stays edge_folder.
+   */
+  s3Key?: string;
+  /** SHA-256 of the exact object bytes on S3 (not the tree contentHash). */
+  s3Sha256?: string;
+  s3SizeBytes?: number;
+  /** Must be server-slim-tar-gz when s3Key is set. */
+  s3Format?: string;
 };
 
 export type DesiredArtifactRow = {
@@ -55,6 +65,14 @@ export type ModAgentJobPayload = {
    * When set, agent installs from tree instead of a ZIP blob.
    */
   treeDownloadUrl?: string;
+  /**
+   * Canonical S3 pull (presigned GET of server-slim tar.gz).
+   * Used when peer tree is unavailable and manifest has validated s3Key.
+   */
+  s3DownloadUrl?: string;
+  /** SHA-256 of the tar.gz object (file integrity). Tree contentHash remains sha256. */
+  s3ObjectSha256?: string;
+  s3ObjectSizeBytes?: number;
 };
 
 export type InventoryReportItem = {
