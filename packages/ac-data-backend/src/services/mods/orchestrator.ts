@@ -727,21 +727,23 @@ export async function reportJobProgress(
   phase: string,
 ): Promise<void> {
   const pool = getModPool();
-  await pool.query(
-    `UPDATE sync_jobs SET progress_pct = $2, phase = $3 WHERE id = $1 AND edge_id = $4`,
+  // Ignore late progress after complete/fail — fire-and-forget edge reports can
+  // otherwise overwrite READY/100% back to SYNCING mid-download (e.g. 69%).
+  const updated = await pool.query<{ artifact_id: string }>(
+    `UPDATE sync_jobs SET progress_pct = $2, phase = $3
+     WHERE id = $1 AND edge_id = $4 AND state = 'running'
+     RETURNING artifact_id`,
     [jobId, progressPct, phase, edgeId],
   );
-  const job = await pool.query<{ artifact_id: string }>(`SELECT artifact_id FROM sync_jobs WHERE id = $1`, [
-    jobId,
-  ]);
-  const artifactId = job.rows[0]?.artifact_id;
-  if (artifactId) {
-    await pool.query(
-      `UPDATE edge_artifact_inventory SET status = 'SYNCING', progress_pct = $3, updated_at = NOW()
-       WHERE edge_id = $1 AND artifact_id = $2`,
-      [edgeId, artifactId, progressPct],
-    );
+  const artifactId = updated.rows[0]?.artifact_id;
+  if (!artifactId) {
+    return;
   }
+  await pool.query(
+    `UPDATE edge_artifact_inventory SET status = 'SYNCING', progress_pct = $3, updated_at = NOW()
+     WHERE edge_id = $1 AND artifact_id = $2 AND status = 'SYNCING'`,
+    [edgeId, artifactId, progressPct],
+  );
 }
 
 export async function completeJob(

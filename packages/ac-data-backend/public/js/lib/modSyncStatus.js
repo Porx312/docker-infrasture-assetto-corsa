@@ -20,7 +20,8 @@ export function renderModSyncStatusCell(row) {
   let showBar = false;
   let barPct = pct;
 
-  if (status === 'READY') {
+  // job done wins over stale SYNCING (late progress race left inventory at mid-download %)
+  if (status === 'READY' || jobState === 'done') {
     label = 'Ready';
   } else if (status === 'ERROR' || jobState === 'failed') {
     label = 'Error';
@@ -58,7 +59,7 @@ export function renderModSyncStatusCell(row) {
   }
 
   const badgeClass =
-    status === 'READY'
+    status === 'READY' || jobState === 'done'
       ? 'badge-ok'
       : status === 'ERROR' || jobState === 'failed'
         ? 'badge-danger'
@@ -103,7 +104,8 @@ function escapeHtmlLocal(s) {
 export function distNeedsPolling(rows) {
   return (rows || []).some((row) => {
     const s = String(row.status || '');
-    const j = String(row.jobState || '');
+    const j = String(row.jobState || '').toLowerCase();
+    if (j === 'done' || j === 'failed') return false;
     return s === 'PENDING' || s === 'SYNCING' || j === 'queued' || j === 'running';
   });
 }

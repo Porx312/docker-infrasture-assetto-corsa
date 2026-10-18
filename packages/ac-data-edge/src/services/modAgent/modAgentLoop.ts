@@ -32,6 +32,20 @@ const DRAIN_MAX = Math.max(1, Number(process.env.MOD_AGENT_DRAIN_MAX || 10));
 
 let tickInFlight = false;
 
+/** Serialize progress HTTP so reports cannot race past completeModJob. */
+function createProgressReporter(jobId: string, phase: string): (pct: number) => Promise<void> {
+  let chain: Promise<void> = Promise.resolve();
+  return (pct: number) => {
+    chain = chain
+      .then(() => reportJobProgress(jobId, pct, phase))
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`[mod-agent] progress report failed: ${message}`);
+      });
+    return chain;
+  };
+}
+
 async function processJob(job: ModAgentJobPayload): Promise<void> {
   const acSlug =
     job.acContentSlug || job.manifest.acContentSlugs[0] || job.manifest.rootPaths[0] || 'unknown';
@@ -91,7 +105,8 @@ async function processJob(job: ModAgentJobPayload): Promise<void> {
   if (treeUrl) {
     const secret = modPeerSecret();
     const downloadHeaders = secret ? { 'X-Worker-Secret': secret } : undefined;
-    await reportJobProgress(job.jobId, 5, 'tree_download');
+    const reportProgress = createProgressReporter(job.jobId, 'tree_download');
+    await reportProgress(5);
     const result = await pullAndInstallContentTree(
       treeUrl,
       job.manifest.kind,
@@ -103,12 +118,10 @@ async function processJob(job: ModAgentJobPayload): Promise<void> {
         versionLabel: job.versionLabel,
       },
       (pct) => {
-        void reportJobProgress(job.jobId, pct, 'tree_download').catch((err: unknown) => {
-          const message = err instanceof Error ? err.message : String(err);
-          console.warn(`[mod-agent] progress report failed: ${message}`);
-        });
+        void reportProgress(pct);
       },
     );
+    await reportProgress(100);
     await completeModJob(job.jobId, result.contentHash);
     return;
   }
@@ -121,7 +134,8 @@ async function processJob(job: ModAgentJobPayload): Promise<void> {
       await failModJob(job.jobId, 's3_meta_invalid', 'Missing validated s3 object hash/size', false);
       return;
     }
-    await reportJobProgress(job.jobId, 5, 's3_download');
+    const reportProgress = createProgressReporter(job.jobId, 's3_download');
+    await reportProgress(5);
     const result = await pullAndInstallS3TarGz(
       s3Url,
       job.manifest.kind,
@@ -134,12 +148,10 @@ async function processJob(job: ModAgentJobPayload): Promise<void> {
         versionLabel: job.versionLabel,
       },
       (pct) => {
-        void reportJobProgress(job.jobId, pct, 's3_download').catch((err: unknown) => {
-          const message = err instanceof Error ? err.message : String(err);
-          console.warn(`[mod-agent] progress report failed: ${message}`);
-        });
+        void reportProgress(pct);
       },
     );
+    await reportProgress(100);
     await completeModJob(job.jobId, result.contentHash);
     return;
   }
@@ -160,19 +172,18 @@ async function processJob(job: ModAgentJobPayload): Promise<void> {
       typeof job.downloadUrl === 'string' && job.downloadUrl.trim()
         ? job.downloadUrl.trim()
         : (await getArtifactDownloadUrl(job.artifactId)).url;
+    const reportProgress = createProgressReporter(job.jobId, 'download');
     await downloadWithResume(
       url,
       zipPath,
       job.sizeBytes,
       (pct) => {
-        void reportJobProgress(job.jobId, pct, 'download').catch((err: unknown) => {
-          const message = err instanceof Error ? err.message : String(err);
-          console.warn(`[mod-agent] progress report failed: ${message}`);
-        });
+        void reportProgress(pct);
       },
       job.sha256,
       downloadHeaders,
     );
+    await reportProgress(99);
     // Ephemeral only: do not keep permanent blob cache for new installs from temp.
     // Legacy peer blob pulls may still land in cache via ensureBlobCached when source is ZIP.
     await ensureBlobCached(job.sha256, zipPath);
