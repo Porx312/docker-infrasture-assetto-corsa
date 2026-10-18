@@ -1,9 +1,28 @@
 /**
- * Optional Contabo/S3 canonical blob refs on artifact.manifest_json.
- * Does not change storage_origin (remains edge_folder). Validated before use.
+ * Contabo/S3 canonical blob refs on artifact.manifest_json.
+ * Library uploads set these at register time; edge_folder promote may set them later.
  */
 
 export const MOD_S3_FORMAT_TAR_GZ = 'server-slim-tar-gz' as const;
+
+/** Hub library storage key — content lives only in S3 until a VPS needs it. */
+const S3_CANONICAL_KEY_RE = /^s3-canonical:([a-f0-9]{64})$/i;
+
+export function s3CanonicalStorageKey(contentHashSha256: string): string {
+  return `s3-canonical:${contentHashSha256.trim().toLowerCase()}`;
+}
+
+export function parseS3CanonicalStorageKey(
+  storageKey: string,
+): { contentHash: string } | null {
+  const m = S3_CANONICAL_KEY_RE.exec(storageKey.trim());
+  if (!m?.[1]) return null;
+  return { contentHash: m[1].toLowerCase() };
+}
+
+export function isS3CanonicalStorageKey(storageKey: string): boolean {
+  return parseS3CanonicalStorageKey(storageKey) !== null;
+}
 
 export type ModS3ManifestFields = {
   s3Key: string;

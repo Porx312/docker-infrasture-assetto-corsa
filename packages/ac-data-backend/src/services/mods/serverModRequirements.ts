@@ -287,8 +287,15 @@ export async function syncMissingModsForServer(serverName: string, edgeId: strin
     if (item.status === 'READY' || !item.artifactId) {
       continue;
     }
-    const result = await distributeArtifact(item.artifactId, [edgeId]);
-    enqueued += result.enqueued;
+    try {
+      const result = await distributeArtifact(item.artifactId, [edgeId]);
+      enqueued += result.enqueued;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[sync-missing] ${item.acContentSlug} artifact=${item.artifactId.slice(0, 8)}…: ${message}`,
+      );
+    }
   }
   return enqueued;
 }

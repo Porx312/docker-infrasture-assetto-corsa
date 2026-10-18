@@ -22,7 +22,17 @@ import {
   syncFleetEdgesToDb,
 } from '../services/mods/orchestrator.js';
 import { getArtifactById } from '../services/mods/catalogRepo.js';
-import { streamLocalMasterArtifact } from '../services/mods/objectStorage.js';
+import {
+  listCanonicalArtifactKeys,
+  streamLocalMasterArtifact,
+} from '../services/mods/objectStorage.js';
+import {
+  handleLibrarySlimUploadCommit,
+  handleLibrarySlimUploadPlan,
+  handleLibrarySlimUploadPut,
+} from '../services/mods/hubLibrarySlimUpload.js';
+import { readModS3Fields } from '@projectd/ac-data-shared/mods/modS3Manifest.js';
+import { getModPool } from '../services/mods/db.js';
 import { listGcCandidates, runGcOnEdge } from '../services/mods/gcService.js';
 import {
   getServerModReadiness,
@@ -164,7 +174,7 @@ export async function modDeletePackageHandler(req: Request, res: Response): Prom
       ok: true,
       ...result,
       message:
-        'Deleted from hub catalog. VPS cache may remain until Remove from edges / GC.',
+        'Deleted from Contabo library (catalog + S3). VPS cache may remain until Remove from VPS.',
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -640,6 +650,109 @@ async function fleetEdgeProxySecret(): Promise<
     };
   }
   return { ok: true, secret };
+}
+
+/** Hub library slim upload — Contabo S3 only (no VPS). */
+export async function modLibrarySlimUploadPlanHandler(req: Request, res: Response): Promise<void> {
+  if (!isModDbConfigured()) {
+    modDbUnavailable(res);
+    return;
+  }
+  await handleLibrarySlimUploadPlan(req, res);
+}
+
+export async function modLibrarySlimUploadFileHandler(req: Request, res: Response): Promise<void> {
+  if (!isModDbConfigured()) {
+    modDbUnavailable(res);
+    return;
+  }
+  await handleLibrarySlimUploadPut(req, res);
+}
+
+export async function modLibrarySlimUploadCommitHandler(req: Request, res: Response): Promise<void> {
+  if (!isModDbConfigured()) {
+    modDbUnavailable(res);
+    return;
+  }
+  await handleLibrarySlimUploadCommit(req, res);
+}
+
+/** Catalog artifacts with validated s3Key + optional Contabo object listing. */
+export async function modLibraryListHandler(_req: Request, res: Response): Promise<void> {
+  if (!isModDbConfigured()) {
+    modDbUnavailable(res);
+    return;
+  }
+  try {
+    const pool = getModPool();
+    const r = await pool.query<{
+      artifact_id: string;
+      package_id: string;
+      display_name: string;
+      kind: string;
+      ac_content_slug: string;
+      sha256: string;
+      size_bytes: string;
+      storage_origin: string | null;
+      manifest_json: unknown;
+      created_at: Date;
+      category: string | null;
+      preview_image_filename: string | null;
+    }>(
+      `SELECT a.id AS artifact_id, a.package_id, p.display_name, p.kind, p.ac_content_slug,
+              a.sha256, a.size_bytes::text, a.storage_origin, a.manifest_json, a.created_at,
+              p.category, p.preview_image_filename
+       FROM mod_artifacts a
+       JOIN mod_packages p ON p.id = a.package_id
+       WHERE a.manifest_json ? 's3Key'
+       ORDER BY a.created_at DESC
+       LIMIT 500`,
+    );
+    const items = r.rows
+      .map((row) => {
+        const s3 = readModS3Fields(row.manifest_json);
+        if (!s3) return null;
+        return {
+          artifactId: row.artifact_id,
+          packageId: row.package_id,
+          displayName: row.display_name,
+          kind: row.kind,
+          acContentSlug: row.ac_content_slug,
+          sha256: row.sha256,
+          sizeBytes: Number(row.size_bytes),
+          storageOrigin: row.storage_origin,
+          category: row.category,
+          previewImageFilename: row.preview_image_filename,
+          createdAt: row.created_at,
+          s3Key: s3.s3Key,
+          s3Sha256: s3.s3Sha256,
+          s3SizeBytes: s3.s3SizeBytes,
+          inLibrary: true,
+        };
+      })
+      .filter(Boolean);
+
+    let s3Objects: Array<{ key: string; size: number; lastModified?: string }> = [];
+    let s3Orphans: string[] = [];
+    try {
+      s3Objects = await listCanonicalArtifactKeys(500);
+      const known = new Set(items.map((i) => i!.s3Key));
+      s3Orphans = s3Objects.filter((o) => !known.has(o.key)).map((o) => o.key);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[mods/library] ListObjects failed: ${message}`);
+    }
+
+    res.json({
+      ok: true,
+      items,
+      s3ObjectCount: s3Objects.length,
+      s3OrphanKeys: s3Orphans.slice(0, 50),
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(400).json({ ok: false, message });
+  }
 }
 
 /** Slim upload plan: compare client manifest to edge CONTENT_PATH. */

@@ -25,7 +25,7 @@ export type ModArtifactRow = {
   storage_key: string;
   manifest_json: ModManifest;
   created_at: Date;
-  storage_origin?: 'hub' | 'edge' | 'edge_folder';
+  storage_origin?: 'hub' | 'edge' | 'edge_folder' | 's3_canonical';
   source_edge_id?: string | null;
 };
 
@@ -205,15 +205,15 @@ export async function createPackageAndArtifact(input: {
   sha256: string;
   storageKey: string;
   manifest: ModManifest;
-  storageOrigin?: 'hub' | 'edge' | 'edge_folder';
+  storageOrigin?: 'hub' | 'edge' | 'edge_folder' | 's3_canonical';
   sourceEdgeId?: string | null;
 }): Promise<{ packageId: string; artifactId: string }> {
   const pool = getModPool();
   const artifactId = randomUUID();
   const storageOrigin = input.storageOrigin ?? 'edge_folder';
-  if (storageOrigin !== 'edge_folder') {
+  if (storageOrigin !== 'edge_folder' && storageOrigin !== 's3_canonical') {
     throw new Error(
-      `storageOrigin=${storageOrigin} is disabled for new artifacts; use edge_folder (legacy hub/edge rows remain readable until GC)`,
+      `storageOrigin=${storageOrigin} is disabled for new artifacts; use edge_folder or s3_canonical`,
     );
   }
   const sourceEdgeId = input.sourceEdgeId?.trim() || null;
@@ -436,7 +436,8 @@ export async function getArtifactById(artifactId: string): Promise<
     storage_key: String(row.storage_key),
     manifest_json: row.manifest_json as ModManifest,
     created_at: row.created_at as Date,
-    storage_origin: (row.storage_origin as 'hub' | 'edge' | 'edge_folder' | undefined) ?? 'hub',
+    storage_origin:
+      (row.storage_origin as 'hub' | 'edge' | 'edge_folder' | 's3_canonical' | undefined) ?? 'hub',
     source_edge_id: (row.source_edge_id as string | null | undefined) ?? null,
     package: {
       id: String(row.pkg_id),

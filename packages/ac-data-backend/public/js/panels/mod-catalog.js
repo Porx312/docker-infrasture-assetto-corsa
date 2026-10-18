@@ -20,6 +20,12 @@ const packagesByType = { cars: [], tracks: [] };
 /** @type {Record<string, object[]>} */
 const inventoryByType = { cars: [], tracks: [] };
 
+/** Contabo library rows (validated s3Key). @type {Record<string, object[]>} */
+const libraryByType = { cars: [], tracks: [] };
+
+/** @type {Record<string, 'library' | 'vps'>} */
+const catalogViewByType = { cars: 'library', tracks: 'library' };
+
 /** Shared across Cars / Tracks tabs. */
 let catalogEdgeId = '';
 
@@ -78,6 +84,40 @@ function findPackageForInventory(item, type) {
       return ac === slug || s === slug;
     }) || null
   );
+}
+
+/**
+ * @param {object} item library API row
+ * @param {string} type
+ */
+function renderLibraryCard(item, type) {
+  const slug = String(item.acContentSlug || '').trim();
+  const artifactId = String(item.artifactId || '');
+  const packageId = String(item.packageId || '');
+  const displayName = String(item.displayName || slug || 'Unknown');
+  const sizeMeta = item.s3SizeBytes ? ` · ${formatSize(Number(item.s3SizeBytes))}` : '';
+  const pkg = (packagesByType[type] || []).find((p) => p.id === packageId);
+  const imageUrl = typeof pkg?.imageUrl === 'string' && pkg.imageUrl ? pkg.imageUrl : '';
+  const category =
+    typeof item.category === 'string' && item.category.trim()
+      ? item.category.trim()
+      : typeof pkg?.category === 'string' && pkg.category.trim()
+        ? pkg.category.trim()
+        : '';
+  const thumbInner = imageUrl
+    ? `<img class="mod-card-thumb-img" src="${escapeAttr(imageUrl)}" alt="" loading="lazy" onerror="this.classList.add('hidden'); this.nextElementSibling?.classList.remove('hidden');"><span class="mod-card-placeholder hidden">${type === 'tracks' ? 'T' : 'C'}</span>`
+    : `<span class="mod-card-placeholder">${type === 'tracks' ? 'T' : 'C'}</span>`;
+  const openAttrs = `data-open-catalog="${escapeAttr(type)}" data-artifact-id="${escapeAttr(artifactId)}" data-package-id="${escapeAttr(packageId)}" data-package-name="${escapeAttr(displayName)}" data-inv-slug="${escapeAttr(slug)}"`;
+  return `
+    <article class="mod-card-wrap" data-package-id="${escapeAttr(packageId)}" data-artifact-id="${escapeAttr(artifactId)}" data-inv-slug="${escapeAttr(slug)}">
+      <button type="button" class="mod-card" ${openAttrs}>
+        <div class="mod-card-thumb">${thumbInner}</div>
+        <div class="mod-card-body">
+          <strong class="mod-card-title">${escapeHtml(displayName)}</strong>
+          <span class="mod-card-meta">In library${sizeMeta}${category ? ` · ${escapeHtml(category)}` : ''}</span>
+        </div>
+      </button>
+    </article>`;
 }
 
 /**
@@ -155,17 +195,21 @@ export function mountModCatalogPanel(type, container) {
         </div>
       </div>
       <div class="fleet-inv-toolbar" id="${type}InvToolbar" style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:end;margin-bottom:0.75rem">
-        <label>VPS
+        <div class="btn-group" role="group" aria-label="Catalog view">
+          <button type="button" class="btn btn-sm btn-primary" id="${type}ViewLibraryBtn" data-catalog-view="library">Library (S3)</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="${type}ViewVpsBtn" data-catalog-view="vps">VPS cache</button>
+        </div>
+        <label id="${type}EdgeSelectWrap">VPS
           <select id="${type}EdgeSelect" class="input"></select>
         </label>
         <button type="button" class="btn btn-ghost btn-sm" id="${type}InvRefreshBtn">Refresh</button>
       </div>
-      <div class="upload-dropzone" id="${type}InvDropzone" tabindex="0" role="button" aria-label="Smart slim upload ZIP to selected VPS">
+      <div class="upload-dropzone" id="${type}InvDropzone" tabindex="0" role="button" aria-label="Smart slim upload ZIP to Contabo library">
         <p>Drag & drop a car/track ZIP here</p>
-        <p class="upload-hint">Smart upload: scans the ZIP in-browser, keeps only <strong>server-slim</strong> Pack files (~2&nbsp;MB), skips identical hashes, uploads changed files only. Full client kn5/dds never leave your PC.</p>
+        <p class="upload-hint">Uploads to the <strong>Contabo library (S3)</strong> only — not to any VPS. VPS pull mods when a server needs them. Browser keeps only <strong>server-slim</strong> Pack files; full kn5/dds never leave your PC.</p>
         <input type="file" id="${type}InvFile" accept=".zip,application/zip" hidden>
         <button type="button" class="btn btn-primary btn-sm" id="${type}InvPickBtn">Choose ZIP</button>
-        <button type="button" class="btn btn-primary btn-sm" id="${type}InvUploadBtn" disabled>Upload to VPS</button>
+        <button type="button" class="btn btn-primary btn-sm" id="${type}InvUploadBtn" disabled>Upload to library (S3)</button>
         <div class="progress-bar" id="${type}InvProgress" hidden>
           <div class="progress-bar-fill" id="${type}InvProgressFill"></div>
         </div>
@@ -200,6 +244,17 @@ function bindModCatalogPanel(type) {
   document.getElementById(`${type}InvRefreshBtn`)?.addEventListener('click', () => {
     void loadModCatalog(type);
   });
+  document.getElementById(`${type}ViewLibraryBtn`)?.addEventListener('click', () => {
+    catalogViewByType[type] = 'library';
+    syncCatalogViewButtons(type);
+    void loadModCatalog(type);
+  });
+  document.getElementById(`${type}ViewVpsBtn`)?.addEventListener('click', () => {
+    catalogViewByType[type] = 'vps';
+    syncCatalogViewButtons(type);
+    void loadModCatalog(type);
+  });
+  syncCatalogViewButtons(type);
 
   const fileInput = /** @type {HTMLInputElement | null} */ (document.getElementById(`${type}InvFile`));
   const dropzone = document.getElementById(`${type}InvDropzone`);
@@ -266,6 +321,23 @@ function bindModCatalogPanel(type) {
 
 /** @type {Record<string, import('../lib/zipSlimScan.js').SlimZipScan | null>} */
 const slimScanByType = { cars: null, tracks: null };
+
+/** @param {string} type */
+function syncCatalogViewButtons(type) {
+  const view = catalogViewByType[type] || 'library';
+  const libBtn = document.getElementById(`${type}ViewLibraryBtn`);
+  const vpsBtn = document.getElementById(`${type}ViewVpsBtn`);
+  const edgeWrap = document.getElementById(`${type}EdgeSelectWrap`);
+  const search = /** @type {HTMLInputElement | null} */ (document.getElementById(`${type}Search`));
+  libBtn?.classList.toggle('btn-primary', view === 'library');
+  libBtn?.classList.toggle('btn-ghost', view !== 'library');
+  vpsBtn?.classList.toggle('btn-primary', view === 'vps');
+  vpsBtn?.classList.toggle('btn-ghost', view !== 'vps');
+  if (edgeWrap) edgeWrap.style.display = view === 'vps' ? '' : 'none';
+  if (search) {
+    search.placeholder = view === 'library' ? 'Search library…' : 'Search on this VPS…';
+  }
+}
 
 /**
  * @param {string} type
@@ -374,12 +446,8 @@ function uploadUi(type) {
   };
 }
 
-/** Smart slim upload (default). @param {string} type */
+/** Smart slim upload to Contabo library (S3). @param {string} type */
 async function uploadInventorySlim(type) {
-  if (!catalogEdgeId) {
-    showToast('No VPS selected', 'error');
-    return;
-  }
   const ui = uploadUi(type);
   const file = ui.fileInput?.files?.[0];
   if (!file) {
@@ -414,10 +482,7 @@ async function uploadInventorySlim(type) {
       expectedContentHash: scan.expectedContentHash,
       files: scan.files.map(({ rel, size, sha256 }) => ({ rel, size, sha256 })),
     };
-    const { data: plan } = await apiPost(
-      `/mods/edges/${encodeURIComponent(catalogEdgeId)}/slim-upload/plan`,
-      planBody,
-    );
+    const { data: plan } = await apiPost('/mods/library/slim-upload/plan', planBody);
     if (!plan.ok) {
       showToast(String(plan.message || 'Plan failed'), 'error');
       if (ui.status) ui.status.textContent = String(plan.message || 'Plan failed');
@@ -426,10 +491,12 @@ async function uploadInventorySlim(type) {
 
     if (plan.status === 'already_present') {
       if (ui.fill) ui.fill.style.width = '100%';
-      showToast('Already installed (same contentHash) — nothing to upload', 'success');
-      if (ui.status) ui.status.textContent = 'Already present on VPS';
+      showToast('Already in library (same contentHash) — nothing to upload', 'success');
+      if (ui.status) ui.status.textContent = 'Already in Contabo library';
       if (ui.fileInput) ui.fileInput.value = '';
       slimScanByType[type] = null;
+      catalogViewByType[type] = 'library';
+      syncCatalogViewButtons(type);
       await loadModCatalog(type);
       return;
     }
@@ -449,7 +516,7 @@ async function uploadInventorySlim(type) {
     if (ui.status) {
       ui.status.textContent =
         needed.length === 0
-          ? 'All slim files already on VPS — committing…'
+          ? 'Committing to library…'
           : `Uploading ${needed.length} file(s) (${formatBytes(totalBytes)})…`;
     }
 
@@ -459,7 +526,7 @@ async function uploadInventorySlim(type) {
         if (!local) throw new Error(`Missing local bytes for ${meta.rel}`);
         await withRetry(async () => {
           const { data, res } = await apiPutBinaryWithProgress(
-            `/mods/edges/${encodeURIComponent(catalogEdgeId)}/slim-upload/file`,
+            '/mods/library/slim-upload/file',
             local.bytes,
             {
               'X-Slim-Session-Id': sessionId,
@@ -488,11 +555,8 @@ async function uploadInventorySlim(type) {
       },
     );
 
-    if (ui.status) ui.status.textContent = 'Committing & verifying integrity…';
-    const { data: commit } = await apiPost(
-      `/mods/edges/${encodeURIComponent(catalogEdgeId)}/slim-upload/commit`,
-      { sessionId },
-    );
+    if (ui.status) ui.status.textContent = 'Packing tar.gz → Contabo S3…';
+    const { data: commit } = await apiPost('/mods/library/slim-upload/commit', { sessionId });
     if (!commit.ok) {
       showToast(String(commit.message || 'Commit failed'), 'error');
       if (ui.status) ui.status.textContent = String(commit.message || 'Commit failed');
@@ -501,8 +565,8 @@ async function uploadInventorySlim(type) {
 
     if (ui.fill) ui.fill.style.width = '100%';
     let msg =
-      String(commit.message || 'Installed') +
-      (needed.length ? ` (${needed.length} uploaded, ${scan.files.length - needed.length} skipped)` : '');
+      String(commit.message || 'Uploaded to library') +
+      (needed.length ? ` (${needed.length} files)` : '');
     if (commit.hostCatalogSynced === false) {
       msg += ` — Convex sync skipped${commit.hostCatalogSyncError ? `: ${commit.hostCatalogSyncError}` : ''}`;
       showToast(msg, 'error');
@@ -512,6 +576,8 @@ async function uploadInventorySlim(type) {
     if (ui.status) ui.status.textContent = msg;
     if (ui.fileInput) ui.fileInput.value = '';
     slimScanByType[type] = null;
+    catalogViewByType[type] = 'library';
+    syncCatalogViewButtons(type);
     await loadModCatalog(type);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Upload failed';
@@ -520,7 +586,7 @@ async function uploadInventorySlim(type) {
   } finally {
     if (ui.btn) {
       ui.btn.disabled = !ui.fileInput?.files?.length;
-      ui.btn.textContent = 'Upload to VPS';
+      ui.btn.textContent = 'Upload to library (S3)';
     }
     if (ui.pickBtn) ui.pickBtn.disabled = false;
     ui.dropzone?.classList.remove('is-uploading');
@@ -537,24 +603,45 @@ async function uploadInventorySlim(type) {
 function renderCategoryFilters(type) {
   const el = document.getElementById(`${type}CategoryFilters`);
   if (!el) return;
-  const items = inventoryByType[type] || [];
+  const view = catalogViewByType[type] || 'library';
   /** @type {Map<string, number>} */
   const counts = new Map();
   let uncategorized = 0;
-  for (const item of items) {
-    const pkg = findPackageForInventory(item, type);
-    const cat =
-      typeof pkg?.category === 'string' && pkg.category.trim() ? pkg.category.trim().toLowerCase() : '';
-    if (!cat) {
-      uncategorized += 1;
-      continue;
+  let itemsLength = 0;
+  if (view === 'library') {
+    const items = libraryByType[type] || [];
+    itemsLength = items.length;
+    for (const item of items) {
+      const cat =
+        typeof item.category === 'string' && item.category.trim()
+          ? item.category.trim().toLowerCase()
+          : '';
+      if (!cat) {
+        uncategorized += 1;
+        continue;
+      }
+      counts.set(cat, (counts.get(cat) || 0) + 1);
     }
-    counts.set(cat, (counts.get(cat) || 0) + 1);
+  } else {
+    const items = inventoryByType[type] || [];
+    itemsLength = items.length;
+    for (const item of items) {
+      const pkg = findPackageForInventory(item, type);
+      const cat =
+        typeof pkg?.category === 'string' && pkg.category.trim()
+          ? pkg.category.trim().toLowerCase()
+          : '';
+      if (!cat) {
+        uncategorized += 1;
+        continue;
+      }
+      counts.set(cat, (counts.get(cat) || 0) + 1);
+    }
   }
   const active = categoryFilterByType[type] || '';
   const cats = [...counts.keys()].sort((a, b) => a.localeCompare(b));
   const chips = [
-    `<button type="button" class="mod-category-chip${active === '' ? ' active' : ''}" data-category-filter="">All (${items.length})</button>`,
+    `<button type="button" class="mod-category-chip${active === '' ? ' active' : ''}" data-category-filter="">All (${itemsLength})</button>`,
     ...cats.map(
       (cat) =>
         `<button type="button" class="mod-category-chip${active === cat ? ' active' : ''}" data-category-filter="${escapeAttr(cat)}">${escapeHtml(cat)} (${counts.get(cat)})</button>`,
@@ -577,6 +664,37 @@ function filterCatalog(type) {
 
   const term = (searchInput?.value || '').toLowerCase().trim();
   const categoryFilter = categoryFilterByType[type] || '';
+  const view = catalogViewByType[type] || 'library';
+
+  if (view === 'library') {
+    const items = libraryByType[type] || [];
+    const filtered = items.filter((item) => {
+      const cat =
+        typeof item.category === 'string' && item.category.trim()
+          ? item.category.trim().toLowerCase()
+          : '';
+      if (categoryFilter === '__none__' && cat) return false;
+      if (categoryFilter && categoryFilter !== '__none__' && cat !== categoryFilter) return false;
+      if (!term) return true;
+      const hay = `${item.displayName || ''} ${item.acContentSlug || ''} ${cat}`.toLowerCase();
+      return hay.includes(term);
+    });
+    filtered.sort((a, b) =>
+      String(a.displayName || '').localeCompare(String(b.displayName || '')),
+    );
+    if (filteredSpan) filteredSpan.textContent = `${filtered.length} of ${items.length}`;
+    renderCategoryFilters(type);
+    if (!filtered.length) {
+      list.innerHTML = emptyStateHtml(
+        items.length ? 'No matches' : `No ${type} in Contabo library yet — drop a ZIP above`,
+      );
+      return;
+    }
+    list.innerHTML = filtered.map((item) => renderLibraryCard(item, type)).join('');
+    highlightSelectedCatalogCard(type);
+    return;
+  }
+
   const items = inventoryByType[type] || [];
   const filtered = items.filter((item) => {
     const pkg = findPackageForInventory(item, type);
@@ -615,7 +733,7 @@ function filterCatalog(type) {
       items.length
         ? 'No matches'
         : catalogEdgeId
-          ? `No ${type} on this VPS yet — drop a ZIP above (slim upload)`
+          ? `No ${type} cached on this VPS`
           : 'No VPS registered',
     );
     return;
@@ -691,8 +809,8 @@ function findInventoryItem(type, invSlug, artifactId, packageId) {
  */
 async function deleteCatalogPackage(type, packageId, displayName) {
   const confirmed = await showConfirm(
-    'Delete from catalog',
-    `Delete "${displayName}" from the hub catalog (ZIP + metadata)? This cannot be undone. The VPS may keep a local cache until Remove / GC.`,
+    'Delete from library',
+    `Delete "${displayName}" from the Contabo library (S3 object + catalog)? This cannot be undone. VPS caches may remain until Remove from VPS.`,
     'Delete',
   );
   if (!confirmed) return;
@@ -782,11 +900,13 @@ export async function loadModCatalog(type) {
   const list = document.getElementById(`${type}List`);
   if (list) list.innerHTML = skeletonHtml(type);
   const hint = document.getElementById(`${type}InvHint`);
+  syncCatalogViewButtons(type);
 
   try {
-    const [{ data: edgesData }, { data: modsData }] = await Promise.all([
+    const [{ data: edgesData }, { data: modsData }, { data: libData }] = await Promise.all([
       apiGet('/mods/edges'),
       apiGet('/mods'),
+      apiGet('/mods/library'),
     ]);
 
     catalogEdges = edgesData?.ok ? edgesData.edges || [] : [];
@@ -796,6 +916,27 @@ export async function loadModCatalog(type) {
     packagesByType[type] = modsData?.ok
       ? (modsData.packages || []).filter((pkg) => pkg.kind === kind)
       : [];
+
+    const libItems = libData?.ok ? libData.items || [] : [];
+    libraryByType[type] = libItems.filter((i) => i.kind === kind);
+
+    const view = catalogViewByType[type] || 'library';
+    if (view === 'library') {
+      const n = libraryByType[type].length;
+      const orphanN = Array.isArray(libData?.s3OrphanKeys) ? libData.s3OrphanKeys.length : 0;
+      if (hint) {
+        hint.textContent =
+          `Contabo library · ${n} ${type}` +
+          (libData?.s3ObjectCount != null ? ` · ${libData.s3ObjectCount} S3 objects` : '') +
+          (orphanN ? ` · ${orphanN} orphan key(s)` : '') +
+          '. Upload above; open a card to install on a VPS when needed.';
+      }
+      const searchInput = /** @type {HTMLInputElement | null} */ (document.getElementById(`${type}Search`));
+      if (searchInput) searchInput.value = '';
+      categoryFilterByType[type] = '';
+      filterCatalog(type);
+      return;
+    }
 
     if (!catalogEdgeId) {
       inventoryByType[type] = [];
@@ -817,7 +958,7 @@ export async function loadModCatalog(type) {
     const edgeLabel = inv.label || inv.edgeId || catalogEdgeId;
     const n = inventoryByType[type].length;
     if (hint) {
-      hint.textContent = `${edgeLabel} · ${n} ${type} on disk. Slim-upload above; open a card to install from S3 / remove.`;
+      hint.textContent = `${edgeLabel} · ${n} ${type} cached on disk. Open a card to remove cache.`;
     }
 
     const searchInput = /** @type {HTMLInputElement | null} */ (document.getElementById(`${type}Search`));
@@ -1041,7 +1182,7 @@ export async function openCatalogDistribution(type, artifactId, displayName, opt
         </div>
         <div class="mod-edit-actions">
           <button type="button" class="btn btn-primary btn-sm" data-side-save>Save changes</button>
-          <button type="button" class="btn btn-danger btn-sm" data-side-delete>Delete mod</button>
+          <button type="button" class="btn btn-danger btn-sm" data-side-delete>Delete from library</button>
         </div>`
             : ''
         }
@@ -1083,12 +1224,7 @@ export async function openCatalogDistribution(type, artifactId, displayName, opt
         <div class="modal-actions mod-side-dist-actions">
           <button type="button" class="btn btn-primary btn-sm" data-sync-edges="${escapeAttr(resolvedArtifactId)}">Install on selected VPS from library (S3)</button>
           <button type="button" class="btn btn-ghost btn-sm" data-verify-edges="${escapeAttr(resolvedArtifactId)}">Verify</button>
-          <button type="button" class="btn btn-danger btn-sm" data-remove-edges="${escapeAttr(resolvedArtifactId)}">Remove from VPS</button>
-          ${
-            acSlug && catalogEdgeId
-              ? `<button type="button" class="btn btn-danger btn-sm" data-delete-local-slug="${escapeAttr(acSlug)}" data-delete-local-kind="${escapeAttr(kindForType(type))}">Delete folder on this VPS</button>`
-              : ''
-          }
+          <button type="button" class="btn btn-danger btn-sm" data-remove-edges="${escapeAttr(resolvedArtifactId)}">Remove from selected VPS</button>
         </div>
       </section>`
           : `<section class="mod-dist-section">

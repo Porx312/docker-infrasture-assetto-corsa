@@ -244,3 +244,45 @@ export async function deleteMasterArtifact(storageKey: string): Promise<void> {
   const { client, cfg } = await createS3Client();
   await client.send(new DeleteObjectCommand({ Bucket: cfg.bucket, Key: storageKey }));
 }
+
+/** Delete a Contabo/S3 object by key (library tar.gz). */
+export async function deleteCanonicalObject(key: string): Promise<void> {
+  if (storageMode() !== 's3') return;
+  const k = key.trim();
+  if (!k) return;
+  const { DeleteObjectCommand } = await import('@aws-sdk/client-s3');
+  const { client, cfg } = await createS3Client();
+  await client.send(new DeleteObjectCommand({ Bucket: cfg.bucket, Key: k }));
+}
+
+/** List object keys under artifacts/ (ops / library inventory). */
+export async function listCanonicalArtifactKeys(maxKeys = 500): Promise<
+  Array<{ key: string; size: number; lastModified?: string }>
+> {
+  if (storageMode() !== 's3') return [];
+  const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+  const { client, cfg } = await createS3Client();
+  const out: Array<{ key: string; size: number; lastModified?: string }> = [];
+  let token: string | undefined;
+  do {
+    const page = await client.send(
+      new ListObjectsV2Command({
+        Bucket: cfg.bucket,
+        Prefix: 'artifacts/',
+        ContinuationToken: token,
+        MaxKeys: Math.min(1000, maxKeys - out.length),
+      }),
+    );
+    for (const obj of page.Contents || []) {
+      if (!obj.Key) continue;
+      out.push({
+        key: obj.Key,
+        size: Number(obj.Size || 0),
+        lastModified: obj.LastModified?.toISOString(),
+      });
+      if (out.length >= maxKeys) return out;
+    }
+    token = page.IsTruncated ? page.NextContinuationToken : undefined;
+  } while (token);
+  return out;
+}

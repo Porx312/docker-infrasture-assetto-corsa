@@ -15,6 +15,7 @@ import {
 import {
   isModPeerPullEnabled,
   isModS3PullEnabled,
+  isS3CanonicalStorageKey,
   readModS3Fields,
   type ModS3ManifestFields,
 } from '@projectd/ac-data-shared/mods/modS3Manifest.js';
@@ -32,6 +33,7 @@ import {
 import { getModPool } from './db.js';
 import { syncFleetEdgesToDb } from './fleetEdgeDb.js';
 import {
+  deleteCanonicalObject,
   deleteMasterArtifact,
   getArtifactDownloadUrl,
   localMasterArtifactExists,
@@ -180,25 +182,28 @@ export async function ensureArtifactOnEdge(
   if (!art) {
     throw new Error('Artifact not found');
   }
-  if (!isEdgeOwnedStorageKey(art.storage_key)) {
+  const s3 = canPullFromS3(art.manifest_json);
+  const rawS3 = readModS3Fields(art.manifest_json);
+  if (s3 || isS3CanonicalStorageKey(art.storage_key)) {
+    if (!s3) {
+      throw new Error(
+        'artifact_blob_missing: s3_canonical artifact missing validated s3Key on manifest',
+      );
+    }
+    // Library install path — no peer / hub ZIP required.
+  } else if (!isEdgeOwnedStorageKey(art.storage_key)) {
     assertLocalMasterBlobPresent(art.storage_key, art.sha256);
-  } else {
-    const s3 = canPullFromS3(art.manifest_json);
-    const rawS3 = readModS3Fields(art.manifest_json);
-    if (s3) {
-      // Canonical install path — no peer required.
-    } else if (isModPeerPullEnabled()) {
-      const prefer =
-        parseEdgeFolderStorageKey(art.storage_key)?.edgeId ??
-        parseEdgeBlobStorageKey(art.storage_key)?.edgeId ??
-        art.source_edge_id;
-      const peer = await findPeerEdgeWithBlob(artifactId, art.sha256, prefer);
-      if (!peer) {
-        throw new Error(remoteSourceError(Boolean(rawS3)));
-      }
-    } else {
+  } else if (isModPeerPullEnabled()) {
+    const prefer =
+      parseEdgeFolderStorageKey(art.storage_key)?.edgeId ??
+      parseEdgeBlobStorageKey(art.storage_key)?.edgeId ??
+      art.source_edge_id;
+    const peer = await findPeerEdgeWithBlob(artifactId, art.sha256, prefer);
+    if (!peer) {
       throw new Error(remoteSourceError(Boolean(rawS3)));
     }
+  } else {
+    throw new Error(remoteSourceError(Boolean(rawS3)));
   }
   await syncFleetEdgesToDb();
   const normalizedEdge = edgeId.toLowerCase();
@@ -222,7 +227,8 @@ export async function distributeArtifact(
   if (!art) {
     throw new Error('Artifact not found');
   }
-  if (!isEdgeOwnedStorageKey(art.storage_key)) {
+  const s3 = canPullFromS3(art.manifest_json);
+  if (!s3 && !isEdgeOwnedStorageKey(art.storage_key) && !isS3CanonicalStorageKey(art.storage_key)) {
     assertLocalMasterBlobPresent(art.storage_key, art.sha256);
   }
   await syncFleetEdgesToDb();
@@ -230,17 +236,20 @@ export async function distributeArtifact(
     edgeIds === 'all'
       ? listFleetEdges().map((e) => e.id)
       : edgeIds.map((id) => id.toLowerCase());
-  if (isEdgeOwnedStorageKey(art.storage_key)) {
-    const s3 = canPullFromS3(art.manifest_json);
-    if (s3) {
-      // Install from library (S3) via ensure — no peer mesh.
-      let enqueued = 0;
-      for (const edgeId of targets) {
-        const { created } = await ensureArtifactOnEdge(artifactId, edgeId);
-        if (created) enqueued += 1;
-      }
-      return { enqueued };
+  if (s3 || isS3CanonicalStorageKey(art.storage_key)) {
+    if (!s3) {
+      throw new Error(
+        'artifact_blob_missing: s3_canonical artifact missing validated s3Key on manifest',
+      );
     }
+    let enqueued = 0;
+    for (const edgeId of targets) {
+      const { created } = await ensureArtifactOnEdge(artifactId, edgeId);
+      if (created) enqueued += 1;
+    }
+    return { enqueued };
+  }
+  if (isEdgeOwnedStorageKey(art.storage_key)) {
     if (!isModPeerPullEnabled()) {
       throw new Error(
         'peer_pull_disabled: artifact has no validated s3Key — wait for S3 promote, re-upload, or set MOD_PEER_PULL_ENABLED=1',
@@ -399,7 +408,11 @@ export async function forceDeleteModPackage(packageId: string): Promise<{
   }
 
   for (const art of artifacts) {
-    if (!isEdgeOwnedStorageKey(art.storage_key)) {
+    const s3 = readModS3Fields(art.manifest_json);
+    if (s3?.s3Key) {
+      await deleteCanonicalObject(s3.s3Key).catch(() => undefined);
+    }
+    if (!isEdgeOwnedStorageKey(art.storage_key) && !isS3CanonicalStorageKey(art.storage_key)) {
       await deleteMasterArtifact(art.storage_key).catch(() => undefined);
     }
   }
@@ -524,7 +537,41 @@ export async function acquireJobForEdge(edgeId: string, agentId: string): Promis
       let s3ObjectSha256: string | undefined;
       let s3ObjectSizeBytes: number | undefined;
       if (job.operation === 'install' || job.operation === 'upgrade') {
-        if (isEdgeFolderStorageKey(art.storage_key)) {
+        const s3Early = canPullFromS3(art.manifest_json);
+        if (isS3CanonicalStorageKey(art.storage_key) || (s3Early && !isEdgeFolderStorageKey(art.storage_key) && !isEdgeBlobStorageKey(art.storage_key))) {
+          const s3 = s3Early;
+          if (!s3) {
+            await forceReleaseModLock(edgeId, art.sha256);
+            await client.query(
+              `UPDATE sync_jobs SET state = 'failed', error_message = $2, finished_at = NOW() WHERE id = $1`,
+              [job.id, 's3_canonical missing validated s3Key'],
+            );
+            continue;
+          }
+          try {
+            const signed = await getArtifactDownloadUrl(
+              s3.s3Key,
+              s3.s3Sha256,
+              s3.s3SizeBytes,
+            );
+            s3DownloadUrl = signed.url;
+            s3ObjectSha256 = s3.s3Sha256;
+            s3ObjectSizeBytes = s3.s3SizeBytes;
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            await forceReleaseModLock(edgeId, art.sha256);
+            await client.query(
+              `UPDATE sync_jobs SET state = 'failed', error_message = $2, finished_at = NOW() WHERE id = $1`,
+              [job.id, `S3 download unavailable: ${msg}`],
+            );
+            await client.query(
+              `UPDATE edge_artifact_inventory SET status = 'ERROR', error_message = $3, updated_at = NOW()
+               WHERE edge_id = $1 AND artifact_id = $2`,
+              [edgeId, job.artifact_id, 'S3 download unavailable'],
+            );
+            continue;
+          }
+        } else if (isEdgeFolderStorageKey(art.storage_key)) {
           const parsed = parseEdgeFolderStorageKey(art.storage_key);
           const prefer = parsed?.edgeId ?? art.source_edge_id ?? null;
           const peer = await findPeerEdgeWithBlob(job.artifact_id, art.sha256, prefer);
@@ -808,6 +855,16 @@ export async function getDownloadUrlForArtifact(
   const art = await getArtifactById(artifactId);
   if (!art) {
     throw new Error('Artifact not found');
+  }
+  const s3Any = canPullFromS3(art.manifest_json);
+  if (s3Any && (isS3CanonicalStorageKey(art.storage_key) || isEdgeFolderStorageKey(art.storage_key))) {
+    const signed = await getArtifactDownloadUrl(s3Any.s3Key, s3Any.s3Sha256, s3Any.s3SizeBytes);
+    return {
+      url: signed.url,
+      expiresInSec: signed.expiresInSec,
+      sha256: s3Any.s3Sha256,
+      sizeBytes: s3Any.s3SizeBytes,
+    };
   }
   if (isEdgeFolderStorageKey(art.storage_key)) {
     const s3 = canPullFromS3(art.manifest_json);

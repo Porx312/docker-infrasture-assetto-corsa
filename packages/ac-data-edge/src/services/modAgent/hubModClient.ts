@@ -102,6 +102,8 @@ export async function refreshServerModsOnHub(input: {
   serverName: string;
   track?: string;
   cars?: string;
+  /** Default true: hub enqueues S3 install for missing catalog mods. */
+  installMissing?: boolean;
 }): Promise<{ ready: boolean; items: Array<{ acContentSlug: string; status: string }> }> {
   const res = await hubFetch(
     `/mod-agent/v1/servers/${encodeURIComponent(input.serverName)}/mods/refresh`,
@@ -110,6 +112,7 @@ export async function refreshServerModsOnHub(input: {
       body: JSON.stringify({
         track: input.track,
         cars: input.cars,
+        installMissing: input.installMissing !== false,
       }),
     },
   );

@@ -89,15 +89,22 @@ CONVEX_WORKER_SECRET=...   # same as edges (admin proxy + agent + peer tree pull
 # MOD_PEER_PULL_ENABLED=0     # peer mesh OFF by default (set 1 only for emergency rollback)
 ```
 
-### Contabo S3 (canonical) + local cache
+### Contabo S3 library + install on-demand
 
 Recommended staging/prod:
 
-`MOD_STORAGE_MODE=s3` + `MOD_S3_CANONICAL_UPLOAD=1` + `MOD_S3_PULL_ENABLED=1` + `MOD_PEER_PULL_ENABLED=0`.
+`MOD_STORAGE_MODE=s3` + `MOD_S3_PULL_ENABLED=1` + `MOD_PEER_PULL_ENABLED=0`.
 
-1. Slim commit / adopt still writes `CONTENT_PATH` on the upload VPS and registers `storage_origin=edge_folder` (unchanged). Inventory **READY / Local only** stays per VPS.
-2. Hub promotes **server-slim tar.gz** to Contabo → `manifest_json.s3Key` / `s3Sha256` / `s3SizeBytes` / `s3Format` (never changes `storage_origin`). Promote failure does **not** break register.
-3. Install on another VPS: **local cache** → if miss and `s3Key` valid → **S3** presign (hash object → extract → verify tree `contentHash` → READY). Partial files never READY.
+**Primary upload (admin):** `POST/PUT /mods/library/slim-upload/{plan,file,commit}` — hub packs server-slim `tar.gz` → Contabo → registers `storage_origin=s3_canonical` with validated `manifest_json.s3*` **without writing any VPS**. UI: **Upload to library (S3)**; catalog default view **Library (S3)**.
+
+**Install when needed:** starting a server refreshes requirements, enqueues missing installs from S3 (`ensureArtifactOnEdge`), and the edge **waits** (`MOD_START_INSTALL_TIMEOUT_MS`, default 5m) until `CONTENT_PATH` has the mods or times out with `MODS_NOT_READY`. Manual pre-warm: **Install on selected VPS from library (S3)**.
+
+**VPS cache view:** optional admin tab to see what is already on disk; **Remove from selected VPS** clears cache only. **Delete from library** removes catalog + S3 object.
+
+**Legacy:** edge slim-upload / adopt → `edge_folder` + optional `MOD_S3_CANONICAL_UPLOAD=1` promote still exist for rollback / linking folders already on a VPS.
+
+1. Library upload → Contabo key `artifacts/sha256/…/….tar.gz` + DB `s3Key` / `s3Sha256` / `s3SizeBytes` / `s3Format`.
+2. Install on a VPS: **local cache** → if miss and `s3Key` valid → **S3** presign (hash object → extract → verify tree `contentHash` → READY). Partial files never READY.
 4. Peer tree/blob copy runs **only** if `MOD_PEER_PULL_ENABLED=1` (or as fallback when S3 presign fails and peer flag is on). Admin button **Install on selected VPS from library (S3)** calls ensure/distribute which uses S3 when `s3Key` is present; without `s3Key` the UI blocks with a clear message.
 5. Rollback peer mesh: `MOD_PEER_PULL_ENABLED=1`. Disable S3 install: `MOD_S3_PULL_ENABLED=0`. No S3 lifecycle/GC in this phase.
 

@@ -188,14 +188,34 @@ export async function modAgentServerModsRefreshHandler(req: Request, res: Respon
   }
   const edgeId = readEdgeIdFromRequest(req);
   const serverName = String(req.params.name || '');
-  const { track, cars, entries } = req.body as {
+  const { track, cars, entries, installMissing } = req.body as {
     track?: string;
     cars?: string;
     entries?: Array<{ model?: string }>;
+    /** When true (default), enqueue S3 install for missing catalog mods. */
+    installMissing?: boolean;
   };
   try {
     await refreshServerModRequirements({ serverName, edgeId, track, cars, entries });
-    const readiness = await getServerModReadiness(serverName, edgeId);
+    let readiness = await getServerModReadiness(serverName, edgeId);
+    const shouldInstall = installMissing !== false;
+    if (shouldInstall && !readiness.ready) {
+      try {
+        const { syncMissingModsForServer } = await import(
+          '../services/mods/serverModRequirements.js'
+        );
+        const enqueued = await syncMissingModsForServer(serverName, edgeId);
+        if (enqueued > 0) {
+          console.log(
+            `[mod-agent] sync-missing server=${serverName} edge=${edgeId} enqueued=${enqueued}`,
+          );
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`[mod-agent] sync-missing failed: ${message}`);
+      }
+      readiness = await getServerModReadiness(serverName, edgeId);
+    }
     res.json({ ok: true, ...readiness });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

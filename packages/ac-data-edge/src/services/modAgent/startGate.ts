@@ -19,16 +19,33 @@ function localContentExists(slug: string): boolean {
   );
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function unresolvedItems(
+  items: Array<{ acContentSlug: string; status: string }>,
+): Array<{ acContentSlug: string; status: string }> {
+  const unresolved: Array<{ acContentSlug: string; status: string }> = [];
+  for (const item of items) {
+    if (item.status === 'READY') continue;
+    if (localContentExists(item.acContentSlug)) continue;
+    unresolved.push(item);
+  }
+  return unresolved;
+}
+
 /**
- * Before AC start: prefer hub readiness, but never block when the slug is already
- * on this VPS CONTENT_PATH (inventory / catalog on disk). Remote hub may lag or
- * lack mod_packages rows for edge-only uploads.
+ * Before AC start: refresh hub requirements, enqueue missing installs from S3,
+ * then wait (poll) until CONTENT_PATH has what we need or timeout.
  */
 export async function assertModsReadyForServerStart(serverName: string): Promise<ModStartGateResult> {
   if (!isModAgentEnabled()) {
     return { ok: true };
   }
   const config = readServerInstanceConfig(serverName);
+  const timeoutMs = Number(process.env.MOD_START_INSTALL_TIMEOUT_MS || 300_000);
+  const pollMs = Number(process.env.MOD_START_INSTALL_POLL_MS || 2500);
 
   let readiness: { ready: boolean; items: Array<{ acContentSlug: string; status: string }> };
   try {
@@ -36,6 +53,7 @@ export async function assertModsReadyForServerStart(serverName: string): Promise
       serverName,
       track: config.track,
       cars: config.cars,
+      installMissing: true,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -60,21 +78,36 @@ export async function assertModsReadyForServerStart(serverName: string): Promise
     }
   }
 
-  if (readiness.ready) {
-    return { ok: true };
-  }
-
-  const unresolved: Array<{ acContentSlug: string; status: string }> = [];
-  for (const item of readiness.items) {
-    if (item.status === 'READY') continue;
-    if (localContentExists(item.acContentSlug)) {
-      continue;
-    }
-    unresolved.push(item);
-  }
-
+  const deadline = Date.now() + Math.max(0, timeoutMs);
+  let unresolved = unresolvedItems(readiness.items);
   if (unresolved.length === 0) {
     return { ok: true };
+  }
+
+  console.log(
+    `[mod-start-gate] waiting for ${unresolved.length} mod(s) (timeout=${timeoutMs}ms): ${unresolved
+      .map((i) => i.acContentSlug)
+      .join(', ')}`,
+  );
+
+  while (Date.now() < deadline) {
+    await sleep(pollMs);
+    try {
+      readiness = await refreshServerModsOnHub({
+        serverName,
+        track: config.track,
+        cars: config.cars,
+        installMissing: false,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[mod-start-gate] poll failed: ${message}`);
+    }
+    unresolved = unresolvedItems(readiness.items);
+    if (unresolved.length === 0) {
+      console.log(`[mod-start-gate] mods ready for ${serverName}`);
+      return { ok: true };
+    }
   }
 
   return {

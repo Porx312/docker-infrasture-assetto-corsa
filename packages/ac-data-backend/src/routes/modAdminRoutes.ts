@@ -30,6 +30,10 @@ import {
   modEdgeSlimUploadPlanHandler,
   modEdgeSlimUploadFileHandler,
   modEdgeSlimUploadCommitHandler,
+  modLibrarySlimUploadPlanHandler,
+  modLibrarySlimUploadFileHandler,
+  modLibrarySlimUploadCommitHandler,
+  modLibraryListHandler,
 } from '../controller/modController.js';
 
 const router = Router();
@@ -51,6 +55,23 @@ const previewUpload = multer({
 });
 
 router.get('/mods', adminAuth, listModsHandler);
+router.get('/mods/library', adminAuth, (req, res) => {
+  void modLibraryListHandler(req, res);
+});
+router.post('/mods/library/slim-upload/plan', adminAuth, (req, res) => {
+  void modLibrarySlimUploadPlanHandler(req, res);
+});
+router.put(
+  '/mods/library/slim-upload/file',
+  adminAuth,
+  raw({ type: '*/*', limit: Number(process.env.MOD_SLIM_UPLOAD_MAX_FILE_BYTES || 64 * 1024 * 1024) }),
+  (req, res) => {
+    void modLibrarySlimUploadFileHandler(req, res);
+  },
+);
+router.post('/mods/library/slim-upload/commit', adminAuth, (req, res) => {
+  void modLibrarySlimUploadCommitHandler(req, res);
+});
 router.get('/mods/edges', adminAuth, listModEdgesHandler);
 router.get('/mods/edges/:edgeId/inventory', adminAuth, (req, res) => {
   void modEdgeInventoryHandler(req, res);

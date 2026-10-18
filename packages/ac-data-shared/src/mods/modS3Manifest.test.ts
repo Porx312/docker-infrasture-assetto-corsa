@@ -6,14 +6,24 @@ import {
   isModPeerPullEnabled,
   isModS3CanonicalUploadEnabled,
   isModS3PullEnabled,
+  isS3CanonicalStorageKey,
   mergeModS3FieldsIntoManifest,
   MOD_S3_FORMAT_TAR_GZ,
   readModS3Fields,
+  s3CanonicalStorageKey,
 } from './modS3Manifest.js';
 
 test('artifactTarGzStorageKey nests by hash prefix', () => {
   const h = 'a'.repeat(64);
   assert.equal(artifactTarGzStorageKey(h), `artifacts/sha256/aa/aa/${h}.tar.gz`);
+});
+
+test('s3CanonicalStorageKey round-trips', () => {
+  const h = 'c'.repeat(64);
+  const key = s3CanonicalStorageKey(h);
+  assert.equal(key, `s3-canonical:${h}`);
+  assert.equal(isS3CanonicalStorageKey(key), true);
+  assert.equal(isS3CanonicalStorageKey('edge-folder:eu:car:x:' + h), false);
 });
 
 test('readModS3Fields rejects invalid or incomplete refs', () => {
