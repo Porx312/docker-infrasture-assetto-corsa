@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { applyCmNameSuffix } from '@projectd/ac-data-shared/controller/cmWrapper.js';
 import { derivePortsFromFolderName } from '../controller/serverPorts.js';
-import { startServerCore, stopServerCore } from '../controller/controller.js';
+import { stopServerCore } from '../controller/controller.js';
 import { listServerInstanceNames } from '@projectd/ac-data-shared/services/serverBranding.js';
 import { getServerRuntime, serverBinaryExists, type ServerRuntimeInfo } from './serverRuntime.js';
 import { readServerInstanceConfig } from '@projectd/ac-data-shared/services/serverInstanceConfig.js';
@@ -264,8 +264,17 @@ export async function provisionServerInstance(options: {
     if (!serverBinaryExists(serverName)) {
       message += ' (binary missing — not started)';
     } else {
-      const startResult = startServerCore(serverName);
-      message += startResult.ok ? ` · ${startResult.message}` : ` · start failed: ${startResult.message}`;
+      const { startServerWithMods } = await import('./modAgent/startGate.js');
+      const startResult = await startServerWithMods(serverName);
+      if (startResult.ok) {
+        message += ` · ${startResult.message}`;
+      } else if (startResult.code === 'MODS_NOT_READY') {
+        message += ` · start blocked (mods not ready): ${(startResult.missing || [])
+          .map((m) => m.acContentSlug)
+          .join(', ')}`;
+      } else {
+        message += ` · start failed: ${startResult.message}`;
+      }
     }
   }
 

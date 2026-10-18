@@ -279,12 +279,29 @@ export async function getServerModReadiness(
   return { ready, items };
 }
 
-export async function syncMissingModsForServer(serverName: string, edgeId: string): Promise<number> {
+export type SyncMissingModsResult = {
+  enqueued: number;
+  errors: Array<{ acContentSlug: string; artifactId: string | null; message: string }>;
+};
+
+export async function syncMissingModsForServer(
+  serverName: string,
+  edgeId: string,
+): Promise<SyncMissingModsResult> {
   const readiness = await getServerModReadiness(serverName, edgeId);
   const { distributeArtifact } = await import('./orchestrator.js');
   let enqueued = 0;
+  const errors: SyncMissingModsResult['errors'] = [];
   for (const item of readiness.items) {
-    if (item.status === 'READY' || !item.artifactId) {
+    if (item.status === 'READY') {
+      continue;
+    }
+    if (!item.artifactId) {
+      errors.push({
+        acContentSlug: item.acContentSlug,
+        artifactId: null,
+        message: `no_catalog_artifact: status=${item.status}`,
+      });
       continue;
     }
     try {
@@ -295,7 +312,12 @@ export async function syncMissingModsForServer(serverName: string, edgeId: strin
       console.warn(
         `[sync-missing] ${item.acContentSlug} artifact=${item.artifactId.slice(0, 8)}…: ${message}`,
       );
+      errors.push({
+        acContentSlug: item.acContentSlug,
+        artifactId: item.artifactId,
+        message,
+      });
     }
   }
-  return enqueued;
+  return { enqueued, errors };
 }

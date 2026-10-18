@@ -4,8 +4,6 @@ import {
   activeServers,
   applyServerConfiguration,
   cleanupOrphanProcesses,
-  restartServerCore,
-  startServerCore,
   stopServerCore,
   ServerConfigPayload,
 } from '../controller/controller.js';
@@ -229,17 +227,23 @@ async function reconcileServer(row: ServerRow, isFirstSnapshot: boolean): Promis
   }
 
   if (running && changed) {
-    const result = await restartServerCore(row.serverName);
+    const { restartServerWithMods } = await import('./modAgent/startGate.js');
+    const result = await restartServerWithMods(row.serverName);
     console.log(
-      `[redis-config-applier] restart ${row.serverName}: ${result.ok ? 'ok' : 'failed'} | ${result.message}`,
+      `[redis-config-applier] restart ${row.serverName}: ${result.ok ? 'ok' : 'failed'} | ${result.message}${
+        result.ok ? '' : result.code === 'MODS_NOT_READY' ? ` missing=${(result.missing || []).map((m) => m.acContentSlug).join(',')}` : ''
+      }`,
     );
   } else if (!running) {
     if (isFirstSnapshot && !RESTART_ON_BOOT) {
       console.log(`[redis-config-applier] ${row.serverName} first snapshot skip (RESTART_ON_BOOT=false)`);
     } else {
-      const result = startServerCore(row.serverName);
+      const { startServerWithMods } = await import('./modAgent/startGate.js');
+      const result = await startServerWithMods(row.serverName);
       console.log(
-        `[redis-config-applier] start ${row.serverName}: ${result.ok ? 'ok' : 'failed'} | ${result.message}`,
+        `[redis-config-applier] start ${row.serverName}: ${result.ok ? 'ok' : 'failed'} | ${result.message}${
+          result.ok ? '' : result.code === 'MODS_NOT_READY' ? ` missing=${(result.missing || []).map((m) => m.acContentSlug).join(',')}` : ''
+        }`,
       );
     }
   } else {

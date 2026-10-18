@@ -319,8 +319,8 @@ export async function serverModSyncMissingHandler(req: Request, res: Response): 
   }
   try {
     const edgeId = await ensureFleetEdgeRegistered(rawEdge);
-    const enqueued = await syncMissingModsForServer(serverName, edgeId);
-    res.json({ ok: true, enqueued });
+    const result = await syncMissingModsForServer(serverName, edgeId);
+    res.json({ ok: true, enqueued: result.enqueued, errors: result.errors });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(400).json({ ok: false, message });

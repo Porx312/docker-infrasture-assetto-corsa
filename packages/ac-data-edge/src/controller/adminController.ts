@@ -15,11 +15,7 @@ import {
   updateServerInstanceConfig,
 } from '@projectd/ac-data-shared/services/serverInstanceConfig.js';
 import { getServerRuntime, serverBinaryExists } from '../services/serverRuntime.js';
-import {
-  restartServerCore,
-  startServerCore,
-  stopServerCore,
-} from './controller.js';
+import { stopServerCore } from './controller.js';
 import {
   deprovisionServerInstance,
   provisionServerInstance,
@@ -74,18 +70,18 @@ export async function startServerAdminHandler(req: Request, res: Response): Prom
       res.status(400).json({ ok: false, message: `Server binary not found: ${serverName}` });
       return;
     }
-    const { assertModsReadyForServerStart } = await import('../services/modAgent/startGate.js');
-    const modGate = await assertModsReadyForServerStart(serverName);
-    if (!modGate.ok) {
+    const { startServerWithMods } = await import('../services/modAgent/startGate.js');
+    const result = await startServerWithMods(serverName);
+    if (!result.ok && result.code === 'MODS_NOT_READY') {
       res.status(409).json({
         ok: false,
-        code: modGate.code,
-        missing: modGate.items,
-        message: 'Required mods are not READY on this VPS',
+        code: result.code,
+        missing: result.missing,
+        installErrors: result.installErrors,
+        message: result.message,
       });
       return;
     }
-    const result = startServerCore(serverName);
     const runtime = getServerRuntime(serverName);
     res.status(result.ok ? 200 : 400).json({
       ok: result.ok,
@@ -121,7 +117,22 @@ export async function stopServerAdminHandler(req: Request, res: Response): Promi
 export async function restartServerAdminHandler(req: Request, res: Response): Promise<void> {
   try {
     const serverName = String(req.params.name || '');
-    const result = await restartServerCore(serverName);
+    const { restartServerWithMods } = await import('../services/modAgent/startGate.js');
+    const result = await restartServerWithMods(serverName);
+    if (!result.ok && result.code === 'MODS_NOT_READY') {
+      const runtime = getServerRuntime(serverName);
+      res.status(409).json({
+        ok: false,
+        code: result.code,
+        missing: result.missing,
+        installErrors: result.installErrors,
+        message: result.message,
+        running: runtime.running,
+        pid: runtime.pid,
+        runtime,
+      });
+      return;
+    }
     const runtime = getServerRuntime(serverName);
     res.status(result.ok ? 200 : 400).json({
       ok: result.ok,

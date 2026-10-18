@@ -4,8 +4,6 @@ import path from 'path';
 import {
   activeServers,
   applyServerConfiguration,
-  restartServerCore,
-  startServerCore,
   stopServerCore,
   type ServerConfigPayload,
 } from './controller.js';
@@ -71,10 +69,19 @@ export const getServers = (_req: Request, res: Response) => {
   }
 };
 
-export const startServer = (req: Request, res: Response) => {
+export const startServer = async (req: Request, res: Response) => {
   const serverName = requireValidServerName(firstParam(req.params.serverName), res);
   if (!serverName) return;
-  const result = startServerCore(serverName);
+  const { startServerWithMods } = await import('../services/modAgent/startGate.js');
+  const result = await startServerWithMods(serverName);
+  if (!result.ok && result.code === 'MODS_NOT_READY') {
+    return res.status(409).json({
+      ok: false,
+      code: result.code,
+      missing: result.missing,
+      message: result.message,
+    });
+  }
   return res.status(result.ok ? 200 : 400).json(result);
 };
 
@@ -88,7 +95,16 @@ export const stopServer = async (req: Request, res: Response) => {
 export const restartServer = async (req: Request, res: Response) => {
   const serverName = requireValidServerName(firstParam(req.params.serverName), res);
   if (!serverName) return;
-  const result = await restartServerCore(serverName);
+  const { restartServerWithMods } = await import('../services/modAgent/startGate.js');
+  const result = await restartServerWithMods(serverName);
+  if (!result.ok && result.code === 'MODS_NOT_READY') {
+    return res.status(409).json({
+      ok: false,
+      code: result.code,
+      missing: result.missing,
+      message: result.message,
+    });
+  }
   return res.status(result.ok ? 200 : 400).json(result);
 };
 

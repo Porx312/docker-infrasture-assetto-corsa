@@ -69,9 +69,29 @@ function canPullFromS3(manifest: unknown): ModS3ManifestFields | null {
   return readModS3Fields(manifest);
 }
 
+/** Precise reason when an S3-canonical / library artifact cannot be pulled. */
+function s3PullBlockedError(manifest: unknown): string {
+  const raw = readModS3Fields(manifest);
+  if (storageMode() !== 's3') {
+    return 'artifact_blob_missing: MOD_STORAGE_MODE is not s3 (required for Contabo library pull)';
+  }
+  if (!isModS3PullEnabled()) {
+    return raw
+      ? 'artifact_blob_missing: S3 key present but MOD_S3_PULL_ENABLED is not 1'
+      : 'artifact_blob_missing: MOD_S3_PULL_ENABLED is not 1';
+  }
+  if (!raw) {
+    return 'artifact_blob_missing: no validated s3Key on manifest — re-upload to library or wait for S3 promote';
+  }
+  return 'artifact_blob_missing: S3 pull unavailable';
+}
+
 function remoteSourceError(hasS3Fields: boolean): string {
   if (hasS3Fields && !isModS3PullEnabled()) {
     return 'artifact_blob_missing: S3 key present but MOD_S3_PULL_ENABLED is not 1';
+  }
+  if (hasS3Fields && storageMode() !== 's3') {
+    return 'artifact_blob_missing: S3 key present but MOD_STORAGE_MODE is not s3';
   }
   if (!hasS3Fields && !isModPeerPullEnabled()) {
     return 'artifact_blob_missing: no validated s3Key on manifest and MOD_PEER_PULL_ENABLED is off — wait for S3 promote or re-upload';
@@ -186,9 +206,7 @@ export async function ensureArtifactOnEdge(
   const rawS3 = readModS3Fields(art.manifest_json);
   if (s3 || isS3CanonicalStorageKey(art.storage_key)) {
     if (!s3) {
-      throw new Error(
-        'artifact_blob_missing: s3_canonical artifact missing validated s3Key on manifest',
-      );
+      throw new Error(s3PullBlockedError(art.manifest_json));
     }
     // Library install path — no peer / hub ZIP required.
   } else if (!isEdgeOwnedStorageKey(art.storage_key)) {
@@ -238,9 +256,7 @@ export async function distributeArtifact(
       : edgeIds.map((id) => id.toLowerCase());
   if (s3 || isS3CanonicalStorageKey(art.storage_key)) {
     if (!s3) {
-      throw new Error(
-        'artifact_blob_missing: s3_canonical artifact missing validated s3Key on manifest',
-      );
+      throw new Error(s3PullBlockedError(art.manifest_json));
     }
     let enqueued = 0;
     for (const edgeId of targets) {

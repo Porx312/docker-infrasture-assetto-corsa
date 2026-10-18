@@ -23,6 +23,7 @@ export async function runModMigrationsIfConfigured(): Promise<void> {
     '009_drop_unused_mod_split.sql',
     '010_sync_jobs_one_active.sql',
     '011_mod_artifact_edge_folder.sql',
+    '012_mod_artifact_s3_canonical.sql',
   ];
   for (const file of files) {
     const sqlPath = path.join(migrationsDir, file);

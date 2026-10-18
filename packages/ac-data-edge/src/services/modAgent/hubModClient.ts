@@ -98,13 +98,20 @@ export async function failModJob(
   }
 }
 
+export type HubModsRefreshResult = {
+  ready: boolean;
+  items: Array<{ acContentSlug: string; status: string }>;
+  enqueued?: number;
+  installErrors?: Array<{ acContentSlug: string; artifactId: string | null; message: string }>;
+};
+
 export async function refreshServerModsOnHub(input: {
   serverName: string;
   track?: string;
   cars?: string;
   /** Default true: hub enqueues S3 install for missing catalog mods. */
   installMissing?: boolean;
-}): Promise<{ ready: boolean; items: Array<{ acContentSlug: string; status: string }> }> {
+}): Promise<HubModsRefreshResult> {
   const res = await hubFetch(
     `/mod-agent/v1/servers/${encodeURIComponent(input.serverName)}/mods/refresh`,
     {
@@ -119,7 +126,7 @@ export async function refreshServerModsOnHub(input: {
   if (!res.ok) {
     throw new Error(`mods refresh failed: ${res.status}`);
   }
-  return (await res.json()) as { ready: boolean; items: Array<{ acContentSlug: string; status: string }> };
+  return (await res.json()) as HubModsRefreshResult;
 }
 
 export function isModAgentEnabled(): boolean {

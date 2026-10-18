@@ -97,32 +97,54 @@ Recommended staging/prod:
 
 **Primary upload (admin):** `POST/PUT /mods/library/slim-upload/{plan,file,commit}` — hub packs server-slim `tar.gz` → Contabo → registers `storage_origin=s3_canonical` with validated `manifest_json.s3*` **without writing any VPS**. UI: **Upload to library (S3)**; catalog default view **Library (S3)**.
 
-**Install when needed:** starting a server refreshes requirements, enqueues missing installs from S3 (`ensureArtifactOnEdge`), and the edge **waits** (`MOD_START_INSTALL_TIMEOUT_MS`, default 5m) until `CONTENT_PATH` has the mods or times out with `MODS_NOT_READY`. Manual pre-warm: **Install on selected VPS from library (S3)**.
+**Install when needed:** every start/restart path on the edge goes through `startServerWithMods` / `restartServerWithMods` (admin UI, Redis desired-config, provision, HTTP `/servers/:name/start`). The gate:
+
+1. Resolves required track/cars from the instance INI.
+2. If `MOD_AGENT_ENABLED=true`, asks the hub to `sync-missing` (enqueue S3 installs; jobs are idempotent — reuse `queued`/`running`).
+3. Waits until each required slug exists under `CONTENT_PATH` (hub `READY` alone is not enough). Re-syncs periodically (`MOD_START_RESYNC_EVERY_MS`).
+4. Times out with `409 MODS_NOT_READY` + `installErrors` / missing status (`MOD_START_INSTALL_TIMEOUT_MS`, default 5m).
+
+If the agent is **off**, start is allowed only when all required folders are already on disk; otherwise `MODS_NOT_READY` (no silent start without mods).
+
+Manual pre-warm: **Install on selected VPS from library (S3)**.
 
 **VPS cache view:** optional admin tab to see what is already on disk; **Remove from selected VPS** clears cache only. **Delete from library** removes catalog + S3 object.
 
 **Legacy:** edge slim-upload / adopt → `edge_folder` + optional `MOD_S3_CANONICAL_UPLOAD=1` promote still exist for rollback / linking folders already on a VPS.
 
 1. Library upload → Contabo key `artifacts/sha256/…/….tar.gz` + DB `s3Key` / `s3Sha256` / `s3SizeBytes` / `s3Format`.
-2. Install on a VPS: **local cache** → if miss and `s3Key` valid → **S3** presign (hash object → extract → verify tree `contentHash` → READY). Partial files never READY.
-4. Peer tree/blob copy runs **only** if `MOD_PEER_PULL_ENABLED=1` (or as fallback when S3 presign fails and peer flag is on). Admin button **Install on selected VPS from library (S3)** calls ensure/distribute which uses S3 when `s3Key` is present; without `s3Key` the UI blocks with a clear message.
-5. Rollback peer mesh: `MOD_PEER_PULL_ENABLED=1`. Disable S3 install: `MOD_S3_PULL_ENABLED=0`. No S3 lifecycle/GC in this phase.
+2. Install on a VPS: **local cache** → if miss and `s3Key` valid → **S3** presign (hash object → extract → verify tree `contentHash` → READY). Partial / `queued` / `running` never count as READY for start.
+3. Peer tree/blob copy runs **only** if `MOD_PEER_PULL_ENABLED=1` (or as fallback when S3 presign fails and peer flag is on).
+4. Rollback peer mesh: `MOD_PEER_PULL_ENABLED=1`. Disable S3 install: `MOD_S3_PULL_ENABLED=0`.
 
-Migrations run on hub startup (`001` … `011_mod_artifact_edge_folder.sql`).
+### Diagnose MODS_NOT_READY / stuck S3 install
+
+| Check | Where |
+|-------|--------|
+| Hub flags | `MOD_STORAGE_MODE=s3`, `MOD_S3_PULL_ENABLED=1` |
+| Edge agent | `MOD_AGENT_ENABLED=true` and log line `[mod-agent] …` (loop processing jobs) |
+| Hub refresh response | `installErrors[]` (flag / missing s3Key / UNKNOWN_PACKAGE) |
+| Jobs | `sync_jobs` state `queued`/`running`/`failed` for the edge |
+| Disk | `CONTENT_PATH/cars|tracks/<slug>` must exist before start succeeds |
+
+Migrations run on hub startup (`001` … `012_mod_artifact_s3_canonical.sql`).
 
 ## Environment (edge VPS)
 
 ```bash
-MOD_AGENT_ENABLED=true
+MOD_AGENT_ENABLED=true          # required for S3-only install-on-start
 EDGE_ID=eu
 AC_INSTANCE_ID=vps-eu-2
 BACKEND_WORKER_URL=https://hub.example.com
 CONVEX_WORKER_SECRET=...
 CONTENT_PATH=/path/to/assetto/.../content   # required SoT
+# MOD_START_INSTALL_TIMEOUT_MS=300000
+# MOD_START_INSTALL_POLL_MS=2500
+# MOD_START_RESYNC_EVERY_MS=15000
 # AC_MOD_ROOT=…   # deprecated; only for leftover blobs + gc-blobs, then remove
 ```
 
-Symlink each AC instance: `server/content/cars` → `$CONTENT_PATH/cars` (shared pool).
+Symlink each AC instance: `server/content/cars` → `$CONTENT_PATH/cars` (shared pool). Confirm the edge process logs the mod-agent loop starting when `MOD_AGENT_ENABLED=true`.
 
 ## Flows
 
