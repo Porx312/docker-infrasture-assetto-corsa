@@ -1,6 +1,7 @@
 import '@projectd/ac-data-shared/config/loadEnv.js';
 import { assertFleetBootGuards } from '@projectd/ac-data-shared/services/fleet/fleetBootGuards.js';
 import { assertSecurityConfiguration } from './config/securityStartup.js';
+import { assertModS3PullBootGuard } from './config/modS3BootGuards.js';
 import { createServer } from 'node:http';
 import express from 'express';
 import cookieParser from 'cookie-parser';
@@ -39,6 +40,7 @@ import {
 
 assertSecurityConfiguration();
 assertFleetBootGuards('hub');
+assertModS3PullBootGuard();
 
 installFatalProcessHandlers({ serviceName: 'ac-data-backend' });
 

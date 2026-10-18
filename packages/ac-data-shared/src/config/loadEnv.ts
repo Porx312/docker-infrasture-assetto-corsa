@@ -125,7 +125,10 @@ export function loadEnv(): void {
 
   const parsed = dotenv.parse(readEnvFileContents(envPath));
   for (const [key, value] of Object.entries(parsed)) {
-    if (process.env[key] === undefined) {
+    const existing = process.env[key];
+    // Empty shell exports (e.g. MOD_S3_PULL_ENABLED=) must not block .env.local —
+    // that caused hub installs to fail with "S3 key present but MOD_S3_PULL_ENABLED is not 1".
+    if (existing === undefined || existing.trim() === '') {
       process.env[key] = value;
     }
   }
