@@ -31,7 +31,14 @@ export async function runModMigrationsIfConfigured(): Promise<void> {
       continue;
     }
     const sql = fs.readFileSync(sqlPath, 'utf8');
-    await pool.query(sql);
-    console.log(`[mod-db] applied ${file}`);
+    try {
+      await pool.query(sql);
+      console.log(`[mod-db] applied ${file}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      // Idempotent migrations may no-op; hard-fail only if later files cannot run.
+      console.error(`[mod-db] applied ${file} FAILED: ${message}`);
+      throw err;
+    }
   }
 }

@@ -557,10 +557,16 @@ export async function acquireJobForEdge(edgeId: string, agentId: string): Promis
         if (isS3CanonicalStorageKey(art.storage_key) || (s3Early && !isEdgeFolderStorageKey(art.storage_key) && !isEdgeBlobStorageKey(art.storage_key))) {
           const s3 = s3Early;
           if (!s3) {
+            const errMsg = s3PullBlockedError(art.manifest_json);
             await forceReleaseModLock(edgeId, art.sha256);
             await client.query(
               `UPDATE sync_jobs SET state = 'failed', error_message = $2, finished_at = NOW() WHERE id = $1`,
-              [job.id, 's3_canonical missing validated s3Key'],
+              [job.id, errMsg],
+            );
+            await client.query(
+              `UPDATE edge_artifact_inventory SET status = 'ERROR', error_message = $3, updated_at = NOW()
+               WHERE edge_id = $1 AND artifact_id = $2`,
+              [edgeId, job.artifact_id, errMsg],
             );
             continue;
           }
