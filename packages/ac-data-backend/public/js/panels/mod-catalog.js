@@ -817,7 +817,7 @@ export async function loadModCatalog(type) {
     const edgeLabel = inv.label || inv.edgeId || catalogEdgeId;
     const n = inventoryByType[type].length;
     if (hint) {
-      hint.textContent = `${edgeLabel} · ${n} ${type} on disk. Slim-upload above; open a card to sync/copy/remove.`;
+      hint.textContent = `${edgeLabel} · ${n} ${type} on disk. Slim-upload above; open a card to install from S3 / remove.`;
     }
 
     const searchInput = /** @type {HTMLInputElement | null} */ (document.getElementById(`${type}Search`));
@@ -1053,7 +1053,7 @@ export async function openCatalogDistribution(type, artifactId, displayName, opt
         resolvedArtifactId
           ? `<section class="mod-dist-section">
         <p class="modal-mod-section">VPS distribution</p>
-        <p class="panel-hint">Sync copies from a READY VPS (peer pull). Remove deletes content on the selected VPS only. If the table is empty, use Delete folder on this VPS.</p>
+        <p class="panel-hint">Install pulls from the Contabo library (S3) onto selected VPS. Inventory still shows what is cached locally. Remove deletes content on the selected VPS only.</p>
         <table class="mod-dist-table">
           <thead><tr><th></th><th>VPS</th><th>Status</th></tr></thead>
           <tbody>
@@ -1081,7 +1081,7 @@ export async function openCatalogDistribution(type, artifactId, displayName, opt
           </tbody>
         </table>
         <div class="modal-actions mod-side-dist-actions">
-          <button type="button" class="btn btn-primary btn-sm" data-sync-edges="${escapeAttr(resolvedArtifactId)}">Sync / copy to selected</button>
+          <button type="button" class="btn btn-primary btn-sm" data-sync-edges="${escapeAttr(resolvedArtifactId)}">Install on selected VPS from library (S3)</button>
           <button type="button" class="btn btn-ghost btn-sm" data-verify-edges="${escapeAttr(resolvedArtifactId)}">Verify</button>
           <button type="button" class="btn btn-danger btn-sm" data-remove-edges="${escapeAttr(resolvedArtifactId)}">Remove from VPS</button>
           ${
@@ -1093,7 +1093,7 @@ export async function openCatalogDistribution(type, artifactId, displayName, opt
       </section>`
           : `<section class="mod-dist-section">
         <p class="modal-mod-section">Local only</p>
-        <p class="panel-hint">Folder is on <strong>${escapeHtml(catalogEdgeId || 'this VPS')}</strong> but not linked to the hub catalog yet. <strong>Adopt / Link to catalog</strong> indexes it (writes .acmod.json) so you can Sync to other VPS — no ZIP re-upload needed.</p>
+        <p class="panel-hint">Folder is on <strong>${escapeHtml(catalogEdgeId || 'this VPS')}</strong> but not linked to the hub catalog yet. <strong>Adopt / Link to catalog</strong> indexes it (writes .acmod.json) so it can promote to S3 and install on other VPS — no ZIP re-upload needed.</p>
         <div class="modal-actions mod-side-dist-actions">
           <button type="button" class="btn btn-primary btn-sm" data-adopt-local-slug="${escapeAttr(acSlug)}" data-adopt-local-kind="${escapeAttr(kindForType(type))}" data-adopt-display-name="${escapeAttr(displayName)}">Adopt / Link to catalog</button>
           <button type="button" class="btn btn-danger btn-sm" data-delete-local-slug="${escapeAttr(acSlug)}" data-delete-local-kind="${escapeAttr(kindForType(type))}">Delete from this VPS</button>
@@ -1139,10 +1139,32 @@ export async function openCatalogDistribution(type, artifactId, displayName, opt
   if (resolvedArtifactId) {
     detail.querySelector('[data-sync-edges]')?.addEventListener('click', async () => {
       const edgeIds = selectedEdges();
+      if (!edgeIds.length) {
+        showToast('Select at least one VPS', 'error');
+        return;
+      }
+      const manifest = art?.manifest_json || {};
+      const hasS3 =
+        typeof manifest.s3Key === 'string' &&
+        manifest.s3Key.trim() &&
+        manifest.s3Format === 'server-slim-tar-gz' &&
+        typeof manifest.s3Sha256 === 'string' &&
+        Number(manifest.s3SizeBytes) > 0;
+      if (!hasS3) {
+        showToast(
+          'This mod is not in the S3 library yet — wait for promote after upload/adopt, or re-upload the ZIP',
+          'error',
+        );
+        return;
+      }
+      // Backend distribute now enqueues ensure (S3 install) when s3Key is present.
       const { data: res } = await apiPost(`/mods/artifacts/${resolvedArtifactId}/distribute`, {
         edgeIds,
       });
-      showToast(res.ok ? `Enqueued ${res.enqueued} jobs` : res.message, res.ok ? 'success' : 'error');
+      showToast(
+        res.ok ? `Install enqueued on ${res.enqueued} VPS` : res.message,
+        res.ok ? 'success' : 'error',
+      );
       await openCatalogDistribution(type, resolvedArtifactId, displayName, {
         packageId: resolvedPackageId,
         invSlug: acSlug,

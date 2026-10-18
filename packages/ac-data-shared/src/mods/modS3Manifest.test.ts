@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   artifactTarGzStorageKey,
+  isModPeerPullEnabled,
   isModS3CanonicalUploadEnabled,
   isModS3PullEnabled,
   mergeModS3FieldsIntoManifest,
@@ -78,6 +79,8 @@ test('mergeModS3FieldsIntoManifest keeps other manifest keys', () => {
 test('feature flags default off', () => {
   assert.equal(isModS3CanonicalUploadEnabled({}), false);
   assert.equal(isModS3PullEnabled({}), false);
+  assert.equal(isModPeerPullEnabled({}), false);
   assert.equal(isModS3CanonicalUploadEnabled({ MOD_S3_CANONICAL_UPLOAD: '1' }), true);
   assert.equal(isModS3PullEnabled({ MOD_S3_PULL_ENABLED: '1' }), true);
+  assert.equal(isModPeerPullEnabled({ MOD_PEER_PULL_ENABLED: '1' }), true);
 });

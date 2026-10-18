@@ -75,7 +75,7 @@ CONVEX_WORKER_SECRET=...   # same as edges (admin proxy + agent + peer tree pull
 # Optional cover images (metadata only)
 # MOD_PREVIEW_IMAGES_PATH=/var/lib/ac-data/mod-previews
 
-# --- Contabo / S3 canonical packs (Phase 1, optional; default off) ---
+# --- Contabo / S3 canonical packs ---
 # Bucket MUST stay private. Keys only on hub. Edges use hub-presigned GET.
 # MOD_STORAGE_MODE=s3
 # MOD_S3_BUCKET=projectd-mods-staging
@@ -84,18 +84,22 @@ CONVEX_WORKER_SECRET=...   # same as edges (admin proxy + agent + peer tree pull
 # MOD_S3_ACCESS_KEY_ID=...
 # MOD_S3_SECRET_ACCESS_KEY=...
 # MOD_PRESIGN_TTL_SEC=3600
-# MOD_S3_CANONICAL_UPLOAD=1   # after register-local, promote slim tar.gz to S3 → manifest.s3Key
-# MOD_S3_PULL_ENABLED=1       # ensure/acquire: local → peer → S3 if no peer READY
+# MOD_S3_CANONICAL_UPLOAD=1   # after register-local, promote slim tar.gz → manifest.s3Key
+# MOD_S3_PULL_ENABLED=1       # ensure/acquire: install from S3 when local cache miss
+# MOD_PEER_PULL_ENABLED=0     # peer mesh OFF by default (set 1 only for emergency rollback)
 ```
 
 ### Contabo S3 (canonical) + local cache
 
-When flags are on and `MOD_STORAGE_MODE=s3`:
+Recommended staging/prod:
 
-1. Slim commit / adopt still writes `CONTENT_PATH` and registers `storage_origin=edge_folder` (unchanged).
-2. Hub best-effort promotes a **server-slim tar.gz** to Contabo; on success sets `manifest_json.s3Key` / `s3Sha256` / `s3SizeBytes` / `s3Format` (never changes `storage_origin`). Promote failure does **not** break register.
-3. Ensure on a cold VPS: verify local → peer tree → S3 presigned download (hash object bytes, extract, verify tree `contentHash`). Incomplete downloads never become READY.
-4. Rollback: set `MOD_S3_CANONICAL_UPLOAD=0` and `MOD_S3_PULL_ENABLED=0` (peer-only again). No S3 lifecycle/GC in this phase.
+`MOD_STORAGE_MODE=s3` + `MOD_S3_CANONICAL_UPLOAD=1` + `MOD_S3_PULL_ENABLED=1` + `MOD_PEER_PULL_ENABLED=0`.
+
+1. Slim commit / adopt still writes `CONTENT_PATH` on the upload VPS and registers `storage_origin=edge_folder` (unchanged). Inventory **READY / Local only** stays per VPS.
+2. Hub promotes **server-slim tar.gz** to Contabo → `manifest_json.s3Key` / `s3Sha256` / `s3SizeBytes` / `s3Format` (never changes `storage_origin`). Promote failure does **not** break register.
+3. Install on another VPS: **local cache** → if miss and `s3Key` valid → **S3** presign (hash object → extract → verify tree `contentHash` → READY). Partial files never READY.
+4. Peer tree/blob copy runs **only** if `MOD_PEER_PULL_ENABLED=1` (or as fallback when S3 presign fails and peer flag is on). Admin button **Install on selected VPS from library (S3)** calls ensure/distribute which uses S3 when `s3Key` is present; without `s3Key` the UI blocks with a clear message.
+5. Rollback peer mesh: `MOD_PEER_PULL_ENABLED=1`. Disable S3 install: `MOD_S3_PULL_ENABLED=0`. No S3 lifecycle/GC in this phase.
 
 Migrations run on hub startup (`001` … `011_mod_artifact_edge_folder.sql`).
 
@@ -132,11 +136,11 @@ Symlink each AC instance: `server/content/cars` → `$CONTENT_PATH/cars` (shared
 
 `POST /admin/mods/edges/:edgeId/upload` and edge `/admin/mods/local-upload` were removed. New catalog writes must use `storage_origin=edge_folder` (`register-local` rejects `edge` / `hub`).
 
-### Copy VPS A → VPS B
+### Install on another VPS (from S3 library)
 
-1. Side panel → select targets → **Sync / copy to selected**.
-2. Hub enqueues install on B; at acquire time sets `treeDownloadUrl` to A’s tree URL.
-3. B pulls tar with `X-Worker-Secret`, extracts atomically into `CONTENT_PATH`, reports READY.
+1. Side panel → select targets → **Install on selected VPS from library (S3)**.
+2. Requires `manifest.s3Key` (after promote). Hub enqueues ensure/install; agent downloads tar.gz from Contabo, verifies object hash + tree `contentHash`, then READY.
+3. Peer copy (`MOD_PEER_PULL_ENABLED=1`) remains available for emergency rollback only.
 
 ### Delete on one VPS
 

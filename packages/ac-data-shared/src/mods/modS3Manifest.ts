@@ -54,7 +54,7 @@ export function mergeModS3FieldsIntoManifest<T extends Record<string, unknown>>(
   };
 }
 
-/** Hub feature flags. Default off → legacy peer-only behavior. */
+/** Hub feature flags. */
 export function isModS3CanonicalUploadEnabled(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
@@ -63,4 +63,12 @@ export function isModS3CanonicalUploadEnabled(
 
 export function isModS3PullEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return (env.MOD_S3_PULL_ENABLED || '').trim() === '1';
+}
+
+/**
+ * Peer mesh pull/copy. Default off — S3 is the install path.
+ * Set MOD_PEER_PULL_ENABLED=1 only for emergency rollback.
+ */
+export function isModPeerPullEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return (env.MOD_PEER_PULL_ENABLED || '').trim() === '1';
 }

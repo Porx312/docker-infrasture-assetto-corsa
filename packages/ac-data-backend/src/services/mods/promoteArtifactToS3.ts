@@ -221,9 +221,27 @@ export async function promoteArtifactToS3(artifactId: string): Promise<{
 
 /** Non-blocking wrapper for register path. */
 export function schedulePromoteArtifactToS3(artifactId: string): void {
-  if (!isModS3CanonicalUploadEnabled()) return;
-  void promoteArtifactToS3(artifactId).catch((err: unknown) => {
-    const message = err instanceof Error ? err.message : String(err);
-    console.warn(`[s3-promote] unhandled: ${message}`);
-  });
+  if (!isModS3CanonicalUploadEnabled()) {
+    console.log(
+      `[s3-promote] skip schedule artifact=${artifactId.slice(0, 8)}… (MOD_S3_CANONICAL_UPLOAD!=1)`,
+    );
+    return;
+  }
+  console.log(`[s3-promote] scheduled artifact=${artifactId.slice(0, 8)}…`);
+  void promoteArtifactToS3(artifactId)
+    .then((out) => {
+      if (out.skipped) {
+        console.log(
+          `[s3-promote] finished artifact=${artifactId.slice(0, 8)}… skipped=${out.skipped}`,
+        );
+      } else if (!out.ok) {
+        console.warn(
+          `[s3-promote] finished artifact=${artifactId.slice(0, 8)}… error=${out.error || 'unknown'}`,
+        );
+      }
+    })
+    .catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[s3-promote] unhandled: ${message}`);
+    });
 }

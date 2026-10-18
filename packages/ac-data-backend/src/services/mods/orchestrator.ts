@@ -13,8 +13,10 @@ import {
   parseEdgeFolderStorageKey,
 } from '@projectd/ac-data-shared/mods/edgeBlobStorage.js';
 import {
+  isModPeerPullEnabled,
   isModS3PullEnabled,
   readModS3Fields,
+  type ModS3ManifestFields,
 } from '@projectd/ac-data-shared/mods/modS3Manifest.js';
 import {
   listFleetEdges,
@@ -58,6 +60,24 @@ function assertLocalMasterBlobPresent(storageKey: string, sha256: string): void 
       `artifact_blob_missing: leftover hub master ZIP missing for sha256=${sha256.slice(0, 12)}… — adopt/upload on an edge`,
     );
   }
+}
+
+function canPullFromS3(manifest: unknown): ModS3ManifestFields | null {
+  if (!isModS3PullEnabled() || storageMode() !== 's3') return null;
+  return readModS3Fields(manifest);
+}
+
+function remoteSourceError(hasS3Fields: boolean): string {
+  if (hasS3Fields && !isModS3PullEnabled()) {
+    return 'artifact_blob_missing: S3 key present but MOD_S3_PULL_ENABLED is not 1';
+  }
+  if (!hasS3Fields && !isModPeerPullEnabled()) {
+    return 'artifact_blob_missing: no validated s3Key on manifest and MOD_PEER_PULL_ENABLED is off — wait for S3 promote or re-upload';
+  }
+  if (!isModPeerPullEnabled()) {
+    return 'artifact_blob_missing: no S3 source and peer pull disabled (MOD_PEER_PULL_ENABLED!=1)';
+  }
+  return 'artifact_blob_missing: no READY peer VPS and no S3 source — adopt/upload or wait for promote';
 }
 
 async function findPeerEdgeWithBlob(
@@ -163,20 +183,21 @@ export async function ensureArtifactOnEdge(
   if (!isEdgeOwnedStorageKey(art.storage_key)) {
     assertLocalMasterBlobPresent(art.storage_key, art.sha256);
   } else {
-    const prefer =
-      parseEdgeFolderStorageKey(art.storage_key)?.edgeId ??
-      parseEdgeBlobStorageKey(art.storage_key)?.edgeId ??
-      art.source_edge_id;
-    const peer = await findPeerEdgeWithBlob(artifactId, art.sha256, prefer);
-    const s3 = readModS3Fields(art.manifest_json);
-    const canPullS3 =
-      Boolean(peer) ||
-      (isModS3PullEnabled() && storageMode() === 's3' && Boolean(s3));
-    if (!canPullS3) {
-      throw new Error(
-        'artifact_blob_missing: edge-owned mod has no READY source VPS' +
-          (s3 ? ' (S3 present but MOD_S3_PULL_ENABLED not set)' : ' — adopt/upload on an edge or promote to S3'),
-      );
+    const s3 = canPullFromS3(art.manifest_json);
+    const rawS3 = readModS3Fields(art.manifest_json);
+    if (s3) {
+      // Canonical install path — no peer required.
+    } else if (isModPeerPullEnabled()) {
+      const prefer =
+        parseEdgeFolderStorageKey(art.storage_key)?.edgeId ??
+        parseEdgeBlobStorageKey(art.storage_key)?.edgeId ??
+        art.source_edge_id;
+      const peer = await findPeerEdgeWithBlob(artifactId, art.sha256, prefer);
+      if (!peer) {
+        throw new Error(remoteSourceError(Boolean(rawS3)));
+      }
+    } else {
+      throw new Error(remoteSourceError(Boolean(rawS3)));
     }
   }
   await syncFleetEdgesToDb();
@@ -210,6 +231,21 @@ export async function distributeArtifact(
       ? listFleetEdges().map((e) => e.id)
       : edgeIds.map((id) => id.toLowerCase());
   if (isEdgeOwnedStorageKey(art.storage_key)) {
+    const s3 = canPullFromS3(art.manifest_json);
+    if (s3) {
+      // Install from library (S3) via ensure — no peer mesh.
+      let enqueued = 0;
+      for (const edgeId of targets) {
+        const { created } = await ensureArtifactOnEdge(artifactId, edgeId);
+        if (created) enqueued += 1;
+      }
+      return { enqueued };
+    }
+    if (!isModPeerPullEnabled()) {
+      throw new Error(
+        'peer_pull_disabled: artifact has no validated s3Key — wait for S3 promote, re-upload, or set MOD_PEER_PULL_ENABLED=1',
+      );
+    }
     const prefer =
       parseEdgeFolderStorageKey(art.storage_key)?.edgeId ??
       parseEdgeBlobStorageKey(art.storage_key)?.edgeId ??
@@ -244,6 +280,11 @@ export async function copyArtifactFromEdge(
   sourceEdgeId: string,
   targetEdgeIds: string[],
 ): Promise<{ enqueued: number }> {
+  if (!isModPeerPullEnabled()) {
+    throw new Error(
+      'peer_pull_disabled: MOD_PEER_PULL_ENABLED is not 1 (use S3 install / ensure instead)',
+    );
+  }
   const art = await getArtifactById(artifactId);
   if (!art) {
     throw new Error('Artifact not found');
@@ -489,16 +530,14 @@ export async function acquireJobForEdge(edgeId: string, agentId: string): Promis
           const peer = await findPeerEdgeWithBlob(job.artifact_id, art.sha256, prefer);
           const kind = parsed?.kind ?? art.package.kind;
           const slug = parsed?.slug ?? art.package.ac_content_slug;
-          const s3 = readModS3Fields(art.manifest_json);
-          if (peer && peer !== edgeId) {
-            // Prefer peer during transition (local cache miss on target).
-            treeDownloadUrl = peerTreeDownloadUrl(peer, kind, slug);
-          } else if (!peer) {
-            if (
-              isModS3PullEnabled() &&
-              storageMode() === 's3' &&
-              s3
-            ) {
+          const s3 = canPullFromS3(art.manifest_json);
+          const rawS3 = readModS3Fields(art.manifest_json);
+          // Local cache on this edge: no remote acquisition.
+          if (peer === edgeId) {
+            // verify path / no download
+          } else if (s3) {
+            // Canonical: S3 first (even if a peer READY exists).
+            try {
               const signed = await getArtifactDownloadUrl(
                 s3.s3Key,
                 s3.s3Sha256,
@@ -507,38 +546,65 @@ export async function acquireJobForEdge(edgeId: string, agentId: string): Promis
               s3DownloadUrl = signed.url;
               s3ObjectSha256 = s3.s3Sha256;
               s3ObjectSizeBytes = s3.s3SizeBytes;
-            } else {
-              await forceReleaseModLock(edgeId, art.sha256);
-              await client.query(
-                `UPDATE sync_jobs SET state = 'failed', error_message = $2, finished_at = NOW() WHERE id = $1`,
-                [job.id, 'No peer edge has this mod READY for tree download'],
-              );
-              await client.query(
-                `UPDATE edge_artifact_inventory SET status = 'ERROR', error_message = $3, updated_at = NOW()
+            } catch (err: unknown) {
+              const msg = err instanceof Error ? err.message : String(err);
+              if (isModPeerPullEnabled() && peer && peer !== edgeId) {
+                treeDownloadUrl = peerTreeDownloadUrl(peer, kind, slug);
+                console.warn(
+                  `[mod-orchestrator] S3 presign failed (${msg}); falling back to peer tree`,
+                );
+              } else {
+                await forceReleaseModLock(edgeId, art.sha256);
+                await client.query(
+                  `UPDATE sync_jobs SET state = 'failed', error_message = $2, finished_at = NOW() WHERE id = $1`,
+                  [job.id, `S3 download unavailable: ${msg}`],
+                );
+                await client.query(
+                  `UPDATE edge_artifact_inventory SET status = 'ERROR', error_message = $3, updated_at = NOW()
                WHERE edge_id = $1 AND artifact_id = $2`,
-                [edgeId, job.artifact_id, 'No peer edge has this mod READY'],
-              );
-              continue;
+                  [edgeId, job.artifact_id, 'S3 download unavailable'],
+                );
+                continue;
+              }
             }
-          }
-          // peer === edgeId: folder already on this VPS (verify path / no download).
-        } else if (isEdgeBlobStorageKey(art.storage_key)) {
-          // Legacy ZIP blob artifacts: keep blob peer-pull (tree is for edge_folder only).
-          const prefer =
-            parseEdgeBlobStorageKey(art.storage_key)?.edgeId ?? art.source_edge_id ?? null;
-          const peer = await findPeerEdgeWithBlob(job.artifact_id, art.sha256, prefer);
-          if (peer && peer !== edgeId) {
-            downloadUrl = peerBlobDownloadUrl(peer, art.sha256);
-          } else if (!peer) {
+          } else if (isModPeerPullEnabled() && peer && peer !== edgeId) {
+            treeDownloadUrl = peerTreeDownloadUrl(peer, kind, slug);
+          } else {
             await forceReleaseModLock(edgeId, art.sha256);
+            const errMsg = remoteSourceError(Boolean(rawS3));
             await client.query(
               `UPDATE sync_jobs SET state = 'failed', error_message = $2, finished_at = NOW() WHERE id = $1`,
-              [job.id, 'No peer edge has this mod READY for download'],
+              [job.id, errMsg],
             );
             await client.query(
               `UPDATE edge_artifact_inventory SET status = 'ERROR', error_message = $3, updated_at = NOW()
                WHERE edge_id = $1 AND artifact_id = $2`,
-              [edgeId, job.artifact_id, 'No peer edge has this mod READY'],
+              [edgeId, job.artifact_id, errMsg],
+            );
+            continue;
+          }
+        } else if (isEdgeBlobStorageKey(art.storage_key)) {
+          // Legacy ZIP blob: peer only when MOD_PEER_PULL_ENABLED=1.
+          const prefer =
+            parseEdgeBlobStorageKey(art.storage_key)?.edgeId ?? art.source_edge_id ?? null;
+          const peer = await findPeerEdgeWithBlob(job.artifact_id, art.sha256, prefer);
+          if (peer === edgeId) {
+            // local verify via zip path below may still run; leave urls unset
+          } else if (isModPeerPullEnabled() && peer && peer !== edgeId) {
+            downloadUrl = peerBlobDownloadUrl(peer, art.sha256);
+          } else if (!peer || peer !== edgeId) {
+            await forceReleaseModLock(edgeId, art.sha256);
+            const errMsg = isModPeerPullEnabled()
+              ? 'No peer edge has this mod READY for download'
+              : 'peer_pull_disabled: legacy edge blob requires MOD_PEER_PULL_ENABLED=1';
+            await client.query(
+              `UPDATE sync_jobs SET state = 'failed', error_message = $2, finished_at = NOW() WHERE id = $1`,
+              [job.id, errMsg],
+            );
+            await client.query(
+              `UPDATE edge_artifact_inventory SET status = 'ERROR', error_message = $3, updated_at = NOW()
+               WHERE edge_id = $1 AND artifact_id = $2`,
+              [edgeId, job.artifact_id, errMsg],
             );
             continue;
           }
@@ -744,6 +810,19 @@ export async function getDownloadUrlForArtifact(
     throw new Error('Artifact not found');
   }
   if (isEdgeFolderStorageKey(art.storage_key)) {
+    const s3 = canPullFromS3(art.manifest_json);
+    if (s3) {
+      const signed = await getArtifactDownloadUrl(s3.s3Key, s3.s3Sha256, s3.s3SizeBytes);
+      return {
+        url: signed.url,
+        expiresInSec: signed.expiresInSec,
+        sha256: s3.s3Sha256,
+        sizeBytes: s3.s3SizeBytes,
+      };
+    }
+    if (!isModPeerPullEnabled()) {
+      throw new Error(remoteSourceError(Boolean(readModS3Fields(art.manifest_json))));
+    }
     const parsed = parseEdgeFolderStorageKey(art.storage_key);
     const prefer = parsed?.edgeId ?? art.source_edge_id ?? null;
     const peer = await findPeerEdgeWithBlob(artifactId, art.sha256, prefer);
@@ -762,6 +841,11 @@ export async function getDownloadUrlForArtifact(
     };
   }
   if (isEdgeBlobStorageKey(art.storage_key)) {
+    if (!isModPeerPullEnabled()) {
+      throw new Error(
+        'peer_pull_disabled: legacy edge blob requires MOD_PEER_PULL_ENABLED=1',
+      );
+    }
     const prefer = parseEdgeBlobStorageKey(art.storage_key)?.edgeId ?? art.source_edge_id ?? null;
     const peer = await findPeerEdgeWithBlob(artifactId, art.sha256, prefer);
     if (!peer) {
