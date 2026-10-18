@@ -13,6 +13,7 @@ import {
   getAgentPresence,
   type AgentServerSlot,
 } from '../controlApi/agentPresence.js';
+import { resolveCoverImageIdForConvex } from './coverUpload.js';
 import {
   HOST_CATALOG_MUTATIONS,
   hostCatalogSyncDisableReason,
@@ -81,6 +82,12 @@ export type HostCatalogUpsertInput = {
   acContentSlug: string;
   zipPaths?: string[];
   manifest?: ModManifest;
+  /** Hub mod-previews filename → public URL as `coverImageId`. */
+  coverImageFilename?: string | null;
+  /** Public hub `/mods/images/…` URL when filename is unavailable. */
+  coverImageUrl?: string | null;
+  /** Public cover URL (or legacy value); used as-is when set. */
+  coverImageId?: string | null;
 };
 
 export type HostCatalogDeleteInput = {
@@ -106,12 +113,16 @@ export function buildCarUpsertArgs(input: {
   carModel: string;
   name: string;
   paths?: string[];
+  /** Public hub URL; omit when null/empty — Host UI uses placeholder. */
+  coverImageId?: string | null;
 }): Record<string, unknown> {
   const skins = extractCarSkinsFromZipPaths(input.paths ?? [], input.carModel);
+  const coverImageId = (input.coverImageId || '').trim();
   return {
     carModel: input.carModel,
     name: input.name,
     ...(skins.length ? { skins } : {}),
+    ...(coverImageId ? { coverImageId } : {}),
   };
 }
 
@@ -120,12 +131,16 @@ export function buildTrackUpsertArgs(input: {
   track: string;
   name: string;
   paths?: string[];
+  /** Public hub URL; omit when null/empty — Host UI uses placeholder. */
+  coverImageId?: string | null;
 }): Record<string, unknown> {
   const layouts = extractTrackConfigsFromZipPaths(input.paths ?? [], input.track);
+  const coverImageId = (input.coverImageId || '').trim();
   return {
     track: input.track,
     name: input.name,
     configTrack: layouts.length ? layouts : ['default'],
+    ...(coverImageId ? { coverImageId } : {}),
   };
 }
 
@@ -331,6 +346,11 @@ export async function syncHostCatalogUpsert(
     return { synced: false, error: 'acContentSlug empty' };
   }
   const paths = input.zipPaths?.length ? input.zipPaths : (input.manifest?.rootPaths ?? []);
+  const coverImageId = resolveCoverImageIdForConvex({
+    coverImageFilename: input.coverImageFilename,
+    coverImageUrl: input.coverImageUrl,
+    coverImageId: input.coverImageId,
+  });
 
   try {
     if (input.kind === 'car') {
@@ -338,11 +358,14 @@ export async function syncHostCatalogUpsert(
         carModel: slug,
         name: input.displayName,
         paths,
+        coverImageId,
       });
       await runMutation(HOST_CATALOG_MUTATIONS.upsertCar(), args);
       const skinCount = Array.isArray(args.skins) ? args.skins.length : 0;
       console.log(
-        `[host-catalog] upsert car carModel=${slug}${skinCount ? ` skins=${skinCount}` : ''}`,
+        `[host-catalog] upsert car carModel=${slug}${skinCount ? ` skins=${skinCount}` : ''}${
+          coverImageId ? ' cover=yes' : ''
+        }`,
       );
       return { synced: true };
     }
@@ -351,11 +374,14 @@ export async function syncHostCatalogUpsert(
       track: slug,
       name: input.displayName,
       paths,
+      coverImageId,
     });
     await runMutation(HOST_CATALOG_MUTATIONS.upsertTrack(), args);
     const layouts = args.configTrack as string[];
     console.log(
-      `[host-catalog] upsert track track=${slug} layouts=${layouts.length}`,
+      `[host-catalog] upsert track track=${slug} layouts=${layouts.length}${
+        coverImageId ? ' cover=yes' : ''
+      }`,
     );
     return { synced: true };
   } catch (err: unknown) {

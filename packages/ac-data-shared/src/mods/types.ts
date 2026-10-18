@@ -56,13 +56,8 @@ export type ModAgentJobPayload = {
   /** Optional version label from central library (for local inventory sidecar). */
   versionLabel?: string;
   /**
-   * When set (peer / edge-only install), agent downloads from this URL instead of hub master.
-   * Auth: agent sends X-Worker-Secret.
-   */
-  downloadUrl?: string;
-  /**
    * Folder-first peer pull: tar stream of CONTENT_PATH/{cars|tracks|weather}/slug.
-   * When set, agent installs from tree instead of a ZIP blob.
+   * Auth: agent sends X-Worker-Secret. Emergency mesh when MOD_PEER_PULL_ENABLED=1.
    */
   treeDownloadUrl?: string;
   /**

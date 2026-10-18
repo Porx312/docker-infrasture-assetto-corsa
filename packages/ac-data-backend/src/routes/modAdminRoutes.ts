@@ -26,7 +26,6 @@ import {
   modEdgeInventoryHandler,
   modEdgeDeleteContentHandler,
   modEdgeAdoptHandler,
-  modEdgeGcBlobsHandler,
   modEdgeSlimUploadPlanHandler,
   modEdgeSlimUploadFileHandler,
   modEdgeSlimUploadCommitHandler,
@@ -95,9 +94,6 @@ router.put(
 );
 router.post('/mods/edges/:edgeId/slim-upload/commit', adminAuth, (req, res) => {
   void modEdgeSlimUploadCommitHandler(req, res);
-});
-router.post('/mods/edges/:edgeId/gc-blobs', adminAuth, (req, res) => {
-  void modEdgeGcBlobsHandler(req, res);
 });
 router.get('/mods/fleet/sync-issues', adminAuth, (req, res) => {
   void listFleetSyncIssuesHandler(req, res);

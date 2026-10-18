@@ -42,6 +42,15 @@ export const HOST_CATALOG_MUTATIONS = {
 } as const;
 
 /**
+ * Include hub public preview URL as `coverImageId` on car/track upsert.
+ * Default on with catalog sync; set `CONVEX_HOST_CATALOG_COVER_SYNC=false` to skip.
+ */
+export function isHostCatalogCoverSyncEnabled(): boolean {
+  if (!isHostCatalogSyncEnabled()) return false;
+  return envFlagEnabled('CONVEX_HOST_CATALOG_COVER_SYNC', true);
+}
+
+/**
  * Default on when Convex + worker secret are configured.
  * Set `CONVEX_HOST_CATALOG_SYNC=false` to disable.
  */

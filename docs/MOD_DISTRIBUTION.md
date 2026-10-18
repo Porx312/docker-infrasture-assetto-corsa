@@ -38,7 +38,7 @@ Unified catalog only: cars/tracks share `mod_packages`. Migration `009_drop_unus
 
 `acServer` only needs checksum/physics files. Upload and peer sync merge those files into `CONTENT_PATH` **without deleting** other client assets if the pool is a full game install. Preferred upload: Content Manager **Pack** (server files only). Full client mods stay with players (CM Download URL / elsewhere) — not hosted by the hub.
 
-**Do not** accumulate master ZIPs on the hub or permanent blobs under `AC_MOD_ROOT/blobs` for new artifacts. Legacy `storage_origin=edge` blob keys and `/blobs/:sha256` remain for old rows until GC.
+**Do not** accumulate master ZIPs on the hub. Permanent `AC_MOD_ROOT/blobs` and `/blobs/:sha256` were removed; installs use S3 tar.gz (or emergency peer tree).
 
 ## Pool layout (per VPS)
 
@@ -141,7 +141,7 @@ CONTENT_PATH=/path/to/assetto/.../content   # required SoT
 # MOD_START_INSTALL_TIMEOUT_MS=300000
 # MOD_START_INSTALL_POLL_MS=2500
 # MOD_START_RESYNC_EVERY_MS=15000
-# AC_MOD_ROOT=…   # deprecated; only for leftover blobs + gc-blobs, then remove
+# AC_MOD_ROOT — ignored (ZIP blob cache removed); unset if present
 ```
 
 Symlink each AC instance: `server/content/cars` → `$CONTENT_PATH/cars` (shared pool). Confirm the edge process logs the mod-agent loop starting when `MOD_AGENT_ENABLED=true`.
@@ -175,19 +175,9 @@ Symlink each AC instance: `server/content/cars` → `$CONTENT_PATH/cars` (shared
 
 Cars/Tracks → **Remove from VPS** or **Delete folder on this VPS**. Catalog row remains until package delete.
 
-### GC leftover ZIP blobs (ops checklist)
+### ZIP / hub-master cleanup (done)
 
-Keep peer `GET /api/mod-agent/v1/blobs/:sha256` and `AC_MOD_ROOT` **until** this is done on every edge:
-
-1. Audit hub DB: `SELECT storage_origin, count(*) FROM mod_artifacts GROUP BY 1;`
-2. For any `edge` / `hub` rows: re-adopt or slim-reupload so they become `edge_folder`, or delete the package.
-3. On each VPS: `POST /admin/mods/edges/:edgeId/gc-blobs` (deletes `$AC_MOD_ROOT/blobs`).
-4. Unset `AC_MOD_ROOT` in that edge’s `.env.local`.
-5. Future cleanup (separate PR): remove blob route, agent ZIP branch, hub master serve.
-
-```http
-POST /admin/mods/edges/:edgeId/gc-blobs
-```
+Permanent ZIP blobs (`AC_MOD_ROOT/blobs`), peer `GET …/blobs/:sha256`, hub master download, and agent ZIP install branch were **removed**. New installs use Contabo S3 tar.gz (or emergency peer **tree** when `MOD_PEER_PULL_ENABLED=1`). Unset any leftover `AC_MOD_ROOT` in edge env.
 
 ## Start flow
 
@@ -213,19 +203,15 @@ Usually: agent off, wrong `EDGE_ID`, hub unreachable (`BACKEND_WORKER_URL`), or 
 | Surface | Paths |
 |---------|--------|
 | Control (worker) | `/v1/mods`, `/v1/mods/availability`, `/v1/instances/:id/mods/ensure` |
-| Admin | `/admin/mods/*`, `…/edges/:id/inventory`, `…/slim-upload/*`, `…/adopt`, `…/gc-blobs` |
+| Admin | `/admin/mods/*`, `…/edges/:id/inventory`, `…/slim-upload/*`, `…/adopt` |
 | Agent | `/api/mod-agent/v1/*` including `register-local` |
-| Peer tree (preferred) | `GET /api/mod-agent/v1/trees/:kind/:slug` on source edge |
-| Peer blob (legacy) | `GET /api/mod-agent/v1/blobs/:sha256` — deprecated for **new** artifacts |
+| Peer tree (emergency) | `GET /api/mod-agent/v1/trees/:kind/:slug` on source edge when `MOD_PEER_PULL_ENABLED=1` |
 
 ## Storage origins
 
 | `storage_origin` | Meaning |
 |------------------|---------|
-| `edge_folder` | Folder-first (default for new uploads/adopts). `storage_key` = `edge-folder:{edgeId}:{kind}:{slug}:{contentHash}` |
-| `edge` | Legacy edge ZIP blob. Prefer tree pull when folder exists; blob URL fallback |
-| `hub` | Leftover hub master — read/delete only |
+| `s3_canonical` | Contabo library tar.gz (default for new library uploads) |
+| `edge_folder` | Folder on a VPS CONTENT_PATH; `storage_key` = `edge-folder:{edgeId}:{kind}:{slug}:{contentHash}` |
 
-## Leftover hub masters / edge blobs
-
-Older hub or edge ZIP rows may still exist until re-adopted or GC’d. No new permanent ZIP writes. No CONTENT_FLEET_SYNC rsync.
+Historical `edge` / `hub` ZIP rows are unsupported — re-upload to S3 library or re-adopt as `edge_folder`. No CONTENT_FLEET_SYNC rsync.

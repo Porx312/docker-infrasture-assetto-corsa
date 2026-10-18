@@ -22,10 +22,7 @@ import {
   syncFleetEdgesToDb,
 } from '../services/mods/orchestrator.js';
 import { getArtifactById } from '../services/mods/catalogRepo.js';
-import {
-  listCanonicalArtifactKeys,
-  streamLocalMasterArtifact,
-} from '../services/mods/objectStorage.js';
+import { listCanonicalArtifactKeys } from '../services/mods/objectStorage.js';
 import {
   handleLibrarySlimUploadCommit,
   handleLibrarySlimUploadPlan,
@@ -56,8 +53,36 @@ import {
   resolveFleetEdge,
   resolveFleetEdgeByInstanceId,
 } from '@projectd/ac-data-shared/services/fleet/fleetRegistry.js';
+import { syncHostCatalogUpsert } from '../services/hostCatalog/index.js';
+import type { ModPackageRow } from '../services/mods/catalogRepo.js';
+
 function modDbUnavailable(res: Response): void {
   res.status(503).json({ ok: false, message: 'Mod repository requires DATABASE_URL' });
+}
+
+/** Push package metadata (+ optional cover) to Convex after admin preview change. */
+async function syncPackageCoverToHostCatalog(pkg: ModPackageRow): Promise<void> {
+  if (pkg.kind !== 'car' && pkg.kind !== 'track') {
+    return;
+  }
+  const coverImageFilename = pkg.preview_image_filename;
+  try {
+    const sync = await syncHostCatalogUpsert({
+      kind: pkg.kind,
+      displayName: pkg.display_name,
+      acContentSlug: pkg.ac_content_slug,
+      coverImageFilename,
+      coverImageUrl: coverImageFilename ? modPreviewPublicUrl(coverImageFilename) : null,
+    });
+    if (!sync.synced) {
+      console.warn(
+        `[mod-preview] host catalog cover sync skipped (${pkg.slug}): ${sync.error || 'unknown'}`,
+      );
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[mod-preview] host catalog cover sync skipped (${pkg.slug}): ${message}`);
+  }
 }
 
 export async function listModsHandler(_req: Request, res: Response): Promise<void> {
@@ -247,17 +272,6 @@ export async function modGcRunHandler(req: Request, res: Response): Promise<void
   res.json({ ok: true, removed });
 }
 
-export async function modInternalDownloadHandler(req: Request, res: Response): Promise<void> {
-  const key = String(req.query.key || '');
-  const sha256 = String(req.query.sha256 || '');
-  const token = String(req.query.token || '');
-  if (!key || !sha256 || token !== sha256.slice(0, 16)) {
-    res.status(403).json({ ok: false, error: 'forbidden' });
-    return;
-  }
-  await streamLocalMasterArtifact(key, res);
-}
-
 export async function serverModReadinessHandler(req: Request, res: Response): Promise<void> {
   if (!isModDbConfigured()) {
     modDbUnavailable(res);
@@ -367,6 +381,10 @@ export async function modPreviewImageUploadHandler(req: Request, res: Response):
       await deleteModPreviewImageFile(pkg.preview_image_filename).catch(() => undefined);
     }
     await setPackagePreviewImageFilename(packageId, stored.filename);
+    const refreshed = await getPackageById(packageId);
+    if (refreshed) {
+      await syncPackageCoverToHostCatalog(refreshed);
+    }
     res.json({ ok: true, url: stored.url, filename: stored.filename, imageUrl: stored.url });
   } catch (err: unknown) {
     try {
@@ -399,6 +417,11 @@ export async function modPreviewImageDeleteHandler(req: Request, res: Response):
       await deleteModPreviewImageFile(pkg.preview_image_filename).catch(() => undefined);
     }
     await setPackagePreviewImageFilename(packageId, null);
+    const refreshed = await getPackageById(packageId);
+    if (refreshed) {
+      // No coverImageId sent → Convex keeps prior cover; Host UI uses placeholder when null on create.
+      await syncPackageCoverToHostCatalog(refreshed);
+    }
     res.json({ ok: true, imageUrl: null });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -591,40 +614,6 @@ export async function modEdgeAdoptHandler(req: Request, res: Response): Promise<
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(req.body ?? {}),
-      signal: AbortSignal.timeout(Number(process.env.FLEET_ADMIN_PROXY_TIMEOUT_MS || 300_000)),
-    });
-    const data = (await upstream.json().catch(() => ({}))) as Record<string, unknown>;
-    res.status(upstream.status).json(data);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(502).json({ ok: false, message });
-  }
-}
-
-/** Proxy one-shot GC of permanent ZIP blobs on an edge (folder-first). */
-export async function modEdgeGcBlobsHandler(req: Request, res: Response): Promise<void> {
-  const edgeId = String(req.params.edgeId || '').trim().toLowerCase();
-  const edge = resolveFleetEdge(edgeId);
-  if (!edge?.baseUrl) {
-    res.status(404).json({ ok: false, message: `Unknown fleet edge: ${edgeId}` });
-    return;
-  }
-  const { fleetEdgeSecret } = await import(
-    '@projectd/ac-data-shared/services/secrets/fleetSecrets.js'
-  );
-  const secret = fleetEdgeSecret();
-  if (!secret) {
-    res.status(503).json({ ok: false, message: 'FLEET_EDGE_SECRET or CONVEX_WORKER_SECRET missing' });
-    return;
-  }
-  try {
-    const url = new URL(
-      '/admin/mods/gc-blobs',
-      edge.baseUrl.endsWith('/') ? edge.baseUrl : `${edge.baseUrl}/`,
-    );
-    const upstream = await fetch(url, {
-      method: 'POST',
-      headers: { 'X-Worker-Secret': secret },
       signal: AbortSignal.timeout(Number(process.env.FLEET_ADMIN_PROXY_TIMEOUT_MS || 300_000)),
     });
     const data = (await upstream.json().catch(() => ({}))) as Record<string, unknown>;

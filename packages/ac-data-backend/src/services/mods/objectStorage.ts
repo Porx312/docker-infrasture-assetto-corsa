@@ -1,9 +1,4 @@
-import fs from 'node:fs';
-import fsp from 'node:fs/promises';
-import path from 'node:path';
 import { createReadStream } from 'node:fs';
-import { pipeline } from 'node:stream/promises';
-import { resolveModMasterLocalPath, resolveModUploadRoot } from './modPaths.js';
 import { artifactTarGzStorageKey } from '@projectd/ac-data-shared/mods/modS3Manifest.js';
 
 export type ObjectStorageMode = 'local' | 's3';
@@ -11,10 +6,6 @@ export type ObjectStorageMode = 'local' | 's3';
 export function storageMode(): ObjectStorageMode {
   const raw = (process.env.MOD_STORAGE_MODE || 'local').trim().toLowerCase();
   return raw === 's3' ? 's3' : 'local';
-}
-
-function localMasterRoot(): string {
-  return resolveModMasterLocalPath(resolveModUploadRoot());
 }
 
 export function s3Config(): {
@@ -52,36 +43,19 @@ export async function createS3Client() {
   };
 }
 
-/** Legacy hub ZIP key layout (unused for new edge_folder promotes). */
-export function artifactStorageKey(sha256: string): string {
-  const prefix = sha256.slice(0, 2);
-  const mid = sha256.slice(2, 4);
-  return `artifacts/sha256/${prefix}/${mid}/${sha256}.zip`;
-}
-
 export { artifactTarGzStorageKey };
 
-/** Presign GET for hub master ZIP or canonical tar.gz keys. */
+/** Presign GET for canonical Contabo/S3 object keys (tar.gz library). */
 export async function getArtifactDownloadUrl(
   storageKey: string,
-  sha256: string,
+  _sha256: string,
   _sizeBytes: number,
 ): Promise<{ url: string; expiresInSec: number }> {
   const expiresInSec = Number(process.env.MOD_PRESIGN_TTL_SEC || 3600);
-  if (storageMode() === 'local') {
-    const hubBase = (
-      process.env.HUD_PUBLIC_BASE_URL ||
-      process.env.PUBLIC_API_BASE_URL ||
-      ''
-    ).trim();
-    if (!hubBase) {
-      throw new Error(
-        'HUD_PUBLIC_BASE_URL required for leftover hub master downloads (prefer edge_folder / adopt)',
-      );
-    }
-    const token = sha256.slice(0, 16);
-    const url = `${hubBase.replace(/\/+$/, '')}/api/mods/internal/artifacts/download?key=${encodeURIComponent(storageKey)}&sha256=${sha256}&token=${token}`;
-    return { url, expiresInSec };
+  if (storageMode() !== 's3') {
+    throw new Error(
+      'MOD_STORAGE_MODE=s3 required for artifact downloads (hub master ZIP removed)',
+    );
   }
   const { GetObjectCommand } = await import('@aws-sdk/client-s3');
   const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
@@ -186,63 +160,6 @@ export async function headCanonicalObject(key: string): Promise<{
     }
     throw err;
   }
-}
-
-/** Absolute path for a local master blob (MOD_STORAGE_MODE=local). */
-export function localMasterArtifactPath(storageKey: string): string {
-  return path.join(localMasterRoot(), storageKey);
-}
-
-/** True when local master ZIP exists on disk. Always true for s3 mode (remote). */
-export function localMasterArtifactExists(storageKey: string): boolean {
-  if (storageMode() !== 'local') {
-    return true;
-  }
-  return fs.existsSync(localMasterArtifactPath(storageKey));
-}
-
-export async function streamLocalMasterArtifact(
-  storageKey: string,
-  res: import('express').Response,
-): Promise<void> {
-  const filePath = localMasterArtifactPath(storageKey);
-  if (!fs.existsSync(filePath)) {
-    res.status(404).json({
-      ok: false,
-      error: 'artifact_blob_missing',
-      message: 'Leftover hub master ZIP missing — re-adopt/upload on an edge (folder-first)',
-    });
-    return;
-  }
-  res.setHeader('Content-Type', 'application/zip');
-  res.setHeader('Accept-Ranges', 'bytes');
-  const stat = await fsp.stat(filePath);
-  const range = res.req.headers.range;
-  if (range) {
-    const match = /^bytes=(\d+)-(\d*)$/.exec(range);
-    if (match) {
-      const start = Number(match[1]);
-      const end = match[2] ? Number(match[2]) : stat.size - 1;
-      res.status(206);
-      res.setHeader('Content-Range', `bytes ${start}-${end}/${stat.size}`);
-      res.setHeader('Content-Length', String(end - start + 1));
-      fs.createReadStream(filePath, { start, end }).pipe(res);
-      return;
-    }
-  }
-  res.setHeader('Content-Length', String(stat.size));
-  await pipeline(createReadStream(filePath), res);
-}
-
-export async function deleteMasterArtifact(storageKey: string): Promise<void> {
-  if (storageMode() === 'local') {
-    const filePath = path.join(localMasterRoot(), storageKey);
-    await fsp.unlink(filePath).catch(() => undefined);
-    return;
-  }
-  const { DeleteObjectCommand } = await import('@aws-sdk/client-s3');
-  const { client, cfg } = await createS3Client();
-  await client.send(new DeleteObjectCommand({ Bucket: cfg.bucket, Key: storageKey }));
 }
 
 /** Delete a Contabo/S3 object by key (library tar.gz). */

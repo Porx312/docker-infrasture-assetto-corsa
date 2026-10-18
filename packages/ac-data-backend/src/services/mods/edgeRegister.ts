@@ -6,10 +6,12 @@ import {
 } from '@projectd/ac-data-shared/mods/edgeBlobStorage.js';
 import {
   createPackageAndArtifact,
+  getPackageById,
   markArtifactReadyOnEdge,
 } from './catalogRepo.js';
 import { syncFleetEdgesToDb } from './fleetEdgeDb.js';
 import { syncHostCatalogUpsert } from '../hostCatalog/index.js';
+import { modPreviewPublicUrl } from './modPreviewImages.js';
 import { schedulePromoteArtifactToS3 } from './promoteArtifactToS3.js';
 
 export type RegisterEdgeLocalArtifactInput = {
@@ -53,12 +55,12 @@ export async function registerEdgeLocalArtifact(
 
   if (input.storageOrigin === 'edge') {
     throw new Error(
-      'storageOrigin=edge is disabled; use edge_folder (slim upload / adopt). Legacy ZIP blobs are read-only until GC.',
+      'storageOrigin=edge is disabled; use edge_folder (slim upload / adopt) or S3 library upload',
     );
   }
 
   if (input.storageKey?.trim() && !isEdgeFolderStorageKey(input.storageKey.trim())) {
-    throw new Error('storageKey must be edge-folder:… (legacy edge:… keys cannot be registered)');
+    throw new Error('storageKey must be edge-folder:…');
   }
 
   let storageKey = input.storageKey?.trim() || '';
@@ -96,12 +98,16 @@ export async function registerEdgeLocalArtifact(
   let hostCatalogSynced = false;
   let hostCatalogSyncError: string | undefined;
   try {
+    const pkg = await getPackageById(packageId);
+    const coverImageFilename = pkg?.preview_image_filename ?? null;
     const sync = await syncHostCatalogUpsert({
       kind: input.kind,
       displayName: input.displayName.trim(),
       acContentSlug: input.acContentSlug.trim(),
       manifest: input.manifest,
       zipPaths: input.manifest.entryPaths,
+      coverImageFilename,
+      coverImageUrl: coverImageFilename ? modPreviewPublicUrl(coverImageFilename) : null,
     });
     hostCatalogSynced = sync.synced;
     if (!sync.synced) {

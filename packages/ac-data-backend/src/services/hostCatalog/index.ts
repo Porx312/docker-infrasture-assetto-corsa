@@ -1,5 +1,6 @@
 export {
   isHostCatalogSyncEnabled,
+  isHostCatalogCoverSyncEnabled,
   hostCatalogSyncDisableReason,
   HOST_CATALOG_MUTATIONS,
   mutationPath,
@@ -9,6 +10,7 @@ export {
   extractCarSkinsFromZipPaths,
   extractTrackConfigsFromZipPaths,
   planServerPresenceSync,
+  buildCarUpsertArgs,
   buildServerUpsertArgs,
   buildTrackUpsertArgs,
   syncHostCatalogUpsert,
@@ -21,3 +23,4 @@ export {
   type SyncHostCatalogServersResult,
   type BackfillHostCatalogServersResult,
 } from './sync.js';
+export { resolveCoverImageIdForConvex } from './coverUpload.js';

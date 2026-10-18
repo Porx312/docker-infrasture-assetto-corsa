@@ -13,7 +13,7 @@ export function assertSecurityConfiguration(): void {
   }
   if ((process.env.AC_MOD_ROOT || '').trim()) {
     console.warn(
-      '⚠️ AC_MOD_ROOT is deprecated (legacy ZIP blobs only). Run gc-blobs then remove it; use CONTENT_PATH.',
+      '⚠️ AC_MOD_ROOT is ignored (ZIP blob cache removed). Unset it; use CONTENT_PATH only.',
     );
   }
 }

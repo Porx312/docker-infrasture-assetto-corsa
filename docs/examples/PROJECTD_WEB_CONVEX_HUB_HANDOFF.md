@@ -44,7 +44,8 @@ sequenceDiagram
 | Pool idle Postgres | Hub `server_slots` | **Retirado** — API slots eliminada; tabla puede existir en DB sin uso |
 
 Workers Convex (ProjectD): `convex/worker/hostCatalogSync.ts`.  
-Hub sync env + mutation paths: **[HOST_CATALOG_SYNC.md](../HOST_CATALOG_SYNC.md)** (no duplicar aquí).
+Hub sync env + mutation paths: **[HOST_CATALOG_SYNC.md](../HOST_CATALOG_SYNC.md)** (no duplicar aquí).  
+Mod covers → `coverImageId` (public hub URL): **[PROJECTD_COVER_IMAGE_WORKER.md](./PROJECTD_COVER_IMAGE_WORKER.md)**.
 
 ---
 

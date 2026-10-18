@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  buildCarUpsertArgs,
   buildServerUpsertArgs,
   buildTrackUpsertArgs,
   extractCarSkinsFromZipPaths,
@@ -76,6 +77,47 @@ describe('hostCatalog Convex payload builders', () => {
       name: 'Monza',
       configTrack: ['default'],
     });
+  });
+
+  it('buildTrackUpsertArgs omits coverImageId when null (Host placeholder)', () => {
+    const args = buildTrackUpsertArgs({
+      track: 'monza',
+      name: 'Monza',
+      paths: [],
+      coverImageId: null,
+    });
+    assert.equal('coverImageId' in args, false);
+  });
+
+  it('buildTrackUpsertArgs includes coverImageId URL when set', () => {
+    const args = buildTrackUpsertArgs({
+      track: 'monza',
+      name: 'Monza',
+      paths: [],
+      coverImageId: 'https://hub.example.com/mods/images/monza.jpg',
+    });
+    assert.equal(args.coverImageId, 'https://hub.example.com/mods/images/monza.jpg');
+  });
+
+  it('buildCarUpsertArgs omits coverImageId when empty', () => {
+    const args = buildCarUpsertArgs({
+      carModel: 'bmw_m3',
+      name: 'BMW',
+      paths: [],
+      coverImageId: '  ',
+    });
+    assert.equal('coverImageId' in args, false);
+  });
+
+  it('buildCarUpsertArgs includes coverImageId URL when set', () => {
+    const args = buildCarUpsertArgs({
+      carModel: 'bmw_m3',
+      name: 'BMW',
+      paths: ['skins/red/ui_skin.json'],
+      coverImageId: 'https://hub.example.com/mods/images/bmw.jpg',
+    });
+    assert.equal(args.coverImageId, 'https://hub.example.com/mods/images/bmw.jpg');
+    assert.deepEqual(args.skins, ['red']);
   });
 
   it('buildTrackUpsertArgs keeps detected layouts', () => {

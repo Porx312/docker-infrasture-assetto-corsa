@@ -6,10 +6,8 @@ import type {
   SyncJobOperation,
 } from '@projectd/ac-data-shared/mods/types.js';
 import {
-  isEdgeBlobStorageKey,
   isEdgeFolderStorageKey,
   isEdgeOwnedStorageKey,
-  parseEdgeBlobStorageKey,
   parseEdgeFolderStorageKey,
 } from '@projectd/ac-data-shared/mods/edgeBlobStorage.js';
 import {
@@ -34,9 +32,7 @@ import { getModPool } from './db.js';
 import { syncFleetEdgesToDb } from './fleetEdgeDb.js';
 import {
   deleteCanonicalObject,
-  deleteMasterArtifact,
   getArtifactDownloadUrl,
-  localMasterArtifactExists,
   storageMode,
 } from './objectStorage.js';
 import { deleteModPreviewImageFile } from './modPreviewImages.js';
@@ -48,20 +44,9 @@ export { syncFleetEdgesToDb } from './fleetEdgeDb.js';
 const MAX_ATTEMPTS = Number(process.env.MOD_SYNC_MAX_ATTEMPTS || 5);
 /** Requeue `running` jobs whose started_at is older than this (dead agent / crash). */
 const RUNNING_STALE_MS = Number(process.env.MOD_SYNC_RUNNING_STALE_MS || 600_000);
-/** Cap concurrent running install/upgrade jobs per edge (peer-pull mesh). */
+/** Cap concurrent running install/upgrade jobs per edge (env name historical). */
 function maxPeerPullConcurrent(): number {
   return Number(process.env.MOD_PEER_PULL_MAX_CONCURRENT || 3);
-}
-
-function assertLocalMasterBlobPresent(storageKey: string, sha256: string): void {
-  if (isEdgeOwnedStorageKey(storageKey)) {
-    return;
-  }
-  if (!localMasterArtifactExists(storageKey)) {
-    throw new Error(
-      `artifact_blob_missing: leftover hub master ZIP missing for sha256=${sha256.slice(0, 12)}… — adopt/upload on an edge`,
-    );
-  }
 }
 
 function canPullFromS3(manifest: unknown): ModS3ManifestFields | null {
@@ -129,15 +114,6 @@ async function findPeerEdgeWithBlob(
     [artifactId, sha256],
   );
   return any.rows[0]?.edge_id ?? null;
-}
-
-function peerBlobDownloadUrl(sourceEdgeId: string, sha256: string): string {
-  const edge = resolveFleetEdge(sourceEdgeId);
-  if (!edge?.baseUrl) {
-    throw new Error(`peer_edge_unreachable: no baseUrl for edge ${sourceEdgeId}`);
-  }
-  const base = edge.baseUrl.replace(/\/+$/, '');
-  return `${base}/api/mod-agent/v1/blobs/${encodeURIComponent(sha256)}`;
 }
 
 function peerTreeDownloadUrl(sourceEdgeId: string, kind: string, slug: string): string {
@@ -208,20 +184,21 @@ export async function ensureArtifactOnEdge(
     if (!s3) {
       throw new Error(s3PullBlockedError(art.manifest_json));
     }
-    // Library install path — no peer / hub ZIP required.
-  } else if (!isEdgeOwnedStorageKey(art.storage_key)) {
-    assertLocalMasterBlobPresent(art.storage_key, art.sha256);
-  } else if (isModPeerPullEnabled()) {
-    const prefer =
-      parseEdgeFolderStorageKey(art.storage_key)?.edgeId ??
-      parseEdgeBlobStorageKey(art.storage_key)?.edgeId ??
-      art.source_edge_id;
-    const peer = await findPeerEdgeWithBlob(artifactId, art.sha256, prefer);
-    if (!peer) {
+    // Library install path — S3 only.
+  } else if (isEdgeFolderStorageKey(art.storage_key)) {
+    if (isModPeerPullEnabled()) {
+      const prefer = parseEdgeFolderStorageKey(art.storage_key)?.edgeId ?? art.source_edge_id;
+      const peer = await findPeerEdgeWithBlob(artifactId, art.sha256, prefer);
+      if (!peer) {
+        throw new Error(remoteSourceError(Boolean(rawS3)));
+      }
+    } else {
       throw new Error(remoteSourceError(Boolean(rawS3)));
     }
   } else {
-    throw new Error(remoteSourceError(Boolean(rawS3)));
+    throw new Error(
+      'artifact_blob_missing: hub master ZIP removed — re-upload to S3 library or adopt as edge_folder',
+    );
   }
   await syncFleetEdgesToDb();
   const normalizedEdge = edgeId.toLowerCase();
@@ -247,7 +224,9 @@ export async function distributeArtifact(
   }
   const s3 = canPullFromS3(art.manifest_json);
   if (!s3 && !isEdgeOwnedStorageKey(art.storage_key) && !isS3CanonicalStorageKey(art.storage_key)) {
-    assertLocalMasterBlobPresent(art.storage_key, art.sha256);
+    throw new Error(
+      'artifact_blob_missing: hub master ZIP removed — re-upload to S3 library or adopt as edge_folder',
+    );
   }
   await syncFleetEdgesToDb();
   const targets =
@@ -272,9 +251,7 @@ export async function distributeArtifact(
       );
     }
     const prefer =
-      parseEdgeFolderStorageKey(art.storage_key)?.edgeId ??
-      parseEdgeBlobStorageKey(art.storage_key)?.edgeId ??
-      art.source_edge_id;
+      parseEdgeFolderStorageKey(art.storage_key)?.edgeId ?? art.source_edge_id;
     const source = (await findPeerEdgeWithBlob(artifactId, art.sha256, prefer)) ?? null;
     if (!source) {
       throw new Error(
@@ -299,7 +276,7 @@ export async function distributeArtifact(
   return { enqueued };
 }
 
-/** Peer copy: install jobs on targets; downloadUrl resolved at acquire time from source edge. */
+/** Peer tree copy: install jobs on targets; treeDownloadUrl resolved at acquire time. */
 export async function copyArtifactFromEdge(
   artifactId: string,
   sourceEdgeId: string,
@@ -427,9 +404,8 @@ export async function forceDeleteModPackage(packageId: string): Promise<{
     const s3 = readModS3Fields(art.manifest_json);
     if (s3?.s3Key) {
       await deleteCanonicalObject(s3.s3Key).catch(() => undefined);
-    }
-    if (!isEdgeOwnedStorageKey(art.storage_key) && !isS3CanonicalStorageKey(art.storage_key)) {
-      await deleteMasterArtifact(art.storage_key).catch(() => undefined);
+    } else if (isS3CanonicalStorageKey(art.storage_key)) {
+      await deleteCanonicalObject(art.storage_key).catch(() => undefined);
     }
   }
 
@@ -547,14 +523,16 @@ export async function acquireJobForEdge(edgeId: string, agentId: string): Promis
         continue;
       }
 
-      let downloadUrl: string | undefined;
       let treeDownloadUrl: string | undefined;
       let s3DownloadUrl: string | undefined;
       let s3ObjectSha256: string | undefined;
       let s3ObjectSizeBytes: number | undefined;
       if (job.operation === 'install' || job.operation === 'upgrade') {
         const s3Early = canPullFromS3(art.manifest_json);
-        if (isS3CanonicalStorageKey(art.storage_key) || (s3Early && !isEdgeFolderStorageKey(art.storage_key) && !isEdgeBlobStorageKey(art.storage_key))) {
+        if (
+          isS3CanonicalStorageKey(art.storage_key) ||
+          (s3Early && !isEdgeFolderStorageKey(art.storage_key))
+        ) {
           const s3 = s3Early;
           if (!s3) {
             const errMsg = s3PullBlockedError(art.manifest_json);
@@ -652,31 +630,20 @@ export async function acquireJobForEdge(edgeId: string, agentId: string): Promis
             );
             continue;
           }
-        } else if (isEdgeBlobStorageKey(art.storage_key)) {
-          // Legacy ZIP blob: peer only when MOD_PEER_PULL_ENABLED=1.
-          const prefer =
-            parseEdgeBlobStorageKey(art.storage_key)?.edgeId ?? art.source_edge_id ?? null;
-          const peer = await findPeerEdgeWithBlob(job.artifact_id, art.sha256, prefer);
-          if (peer === edgeId) {
-            // local verify via zip path below may still run; leave urls unset
-          } else if (isModPeerPullEnabled() && peer && peer !== edgeId) {
-            downloadUrl = peerBlobDownloadUrl(peer, art.sha256);
-          } else if (!peer || peer !== edgeId) {
-            await forceReleaseModLock(edgeId, art.sha256);
-            const errMsg = isModPeerPullEnabled()
-              ? 'No peer edge has this mod READY for download'
-              : 'peer_pull_disabled: legacy edge blob requires MOD_PEER_PULL_ENABLED=1';
-            await client.query(
-              `UPDATE sync_jobs SET state = 'failed', error_message = $2, finished_at = NOW() WHERE id = $1`,
-              [job.id, errMsg],
-            );
-            await client.query(
-              `UPDATE edge_artifact_inventory SET status = 'ERROR', error_message = $3, updated_at = NOW()
-               WHERE edge_id = $1 AND artifact_id = $2`,
-              [edgeId, job.artifact_id, errMsg],
-            );
-            continue;
-          }
+        } else {
+          await forceReleaseModLock(edgeId, art.sha256);
+          const errMsg =
+            'artifact_blob_missing: unsupported storage (ZIP/hub master removed) — re-upload to S3 library';
+          await client.query(
+            `UPDATE sync_jobs SET state = 'failed', error_message = $2, finished_at = NOW() WHERE id = $1`,
+            [job.id, errMsg],
+          );
+          await client.query(
+            `UPDATE edge_artifact_inventory SET status = 'ERROR', error_message = $3, updated_at = NOW()
+             WHERE edge_id = $1 AND artifact_id = $2`,
+            [edgeId, job.artifact_id, errMsg],
+          );
+          continue;
         }
       }
 
@@ -702,7 +669,6 @@ export async function acquireJobForEdge(edgeId: string, agentId: string): Promis
         acContentSlug: art.package.ac_content_slug,
         manifest: art.manifest_json,
         versionLabel: art.version_label,
-        ...(downloadUrl ? { downloadUrl } : {}),
         ...(treeDownloadUrl ? { treeDownloadUrl } : {}),
         ...(s3DownloadUrl ? { s3DownloadUrl } : {}),
         ...(s3ObjectSha256 ? { s3ObjectSha256 } : {}),
@@ -921,33 +887,9 @@ export async function getDownloadUrlForArtifact(
       sizeBytes: Number(art.size_bytes),
     };
   }
-  if (isEdgeBlobStorageKey(art.storage_key)) {
-    if (!isModPeerPullEnabled()) {
-      throw new Error(
-        'peer_pull_disabled: legacy edge blob requires MOD_PEER_PULL_ENABLED=1',
-      );
-    }
-    const prefer = parseEdgeBlobStorageKey(art.storage_key)?.edgeId ?? art.source_edge_id ?? null;
-    const peer = await findPeerEdgeWithBlob(artifactId, art.sha256, prefer);
-    if (!peer) {
-      throw new Error(
-        'artifact_blob_missing: edge-owned mod has no READY source VPS — adopt or upload on an edge',
-      );
-    }
-    return {
-      url: peerBlobDownloadUrl(peer, art.sha256),
-      expiresInSec: 3600,
-      sha256: art.sha256,
-      sizeBytes: Number(art.size_bytes),
-    };
-  }
-  assertLocalMasterBlobPresent(art.storage_key, art.sha256);
-  const signed = await getArtifactDownloadUrl(art.storage_key, art.sha256, Number(art.size_bytes));
-  return {
-    ...signed,
-    sha256: art.sha256,
-    sizeBytes: Number(art.size_bytes),
-  };
+  throw new Error(
+    'artifact_blob_missing: hub master / ZIP blob download removed — re-upload to S3 library or adopt as edge_folder',
+  );
 }
 
 export async function applyInventoryReport(

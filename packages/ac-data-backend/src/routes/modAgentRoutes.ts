@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { modInternalDownloadHandler } from '../controller/modController.js';
 import {
   modAgentHeartbeatHandler,
   modAgentDesiredStateHandler,
@@ -14,8 +13,6 @@ import {
 } from '../controller/modAgentController.js';
 
 const router = Router();
-
-router.get('/mods/internal/artifacts/download', modInternalDownloadHandler);
 
 router.post('/mod-agent/v1/heartbeat', modAgentHeartbeatHandler);
 router.get('/mod-agent/v1/desired-state', modAgentDesiredStateHandler);

@@ -10,8 +10,9 @@ import {
   s3CanonicalStorageKey,
   type ModS3ManifestFields,
 } from '@projectd/ac-data-shared/mods/modS3Manifest.js';
-import { createPackageAndArtifact } from './catalogRepo.js';
+import { createPackageAndArtifact, getPackageById } from './catalogRepo.js';
 import { syncHostCatalogUpsert } from '../hostCatalog/index.js';
+import { modPreviewPublicUrl } from './modPreviewImages.js';
 
 export type RegisterS3LibraryArtifactInput = {
   slug: string;
@@ -90,12 +91,16 @@ export async function registerS3LibraryArtifact(
   let hostCatalogSynced = false;
   let hostCatalogSyncError: string | undefined;
   try {
+    const pkg = await getPackageById(packageId);
+    const coverImageFilename = pkg?.preview_image_filename ?? null;
     const sync = await syncHostCatalogUpsert({
       kind: input.kind,
       displayName: input.displayName.trim(),
       acContentSlug: input.acContentSlug.trim(),
       manifest,
       zipPaths: manifest.entryPaths,
+      coverImageFilename,
+      coverImageUrl: coverImageFilename ? modPreviewPublicUrl(coverImageFilename) : null,
     });
     hostCatalogSynced = sync.synced;
     if (!sync.synced) {

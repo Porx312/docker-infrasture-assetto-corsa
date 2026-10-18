@@ -91,6 +91,7 @@ Body: `{ instanceId, region?, servers: [{ name, httpPort, ... }] }` — hub forc
 | `CONVEX_HOST_CATALOG_DELETE_TRACK` | … |
 | `CONVEX_HOST_CATALOG_UPSERT_SERVER` | … |
 | `CONVEX_HOST_CATALOG_DELETE_SERVER` | … |
+| `CONVEX_HOST_CATALOG_COVER_SYNC` | On when unset; set `false` to skip sending preview URL as `coverImageId` |
 | `HOST_CATALOG_DEFAULT_REGION` | Fallback region for server upsert (`EU` if unset). Must be `EU` / `NA` / `SA` / `APAC` |
 
 Defined in `services/hostCatalog/env.ts`.
@@ -141,7 +142,7 @@ Default mutation paths:
 | `carModel` | required — AC slug / key |
 | `name` | required |
 | `skins` | optional `string[]` |
-| `coverImageId` | optional — hub does not send |
+| `coverImageId` | optional — **public hub URL** (`https://…/mods/images/…`) when package has a preview |
 | `isEventOnly` | optional — worker default `true`; hub does not send |
 
 Delete: `{ workerSecret, carModel }`
@@ -154,10 +155,31 @@ Delete: `{ workerSecret, carModel }`
 | `track` | required — slug / key |
 | `name` | required |
 | `configTrack` | **required** `string[]` — hub sends `["default"]` when no layouts detected |
-| `coverImageId` | optional — hub does not send (no `mapImageId`) |
+| `coverImageId` | optional — **public hub URL** when package has a preview (not `mapImageId`) |
 | `isEventOnly` | optional — worker default `true`; hub does not send |
 
 Delete: `{ workerSecret, track }`
+
+### Cover images (`coverImageId`)
+
+Hub mod covers live in `mod-previews/` and are exposed as `imageUrl` on `GET /v1/mods`. They are **not** inside Contabo S3 mod tars. Hub does **not** upload covers to Convex `_storage`.
+
+On car/track upsert (and after admin preview upload), the hub sends `coverImageId` = that public URL string (e.g. `https://hub.example.com/mods/images/….jpg`).
+
+If there is **no** preview, hub **omits** `coverImageId` (Host UI should show a placeholder).
+
+Host UI resolution (ProjectD):
+
+```ts
+const src = coverImageId?.startsWith("http")
+  ? coverImageId
+  : coverImageId
+    ? await ctx.storage.getUrl(coverImageId) // legacy storage ids
+    : null;
+// null → placeholder
+```
+
+No `workerGenerateUploadUrl` required. See [examples/PROJECTD_COVER_IMAGE_WORKER.md](./examples/PROJECTD_COVER_IMAGE_WORKER.md).
 
 ### Server — `workerUpsertServer`
 

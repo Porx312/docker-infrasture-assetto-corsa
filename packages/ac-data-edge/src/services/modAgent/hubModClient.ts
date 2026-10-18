@@ -51,18 +51,6 @@ export async function acquireModJob(agentId: string): Promise<ModAgentJobPayload
   return body.job ?? null;
 }
 
-export async function getArtifactDownloadUrl(artifactId: string): Promise<{
-  url: string;
-  sha256: string;
-  sizeBytes: number;
-}> {
-  const res = await hubFetch(`/mod-agent/v1/artifacts/${artifactId}/download-url`, { method: 'GET' });
-  if (!res.ok) {
-    throw new Error(`download-url failed: ${res.status}`);
-  }
-  return (await res.json()) as { url: string; sha256: string; sizeBytes: number };
-}
-
 export async function reportJobProgress(jobId: string, progressPct: number, phase: string): Promise<void> {
   const res = await hubFetch(`/mod-agent/v1/jobs/${jobId}/progress`, {
     method: 'POST',
