@@ -25,7 +25,12 @@ import {
   processConfigApplyOutcome,
   type ConfigAckRedis,
 } from './configApplierAck.js';
-import { getAvailableCars, resolveEntriesForApply } from './configCarAvailability.js';
+import {
+  filterValidEntries,
+  getAvailableCars,
+  resolveEntriesForApply,
+} from './configCarAvailability.js';
+import type { ModContentOverrides } from './modAgent/startGate.js';
 
 const REDIS_CONFIG_STREAM_KEY = process.env.REDIS_CONFIG_STREAM_KEY || 'ac:config';
 const AC_INSTANCE_ID = process.env.AC_INSTANCE_ID || 'default';
@@ -120,17 +125,93 @@ async function applyServerBrandingIfPresent(row: ServerRow): Promise<string[]> {
   return ['description/branding'];
 }
 
+/** Track + car models from Redis row (before server_cfg.ini is rewritten). */
+export function contentOverridesFromRow(row: ServerRow): ModContentOverrides {
+  const models = [
+    ...new Set(
+      (row.entries || [])
+        .map((e) => (typeof e.model === 'string' ? e.model.trim() : ''))
+        .filter(Boolean),
+    ),
+  ];
+  const overrides: ModContentOverrides = {};
+  if (row.track?.trim()) overrides.track = row.track.trim();
+  if (models.length) overrides.cars = models.join(';');
+  return overrides;
+}
+
+/**
+ * Download track/cars from hub/S3 using Redis slugs before the local-car gate.
+ * Returns false when reconcile should stop (unrecoverable / still no cars).
+ */
+async function preflightModsForRow(row: ServerRow): Promise<boolean> {
+  if (row.isActive === false) {
+    return true;
+  }
+  const overrides = contentOverridesFromRow(row);
+  if (!overrides.track && !overrides.cars) {
+    return true;
+  }
+
+  const { ensureModsReadyForServerStart, localContentExists, requiredSlugsFromConfig } =
+    await import('./modAgent/startGate.js');
+  const required = requiredSlugsFromConfig(overrides);
+  if (required.length > 0 && required.every((slug) => localContentExists(slug))) {
+    return true;
+  }
+
+  const gate = await ensureModsReadyForServerStart(row.serverName, overrides);
+  if (gate.ok) {
+    return true;
+  }
+
+  const missing = (gate.items || []).map((i) => `${i.acContentSlug}(${i.status})`).join(',');
+  console.warn(
+    `[redis-config-applier] preflight mods ${row.serverName}: ${gate.reason || 'not_ready'} missing=${missing}`,
+  );
+
+  if (gate.reason === 'unknown_package') {
+    return false;
+  }
+
+  if (row.entries && row.entries.length > 0) {
+    const { valid } = filterValidEntries(row.entries, getAvailableCars());
+    if (valid.length === 0) {
+      console.warn(
+        `[redis-config-applier] ${row.serverName}: still no local cars after preflight — skip apply/start`,
+      );
+      return false;
+    }
+  }
+  return true;
+}
+
 async function reconcileServer(row: ServerRow, isFirstSnapshot: boolean): Promise<void> {
   if (!row || !row.serverName) return;
   if (row.instanceId && row.instanceId !== AC_INSTANCE_ID) return;
 
-  const availableCars = getAvailableCars();
-  // Throws if desired entries exist but none are local — avoid name/track-only apply leaving stale cars.
-  const entries = resolveEntriesForApply(row.entries, availableCars, row.serverName);
+  // Install from S3/hub first — otherwise resolveEntriesForApply aborts when 0 cars are local
+  // and we never reach startServerWithMods.
+  const preflightOk = await preflightModsForRow(row);
+  if (!preflightOk) {
+    return;
+  }
+
+  let entries: ReturnType<typeof resolveEntriesForApply>;
+  try {
+    const availableCars = getAvailableCars();
+    // Throws if desired entries exist but none are local — avoid name/track-only apply leaving stale cars.
+    entries = resolveEntriesForApply(row.entries, availableCars, row.serverName);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[redis-config-applier] ${message} — skip apply/start`);
+    return;
+  }
   if (entries !== undefined) {
     row = { ...row, entries };
   }
 
+  const contentOverrides = contentOverridesFromRow(row);
   const signature = buildSignature(row);
   const previous = lastSignatures.get(row.serverName);
   const changed = previous !== signature;
@@ -228,7 +309,7 @@ async function reconcileServer(row: ServerRow, isFirstSnapshot: boolean): Promis
 
   if (running && changed) {
     const { restartServerWithMods } = await import('./modAgent/startGate.js');
-    const result = await restartServerWithMods(row.serverName);
+    const result = await restartServerWithMods(row.serverName, contentOverrides);
     console.log(
       `[redis-config-applier] restart ${row.serverName}: ${result.ok ? 'ok' : 'failed'} | ${result.message}${
         result.ok ? '' : result.code === 'MODS_NOT_READY' ? ` missing=${(result.missing || []).map((m) => m.acContentSlug).join(',')}` : ''
@@ -239,7 +320,7 @@ async function reconcileServer(row: ServerRow, isFirstSnapshot: boolean): Promis
       console.log(`[redis-config-applier] ${row.serverName} first snapshot skip (RESTART_ON_BOOT=false)`);
     } else {
       const { startServerWithMods } = await import('./modAgent/startGate.js');
-      const result = await startServerWithMods(row.serverName);
+      const result = await startServerWithMods(row.serverName, contentOverrides);
       console.log(
         `[redis-config-applier] start ${row.serverName}: ${result.ok ? 'ok' : 'failed'} | ${result.message}${
           result.ok ? '' : result.code === 'MODS_NOT_READY' ? ` missing=${(result.missing || []).map((m) => m.acContentSlug).join(',')}` : ''

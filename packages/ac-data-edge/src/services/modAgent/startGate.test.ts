@@ -5,6 +5,7 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  isUnrecoverableModBlocker,
   localContentExists,
   requiredSlugsFromConfig,
   unresolvedModItems,
@@ -14,6 +15,19 @@ import {
 test('requiredSlugsFromConfig parses track and cars', () => {
   assert.deepEqual(requiredSlugsFromConfig({ track: 't1', cars: 'a;b,c' }), ['t1', 'a', 'b', 'c']);
   assert.deepEqual(requiredSlugsFromConfig({}), []);
+});
+
+test('isUnrecoverableModBlocker catches UNKNOWN_PACKAGE and catalog errors', () => {
+  const blockers = isUnrecoverableModBlocker(
+    [
+      { acContentSlug: 'pk_akina', status: 'UNKNOWN_PACKAGE' },
+      { acContentSlug: 'other', status: 'PENDING' },
+    ],
+    [{ acContentSlug: 'other', artifactId: null, message: 'no_catalog_artifact: status=UNKNOWN_PACKAGE' }],
+  );
+  assert.equal(blockers.length, 2);
+  assert.ok(blockers.some((b) => b.acContentSlug === 'pk_akina'));
+  assert.ok(blockers.some((b) => b.acContentSlug === 'other'));
 });
 
 test('unresolvedModItems: local cache allows start without hub READY', async () => {
