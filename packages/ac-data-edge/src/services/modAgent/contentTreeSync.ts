@@ -314,7 +314,7 @@ export async function pullAndInstallS3TarGz(
   const gzPath = path.join(tmpDir, `${objectSha256}.tar.gz`);
   try {
     onProgress?.(5);
-    await downloadWithResume(
+    const { downloadMs, hashMs } = await downloadWithResume(
       s3Url,
       gzPath,
       objectSizeBytes,
@@ -322,12 +322,17 @@ export async function pullAndInstallS3TarGz(
       objectSha256.toLowerCase(),
     );
     onProgress?.(75);
+    const tExtract = Date.now();
     const gunzip = createGunzip();
     const tarStream = createReadStream(gzPath).pipe(gunzip);
     const result = await installContentTreeFromStream(kind, slug, tarStream, {
       ...meta,
       register: false,
     });
+    const extractMs = Date.now() - tExtract;
+    console.log(
+      `[mod-s3-pull] slug=${slug} size=${objectSizeBytes} downloadMs=${downloadMs} hashMs=${hashMs} extractMs=${extractMs}`,
+    );
     onProgress?.(100);
     return result;
   } finally {

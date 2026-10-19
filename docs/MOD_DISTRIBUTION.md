@@ -87,6 +87,8 @@ CONVEX_WORKER_SECRET=...   # same as edges (admin proxy + agent + peer tree pull
 # MOD_S3_CANONICAL_UPLOAD=1   # after register-local, promote slim tar.gz → manifest.s3Key
 # MOD_S3_PULL_ENABLED=1       # ensure/acquire: install from S3 when local cache miss
 # MOD_PEER_PULL_ENABLED=0     # peer mesh OFF by default (set 1 only for emergency rollback)
+# MOD_S3_PULL_TIMEOUT_MS=600000  # AbortSignal on Contabo GET (default 10m)
+# MOD_AGENT_PROGRESS_MIN_MS=500  # throttle hub progress POSTs (also on each integer %)
 ```
 
 ### Contabo S3 library + install on-demand

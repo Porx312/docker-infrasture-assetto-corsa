@@ -18,19 +18,36 @@ import {
   writeAcModSidecar,
 } from './materialize.js';
 import { pullAndInstallContentTree, pullAndInstallS3TarGz } from './contentTreeSync.js';
+import {
+  createProgressThrottleState,
+  shouldEmitProgress,
+} from './progressThrottle.js';
 
 const POLL_MS = Number(process.env.MOD_AGENT_POLL_MS || 1500);
 /** How many jobs to drain back-to-back before yielding to the poll interval. */
 const DRAIN_MAX = Math.max(1, Number(process.env.MOD_AGENT_DRAIN_MAX || 10));
+/** Min ms between identical/% progress POSTs (also emit on each integer % change). */
+const PROGRESS_MIN_MS = Math.max(0, Number(process.env.MOD_AGENT_PROGRESS_MIN_MS || 500));
 
 let tickInFlight = false;
 
-/** Serialize progress HTTP so reports cannot race past completeModJob. */
-function createProgressReporter(jobId: string, phase: string): (pct: number) => Promise<void> {
+/**
+ * Serialize progress HTTP so reports cannot race past completeModJob.
+ * Throttles: only enqueue when integer % changes or every PROGRESS_MIN_MS.
+ */
+export function createProgressReporter(
+  jobId: string,
+  phase: string,
+): (pct: number) => Promise<void> {
   let chain: Promise<void> = Promise.resolve();
+  const throttle = createProgressThrottleState();
   return (pct: number) => {
+    const clamped = Math.max(0, Math.min(100, Math.round(pct)));
+    if (!shouldEmitProgress(throttle, clamped, Date.now(), PROGRESS_MIN_MS, clamped >= 100)) {
+      return chain;
+    }
     chain = chain
-      .then(() => reportJobProgress(jobId, pct, phase))
+      .then(() => reportJobProgress(jobId, clamped, phase))
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
         console.warn(`[mod-agent] progress report failed: ${message}`);

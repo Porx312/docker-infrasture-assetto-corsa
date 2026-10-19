@@ -3,7 +3,15 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { pipeline } from 'node:stream/promises';
+import {
+  createProgressThrottleState,
+  shouldEmitProgress,
+} from './progressThrottle.js';
+
+function downloadTimeoutMs(): number {
+  const raw = Number(process.env.MOD_S3_PULL_TIMEOUT_MS || process.env.MOD_DOWNLOAD_TIMEOUT_MS || 600_000);
+  return Number.isFinite(raw) && raw > 0 ? raw : 600_000;
+}
 
 export async function downloadWithResume(
   url: string,
@@ -12,7 +20,7 @@ export async function downloadWithResume(
   onProgress: (pct: number) => void,
   expectedSha256: string,
   extraHeaders?: Record<string, string>,
-): Promise<void> {
+): Promise<{ downloadMs: number; hashMs: number }> {
   const partPath = `${destPath}.part`;
   let start = 0;
   try {
@@ -30,7 +38,11 @@ export async function downloadWithResume(
     await fsp.unlink(partPath).catch(() => undefined);
   }
 
-  const res = await fetch(url, { headers });
+  const t0 = Date.now();
+  const res = await fetch(url, {
+    headers,
+    signal: AbortSignal.timeout(downloadTimeoutMs()),
+  });
   if (res.status !== 200 && res.status !== 206) {
     const hint =
       res.status === 404 || res.status === 409
@@ -51,17 +63,23 @@ export async function downloadWithResume(
   }
 
   let received = start;
-  const total = expectedSize;
+  const total = expectedSize > 0 ? expectedSize : 1;
+  const progressGate = createProgressThrottleState();
   for await (const chunk of reader as AsyncIterable<Uint8Array>) {
     fileStream.write(chunk);
     received += chunk.length;
-    onProgress(Math.min(99, Math.round((received / total) * 100)));
+    const pct = Math.min(99, Math.round((received / total) * 100));
+    if (shouldEmitProgress(progressGate, pct, Date.now(), 500)) {
+      onProgress(pct);
+    }
   }
   await new Promise<void>((resolve, reject) => {
     fileStream.end(() => resolve());
     fileStream.on('error', reject);
   });
+  const downloadMs = Date.now() - t0;
 
+  const tHash = Date.now();
   const hash = createHash('sha256');
   await new Promise<void>((resolve, reject) => {
     const stream = fs.createReadStream(partPath);
@@ -74,6 +92,8 @@ export async function downloadWithResume(
     await fsp.unlink(partPath).catch(() => undefined);
     throw new Error('SHA-256 mismatch after download');
   }
+  const hashMs = Date.now() - tHash;
 
   await fsp.rename(partPath, destPath);
+  return { downloadMs, hashMs };
 }
