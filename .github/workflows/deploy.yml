@@ -87,7 +87,9 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+      # Direct SSH (works for edge-1; edge-2 often times out from GitHub egress).
       - name: Deploy ${{ matrix.id }} (${{ matrix.role }})
+        if: matrix.id != 'edge-2'
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ steps.creds.outputs.host }}
@@ -105,7 +107,43 @@ jobs:
             chmod +x scripts/deploy-from-main.sh reload-infra.sh
             ./scripts/deploy-from-main.sh "${{ matrix.role }}"
 
+      # edge-2: GitHub→US:22 often times out; jump via edge-1 (EU) which can reach US.
+      - name: Deploy edge-2 via edge-1 jump
+        if: matrix.id == 'edge-2'
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          EDGE2_HOST: ${{ secrets.VPS_HOST_EDGE_2 }}
+          EDGE2_USER: ${{ secrets.VPS_USER_EDGE_2 }}
+          EDGE2_KEY: ${{ secrets.VPS_SSH_KEY_EDGE_2 }}
+          EDGE2_PATH: ${{ matrix.path }}
+          EDGE2_ROLE: ${{ matrix.role }}
+        with:
+          host: ${{ secrets.VPS_HOST_EDGE_1 }}
+          username: ${{ secrets.VPS_USER_EDGE_1 }}
+          key: ${{ secrets.VPS_SSH_KEY_EDGE_1 }}
+          command_timeout: 25m
+          envs: EDGE2_HOST,EDGE2_USER,EDGE2_KEY,EDGE2_PATH,EDGE2_ROLE
+          script: |
+            set -euo pipefail
+            KEY_FILE="$(mktemp)"
+            trap 'rm -f "$KEY_FILE"' EXIT
+            printf '%s\n' "$EDGE2_KEY" > "$KEY_FILE"
+            chmod 600 "$KEY_FILE"
+            ssh -i "$KEY_FILE" -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+              -o ConnectTimeout=20 \
+              "${EDGE2_USER}@${EDGE2_HOST}" "bash -s" <<REMOTE
+            set -euo pipefail
+            cd "${EDGE2_PATH}"
+            git restore --worktree --staged --source=HEAD -- \
+              telemetry-data/redis_applied_config_versions.json 2>/dev/null \
+              || git checkout HEAD -- telemetry-data/redis_applied_config_versions.json 2>/dev/null \
+              || true
+            chmod +x scripts/deploy-from-main.sh reload-infra.sh
+            ./scripts/deploy-from-main.sh "${EDGE2_ROLE}"
+            REMOTE
+
       - name: Health check (${{ matrix.id }})
+        if: matrix.id != 'edge-2'
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ steps.creds.outputs.host }}
@@ -117,8 +155,38 @@ jobs:
             chmod +x scripts/wait-edge-health.sh
             ./scripts/wait-edge-health.sh "${{ matrix.healthUrl }}"
 
+      - name: Health check edge-2 via edge-1 jump
+        if: matrix.id == 'edge-2'
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          EDGE2_HOST: ${{ secrets.VPS_HOST_EDGE_2 }}
+          EDGE2_USER: ${{ secrets.VPS_USER_EDGE_2 }}
+          EDGE2_KEY: ${{ secrets.VPS_SSH_KEY_EDGE_2 }}
+          EDGE2_PATH: ${{ matrix.path }}
+          EDGE2_HEALTH: ${{ matrix.healthUrl }}
+        with:
+          host: ${{ secrets.VPS_HOST_EDGE_1 }}
+          username: ${{ secrets.VPS_USER_EDGE_1 }}
+          key: ${{ secrets.VPS_SSH_KEY_EDGE_1 }}
+          command_timeout: 10m
+          envs: EDGE2_HOST,EDGE2_USER,EDGE2_KEY,EDGE2_PATH,EDGE2_HEALTH
+          script: |
+            set -euo pipefail
+            KEY_FILE="$(mktemp)"
+            trap 'rm -f "$KEY_FILE"' EXIT
+            printf '%s\n' "$EDGE2_KEY" > "$KEY_FILE"
+            chmod 600 "$KEY_FILE"
+            ssh -i "$KEY_FILE" -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+              -o ConnectTimeout=20 \
+              "${EDGE2_USER}@${EDGE2_HOST}" "bash -s" <<REMOTE
+            set -euo pipefail
+            cd "${EDGE2_PATH}"
+            chmod +x scripts/wait-edge-health.sh
+            ./scripts/wait-edge-health.sh "${EDGE2_HEALTH}"
+            REMOTE
+
       - name: Verify telemetry-data host process (edge only, fleet runs start.sh dev)
-        if: matrix.role == 'edge'
+        if: matrix.role == 'edge' && matrix.id != 'edge-2'
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ steps.creds.outputs.host }}
@@ -128,3 +196,30 @@ jobs:
             set -euo pipefail
             pgrep -f 'python3 main.py' >/dev/null
             pgrep -af 'tsx watch src/index|ac-data-edge' >/dev/null
+
+      - name: Verify telemetry-data on edge-2 via jump
+        if: matrix.id == 'edge-2'
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          EDGE2_HOST: ${{ secrets.VPS_HOST_EDGE_2 }}
+          EDGE2_USER: ${{ secrets.VPS_USER_EDGE_2 }}
+          EDGE2_KEY: ${{ secrets.VPS_SSH_KEY_EDGE_2 }}
+        with:
+          host: ${{ secrets.VPS_HOST_EDGE_1 }}
+          username: ${{ secrets.VPS_USER_EDGE_1 }}
+          key: ${{ secrets.VPS_SSH_KEY_EDGE_1 }}
+          command_timeout: 5m
+          envs: EDGE2_HOST,EDGE2_USER,EDGE2_KEY
+          script: |
+            set -euo pipefail
+            KEY_FILE="$(mktemp)"
+            trap 'rm -f "$KEY_FILE"' EXIT
+            printf '%s\n' "$EDGE2_KEY" > "$KEY_FILE"
+            chmod 600 "$KEY_FILE"
+            ssh -i "$KEY_FILE" -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+              -o ConnectTimeout=20 \
+              "${EDGE2_USER}@${EDGE2_HOST}" 'bash -s' <<'REMOTE'
+            set -euo pipefail
+            pgrep -f 'python3 main.py' >/dev/null
+            pgrep -af 'tsx watch src/index|ac-data-edge' >/dev/null
+            REMOTE

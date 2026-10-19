@@ -1,22 +1,45 @@
-# One-shot ops: pull main on edge-2, repair acServer symlinks, reload infra.
+# Pull main on edge-2, repair acServer symlinks, reload.
+# GitHub runners often cannot dial edge-2:22; jump via edge-1 (EU) which can.
 name: Ops repair edge-2
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-edge2-repair.yml'
+      - 'scripts/fix-acserver-instance-links.sh'
 
 jobs:
   repair:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Repair links + deploy edge-2
+      - name: Repair links + deploy edge-2 via edge-1 jump
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          EDGE2_HOST: ${{ secrets.VPS_HOST_EDGE_2 }}
+          EDGE2_USER: ${{ secrets.VPS_USER_EDGE_2 }}
+          EDGE2_KEY: ${{ secrets.VPS_SSH_KEY_EDGE_2 }}
         with:
-          host: ${{ secrets.VPS_HOST_EDGE_2 }}
-          username: ${{ secrets.VPS_USER_EDGE_2 }}
-          key: ${{ secrets.VPS_SSH_KEY_EDGE_2 }}
-          command_timeout: 20m
+          host: ${{ secrets.VPS_HOST_EDGE_1 }}
+          username: ${{ secrets.VPS_USER_EDGE_1 }}
+          key: ${{ secrets.VPS_SSH_KEY_EDGE_1 }}
+          command_timeout: 25m
+          envs: EDGE2_HOST,EDGE2_USER,EDGE2_KEY
           script: |
+            set -euo pipefail
+            if [ -z "${EDGE2_HOST:-}" ] || [ -z "${EDGE2_USER:-}" ] || [ -z "${EDGE2_KEY:-}" ]; then
+              echo "Missing EDGE2_* secrets for jump deploy" >&2
+              exit 1
+            fi
+            KEY_FILE="$(mktemp)"
+            trap 'rm -f "$KEY_FILE"' EXIT
+            printf '%s\n' "$EDGE2_KEY" > "$KEY_FILE"
+            chmod 600 "$KEY_FILE"
+            ssh -i "$KEY_FILE" -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+              -o ConnectTimeout=20 \
+              "${EDGE2_USER}@${EDGE2_HOST}" 'bash -s' <<'REMOTE'
             set -euo pipefail
             cd /root/assetto-infra
             git fetch origin main
@@ -24,3 +47,4 @@ jobs:
             chmod +x scripts/fix-acserver-instance-links.sh scripts/deploy-from-main.sh reload-infra.sh
             SERVERS_PATH=/root/assetto-infra/server ./scripts/fix-acserver-instance-links.sh
             ./scripts/deploy-from-main.sh edge
+            REMOTE
