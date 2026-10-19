@@ -33,9 +33,6 @@ export function getAdminTokenCookieOptions(): {
     };
 }
 
-/** @deprecated Prefer getAdminTokenCookieOptions() — evaluated at import time. */
-export const ADMIN_TOKEN_COOKIE_OPTIONS = getAdminTokenCookieOptions();
-
 export interface AuthPayload {
     username: string;
     iat: number;

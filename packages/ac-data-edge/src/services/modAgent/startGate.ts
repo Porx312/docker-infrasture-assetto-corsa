@@ -344,13 +344,6 @@ export async function ensureModsReadyForServerStart(
   return promise;
 }
 
-/** @deprecated Prefer ensureModsReadyForServerStart */
-export async function assertModsReadyForServerStart(
-  serverName: string,
-): Promise<ModStartGateResult> {
-  return ensureModsReadyForServerStart(serverName);
-}
-
 export async function startServerWithMods(
   serverName: string,
   overrides?: ModContentOverrides,

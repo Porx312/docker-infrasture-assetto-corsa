@@ -20,9 +20,6 @@ export function clientLauncherRequireApiKey(): boolean {
   return isProductionLike();
 }
 
-/** @deprecated Prefer clientLauncherRequireApiKey() — evaluated at import time. */
-export const CLIENT_LAUNCHER_REQUIRE_API_KEY = clientLauncherRequireApiKey();
-
 function isDownloadPath(req: Request): boolean {
   return req.path.includes('/download');
 }

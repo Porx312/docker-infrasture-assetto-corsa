@@ -182,15 +182,39 @@ if [ ! -d "$ROOT_DIR/node_modules" ]; then
     (cd "$ROOT_DIR" && npm install 2>&1 | tail -5)
 fi
 
+# True only for the real edge/backend server — never tsx --test …/ac-data-edge/*.test.ts
+# (broad `ac-data-edge` / `@projectd/ac-data-edge` matches orphan unit-test processes).
+_edge_server_pgrep_lines() {
+    # Exclude self/diagnostic cmdlines that embed these patterns.
+    pgrep -af 'tsx watch.*src/index|ac-data-edge/dist/index|npm run dev -w @projectd/ac-data-edge' 2>/dev/null \
+      | grep -vE -- '--test|\.test\.ts|\.integration\.test\.ts|edge_server_running|_edge_server_pgrep' || true
+}
+
+edge_server_running() {
+    [[ -n "$(_edge_server_pgrep_lines)" ]]
+}
+
+backend_server_running() {
+    pgrep -af 'npm run dev -w @projectd/ac-data-backend|ac-data-backend/dist/index' 2>/dev/null \
+      | grep -vE -- '--test|\.test\.ts|\.integration\.test\.ts|backend_server_running' >/dev/null 2>&1
+}
+
+edge_health_ok() {
+    local port="${PORT:-3000}"
+    curl -fsS --connect-timeout 1 --max-time 3 "http://127.0.0.1:${port}/api/health" >/dev/null 2>&1
+}
+
 start_ac_data_edge() {
     echo -e "${YELLOW}Starting ac-data-edge...${NC}"
-    # Dev: npm -w leaves `tsx watch src/index.ts` (+ parent with @projectd/ac-data-edge).
-    # Match the same family as deploy.yml verify: tsx watch src/index|ac-data-edge
-    if pgrep -f 'tsx watch src/index' >/dev/null 2>&1 \
-      || pgrep -f '@projectd/ac-data-edge' >/dev/null 2>&1 \
-      || pgrep -f 'ac-data-edge/dist/index' >/dev/null 2>&1; then
-        echo -e "${GREEN}ac-data-edge is already running${NC}"
-        return
+    if edge_server_running; then
+        if edge_health_ok; then
+            echo -e "${GREEN}ac-data-edge is already running${NC}"
+            return
+        fi
+        echo -e "${YELLOW}ac-data-edge process matched but /api/health failed — restarting${NC}"
+        pkill -f 'tsx watch.*src/index' 2>/dev/null || true
+        pkill -f 'ac-data-edge/dist/index' 2>/dev/null || true
+        sleep 1
     fi
     nohup env ASSETTO_ENV="$ASSETTO_ENV" ASSETTO_ENV_FILE="$ASSETTO_ENV_FILE" \
         npm run dev -w @projectd/ac-data-edge > "$EDGE_LOG" 2>&1 &
@@ -200,8 +224,7 @@ start_ac_data_edge() {
 start_ac_data_backend() {
     echo -e "${YELLOW}Starting ac-data-backend...${NC}"
     # Do not match bare `tsx watch src/index` — that also matches edge on the same host.
-    if pgrep -f '@projectd/ac-data-backend' >/dev/null 2>&1 \
-      || pgrep -f 'ac-data-backend/dist/index' >/dev/null 2>&1; then
+    if backend_server_running; then
         echo -e "${GREEN}ac-data-backend is already running${NC}"
         return
     fi
@@ -243,8 +266,8 @@ echo -e "${GREEN}=== All services started ===${NC}"
 echo ""
 echo "Services:"
 echo "  - telemetry-data: $(pgrep -f 'python3 main.py' > /dev/null 2>&1 && echo 'running (host)' || echo 'stopped')"
-echo "  - ac-data-edge: $(pgrep -f 'ac-data-edge' >/dev/null 2>&1 && echo 'running' || echo 'stopped')"
-echo "  - ac-data-backend: $(pgrep -f 'ac-data-backend' >/dev/null 2>&1 && echo 'running' || echo 'stopped')"
+echo "  - ac-data-edge: $(edge_server_running && echo 'running' || echo 'stopped')"
+echo "  - ac-data-backend: $(backend_server_running && echo 'running' || echo 'stopped')"
 echo "  - Redis: $REDIS_SUMMARY"
 echo ""
 echo "Logs (LOG_DIR=$LOG_DIR):"

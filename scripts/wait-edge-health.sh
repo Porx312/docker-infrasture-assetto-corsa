@@ -30,7 +30,10 @@ NC='\033[0m'
 dump_diagnostics() {
   echo -e "${RED}=== edge health failed: ${HEALTH_URL} ===${NC}"
   echo -e "${YELLOW}--- processes ---${NC}"
-  pgrep -af 'tsx watch src/index|ac-data-edge' || echo "(no matching edge process)"
+  # Do not match bare `ac-data-edge` (hits orphan `tsx --test …/ac-data-edge/*.test.ts`).
+  pgrep -af 'tsx watch.*src/index|ac-data-edge/dist/index|packages/ac-data-edge/src/index' \
+    | grep -vE -- '--test|\.test\.ts|\.integration\.test\.ts' \
+    || echo "(no matching edge server process)"
   echo -e "${YELLOW}--- listeners (port ${PORT}) ---${NC}"
   if command -v ss >/dev/null 2>&1; then
     ss -lntp 2>/dev/null | grep -E ":${PORT}\\b" || echo "(nothing listening on ${PORT})"

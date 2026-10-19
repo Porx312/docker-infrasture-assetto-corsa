@@ -195,7 +195,8 @@ jobs:
           script: |
             set -euo pipefail
             pgrep -f 'python3 main.py' >/dev/null
-            pgrep -af 'tsx watch src/index|ac-data-edge' >/dev/null
+            # Real edge server only — not orphan unit-test processes under packages/ac-data-edge/
+            pgrep -af 'tsx watch.*src/index|ac-data-edge/dist/index' | grep -vE -- '--test|\.test\.ts' >/dev/null
 
       - name: Verify telemetry-data on edge-2 via jump
         if: matrix.id == 'edge-2'
@@ -221,5 +222,5 @@ jobs:
               "${EDGE2_USER}@${EDGE2_HOST}" 'bash -s' <<'REMOTE'
             set -euo pipefail
             pgrep -f 'python3 main.py' >/dev/null
-            pgrep -af 'tsx watch src/index|ac-data-edge' >/dev/null
+            pgrep -af 'tsx watch.*src/index|ac-data-edge/dist/index' | grep -vE -- '--test|\.test\.ts' >/dev/null
             REMOTE
