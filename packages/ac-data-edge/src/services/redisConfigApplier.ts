@@ -31,7 +31,10 @@ import {
   getAvailableCars,
   resolveEntriesForApply,
 } from './configCarAvailability.js';
-import type { ModContentOverrides } from './modAgent/startGate.js';
+import {
+  UNRECOVERABLE_MODS_REASON,
+  type ModContentOverrides,
+} from './modAgent/startGate.js';
 
 const REDIS_CONFIG_STREAM_KEY = process.env.REDIS_CONFIG_STREAM_KEY || 'ac:config';
 const AC_INSTANCE_ID = process.env.AC_INSTANCE_ID || 'default';
@@ -200,7 +203,7 @@ async function preflightModsForRow(row: ServerRow): Promise<PreflightResult> {
     `[redis-config-applier] preflight mods ${row.serverName}: ${gate.reason || 'not_ready'} missing=${missing}`,
   );
 
-  if (gate.reason === 'unknown_package') {
+  if (gate.reason === UNRECOVERABLE_MODS_REASON || gate.reason === 'unknown_package') {
     return 'unrecoverable';
   }
 

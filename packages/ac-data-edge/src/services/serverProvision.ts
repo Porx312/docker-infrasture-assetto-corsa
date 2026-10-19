@@ -133,6 +133,38 @@ export function ensureInstanceLinks(destDir: string, serversRoot?: string): void
   }
 }
 
+/**
+ * Boot/ops: rewrite every instance acServer/system link to portable relative targets.
+ * Fixes absolute /home/jose/... symlinks after cloning EU layout onto /root edges.
+ */
+export function repairAllInstanceLinks(serversRoot?: string): { fixed: number; errors: string[] } {
+  const root = path.resolve(serversRoot ?? serversPath());
+  const errors: string[] = [];
+  let fixed = 0;
+  if (!pathExistsOrSymlink(path.join(root, 'acServer'))) {
+    return { fixed: 0, errors: [`missing shared acServer under ${root}`] };
+  }
+  let names: string[] = [];
+  try {
+    names = listServerInstanceNames().filter((n) => n !== 'server-template');
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { fixed: 0, errors: [message] };
+  }
+  for (const name of names) {
+    const destDir = path.join(root, name);
+    try {
+      if (!fs.statSync(destDir).isDirectory()) continue;
+      ensureInstanceLinks(destDir, root);
+      fixed += 1;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      errors.push(`${name}: ${message}`);
+    }
+  }
+  return { fixed, errors };
+}
+
 function copyDirRecursive(src: string, dest: string, serversRoot?: string): void {
   fs.mkdirSync(dest, { recursive: true });
   const rootForRewrite =

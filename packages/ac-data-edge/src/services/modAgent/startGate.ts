@@ -22,6 +22,9 @@ export type ModContentOverrides = {
   cars?: string;
 };
 
+/** Applier treats this reason as hard-fail (no pending retry). */
+export const UNRECOVERABLE_MODS_REASON = 'unrecoverable_mods' as const;
+
 export type ModStartGateResult =
   | { ok: true }
   | {
@@ -179,7 +182,8 @@ function failUnrecoverable(
     ok: false,
     code: 'MODS_NOT_READY',
     items: blockers,
-    reason: 'unknown_package',
+    // Not always UNKNOWN_PACKAGE (may be NOT_INSTALLED / NO_ARTIFACT / MISSING_S3).
+    reason: UNRECOVERABLE_MODS_REASON,
     installErrors,
   };
 }
@@ -357,7 +361,7 @@ export async function startServerWithMods(
       ok: false,
       code: gate.code,
       message:
-        gate.reason === 'unknown_package'
+        gate.reason === UNRECOVERABLE_MODS_REASON || gate.reason === 'unknown_package'
           ? 'Required mods missing from library (upload to S3 catalog first)'
           : 'Required mods are not READY on this VPS',
       missing: gate.items,
@@ -384,7 +388,7 @@ export async function restartServerWithMods(
       ok: false,
       code: gate.code,
       message:
-        gate.reason === 'unknown_package'
+        gate.reason === UNRECOVERABLE_MODS_REASON || gate.reason === 'unknown_package'
           ? 'Required mods missing from library (upload to S3 catalog first)'
           : 'Required mods are not READY on this VPS',
       missing: gate.items,

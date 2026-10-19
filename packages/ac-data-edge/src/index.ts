@@ -14,6 +14,7 @@ import { initHudPushHub } from './services/hud/battleHudPush.js';
 import { startHudConvexQueryStatsLogging } from './services/hud/hudConvexQueryStats.js';
 import { startRedisConvexBridge } from './services/redisConvexBridge.js';
 import { startRedisConfigApplier } from './services/redisConfigApplier.js';
+import { repairAllInstanceLinks } from './services/serverProvision.js';
 import { bootstrapManagedServersFromDisk } from './services/hud/hudManagedServers.js';
 import { publishHudRegistryToHubIfConfigured } from './services/hud/edgeHudRegistryPublish.js';
 import { startServerPoolMonitor } from './services/serverPool.js';
@@ -141,6 +142,14 @@ startHudConvexQueryStatsLogging();
 const localManaged = bootstrapManagedServersFromDisk(SERVERS_PATH);
 if (localManaged > 0) {
   console.log(`[hud-managed-servers] bootstrapped ${localManaged} server(s) from ${SERVERS_PATH}`);
+}
+
+const linkRepair = repairAllInstanceLinks(SERVERS_PATH);
+if (linkRepair.fixed > 0 || linkRepair.errors.length > 0) {
+  console.log(
+    `[server-links] repaired ${linkRepair.fixed} instance link(s)` +
+      (linkRepair.errors.length ? ` errors=${linkRepair.errors.join('; ')}` : ''),
+  );
 }
 
 const server = createServer(app);

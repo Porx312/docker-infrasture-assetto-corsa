@@ -5,6 +5,7 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  UNRECOVERABLE_MODS_REASON,
   isUnrecoverableModBlocker,
   localContentExists,
   requiredSlugsFromConfig,
@@ -36,6 +37,10 @@ test('isUnrecoverableModBlocker catches UNKNOWN_PACKAGE and catalog errors', () 
   assert.equal(blockers.length, 2);
   assert.ok(blockers.some((b) => b.acContentSlug === 'pk_akina'));
   assert.ok(blockers.some((b) => b.acContentSlug === 'other'));
+});
+
+test('UNRECOVERABLE_MODS_REASON is stable for applier hard-fail', () => {
+  assert.equal(UNRECOVERABLE_MODS_REASON, 'unrecoverable_mods');
 });
 
 test('unresolvedModItems: local cache allows start without hub READY', async () => {

@@ -19,6 +19,7 @@ import { stopServerCore } from './controller.js';
 import {
   deprovisionServerInstance,
   provisionServerInstance,
+  repairAllInstanceLinks,
 } from '../services/serverProvision.js';
 
 export {
@@ -164,6 +165,22 @@ export async function provisionServerAdminHandler(req: Request, res: Response): 
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     res.status(400).json({ ok: false, message });
+  }
+}
+
+/** Fix absolute /home/jose acServer symlinks → portable ../acServer (US /root edges). */
+export async function repairServerLinksAdminHandler(_req: Request, res: Response): Promise<void> {
+  try {
+    const result = repairAllInstanceLinks();
+    res.json({
+      ok: result.errors.length === 0,
+      message: `repaired ${result.fixed} instance link(s)`,
+      fixed: result.fixed,
+      errors: result.errors,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(500).json({ ok: false, message });
   }
 }
 
