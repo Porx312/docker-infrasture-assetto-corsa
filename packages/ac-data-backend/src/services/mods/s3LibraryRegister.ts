@@ -26,6 +26,8 @@ export type RegisterS3LibraryArtifactInput = {
   sizeBytes: number;
   manifest: ModManifest;
   s3: ModS3ManifestFields;
+  /** Default true (admin library). User Control uploads pass false. */
+  syncHostCatalog?: boolean;
 };
 
 export type RegisterS3LibraryArtifactResult = {
@@ -90,24 +92,26 @@ export async function registerS3LibraryArtifact(
 
   let hostCatalogSynced = false;
   let hostCatalogSyncError: string | undefined;
-  try {
-    const pkg = await getPackageById(packageId);
-    const coverImageFilename = pkg?.preview_image_filename ?? null;
-    const sync = await syncHostCatalogUpsert({
-      kind: input.kind,
-      displayName: input.displayName.trim(),
-      acContentSlug: input.acContentSlug.trim(),
-      manifest,
-      zipPaths: manifest.entryPaths,
-      coverImageFilename,
-      coverImageUrl: coverImageFilename ? modPreviewPublicUrl(coverImageFilename) : null,
-    });
-    hostCatalogSynced = sync.synced;
-    if (!sync.synced) {
-      hostCatalogSyncError = sync.error;
+  if (input.syncHostCatalog !== false) {
+    try {
+      const pkg = await getPackageById(packageId);
+      const coverImageFilename = pkg?.preview_image_filename ?? null;
+      const sync = await syncHostCatalogUpsert({
+        kind: input.kind,
+        displayName: input.displayName.trim(),
+        acContentSlug: input.acContentSlug.trim(),
+        manifest,
+        zipPaths: manifest.entryPaths,
+        coverImageFilename,
+        coverImageUrl: coverImageFilename ? modPreviewPublicUrl(coverImageFilename) : null,
+      });
+      hostCatalogSynced = sync.synced;
+      if (!sync.synced) {
+        hostCatalogSyncError = sync.error;
+      }
+    } catch (err: unknown) {
+      hostCatalogSyncError = err instanceof Error ? err.message : String(err);
     }
-  } catch (err: unknown) {
-    hostCatalogSyncError = err instanceof Error ? err.message : String(err);
   }
 
   return {

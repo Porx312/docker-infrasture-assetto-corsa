@@ -28,11 +28,22 @@ import {
   type ServerSlimKind,
 } from '@projectd/ac-data-shared/mods/serverSlimPaths.js';
 import { getModPool } from './db.js';
+import { getPackageById } from './catalogRepo.js';
 import { headCanonicalObject, putCanonicalTarGz, storageMode } from './objectStorage.js';
 import { registerS3LibraryArtifact } from './s3LibraryRegister.js';
+import {
+  isValidSteam64,
+  normalizeSteamId,
+  upsertModSteamLink,
+} from './modSteamLinks.js';
 
 const SESSION_TTL_MS = Number(process.env.MOD_SLIM_UPLOAD_SESSION_TTL_MS || 30 * 60 * 1000);
 const MAX_FILE_BYTES = Number(process.env.MOD_SLIM_UPLOAD_MAX_FILE_BYTES || 64 * 1024 * 1024);
+
+export type SlimUploadHandlerOpts = {
+  /** control = user library (steam links, no host-catalog). Default admin. */
+  mode?: 'admin' | 'control';
+};
 
 type SlimUploadFileEntry = ContentTreeFileEntry;
 
@@ -47,7 +58,18 @@ type LibrarySession = {
   skip: SlimUploadFileEntry[];
   stagingDir: string;
   createdAt: number;
+  mode: 'admin' | 'control';
+  steamId: string | null;
+  syncHostCatalog: boolean;
 };
+
+function controlMaxFiles(): number {
+  return Number(process.env.CONTROL_MOD_UPLOAD_MAX_FILES || 5000);
+}
+
+function controlMaxTotalBytes(): number {
+  return Number(process.env.CONTROL_MOD_UPLOAD_MAX_BYTES || 500 * 1024 * 1024);
+}
 
 const sessions = new Map<string, LibrarySession>();
 
@@ -108,9 +130,13 @@ function validateManifest(
   return out;
 }
 
-async function findLibraryByContentHash(contentHash: string): Promise<{
+export async function findLibraryByContentHash(contentHash: string): Promise<{
   packageId: string;
   artifactId: string;
+  kind: string;
+  acContentSlug: string;
+  displayName: string;
+  s3Key: string | null;
 } | null> {
   if (!process.env.DATABASE_URL) return null;
   const pool = getModPool();
@@ -119,9 +145,18 @@ async function findLibraryByContentHash(contentHash: string): Promise<{
     [contentHash.toLowerCase()],
   );
   for (const row of r.rows) {
-    if (readModS3Fields(row.manifest_json)) {
-      return { packageId: row.package_id, artifactId: row.id };
-    }
+    const s3 = readModS3Fields(row.manifest_json);
+    if (!s3) continue;
+    const pkg = await getPackageById(row.package_id);
+    if (!pkg) continue;
+    return {
+      packageId: row.package_id,
+      artifactId: row.id,
+      kind: pkg.kind,
+      acContentSlug: pkg.ac_content_slug,
+      displayName: pkg.display_name,
+      s3Key: s3.s3Key,
+    };
   }
   return null;
 }
@@ -153,7 +188,7 @@ async function computeNeededAndSkip(
   return { needed, skip };
 }
 
-async function packSlimTarGz(
+export async function packSlimTarGz(
   treeDir: string,
   slug: string,
   outGzPath: string,
@@ -185,16 +220,37 @@ async function packSlimTarGz(
   return { objectSha256, sizeBytes: st.size };
 }
 
-export async function handleLibrarySlimUploadPlan(req: Request, res: Response): Promise<void> {
+export async function handleLibrarySlimUploadPlan(
+  req: Request,
+  res: Response,
+  opts: SlimUploadHandlerOpts = {},
+): Promise<void> {
   purgeExpiredSessions();
   if (storageMode() !== 's3') {
     res.status(503).json({ ok: false, message: 'MOD_STORAGE_MODE=s3 required for library upload' });
     return;
   }
 
+  const mode = opts.mode === 'control' ? 'control' : 'admin';
+  let steamId: string | null = null;
+  if (mode === 'control') {
+    steamId = normalizeSteamId(req.body?.steamId ?? req.body?.steam_id);
+    if (!isValidSteam64(steamId)) {
+      res.status(400).json({ ok: false, message: 'steamId required (Steam64)' });
+      return;
+    }
+  }
+
   const kindRaw = String(req.body?.kind || '').trim().toLowerCase();
-  if (kindRaw !== 'car' && kindRaw !== 'track' && kindRaw !== 'weather') {
-    res.status(400).json({ ok: false, message: 'kind must be car|track|weather' });
+  const kindOk =
+    mode === 'control'
+      ? kindRaw === 'car' || kindRaw === 'track'
+      : kindRaw === 'car' || kindRaw === 'track' || kindRaw === 'weather';
+  if (!kindOk) {
+    res.status(400).json({
+      ok: false,
+      message: mode === 'control' ? 'kind must be car|track' : 'kind must be car|track|weather',
+    });
     return;
   }
   const kind = kindRaw as ServerSlimKind;
@@ -227,6 +283,24 @@ export async function handleLibrarySlimUploadPlan(req: Request, res: Response): 
     return;
   }
 
+  if (mode === 'control') {
+    if (files.length > controlMaxFiles()) {
+      res.status(400).json({
+        ok: false,
+        message: `too many files (max ${controlMaxFiles()})`,
+      });
+      return;
+    }
+    const totalBytes = files.reduce((n, f) => n + f.size, 0);
+    if (totalBytes > controlMaxTotalBytes()) {
+      res.status(400).json({
+        ok: false,
+        message: `tree too large (max ${controlMaxTotalBytes()} bytes)`,
+      });
+      return;
+    }
+  }
+
   const recomputed = contentHashFromFileEntries(files);
   if (recomputed !== expectedContentHash) {
     res.status(400).json({
@@ -239,12 +313,21 @@ export async function handleLibrarySlimUploadPlan(req: Request, res: Response): 
 
   const existing = await findLibraryByContentHash(expectedContentHash);
   if (existing) {
+    if (steamId) {
+      await upsertModSteamLink(steamId, existing.packageId);
+    }
     res.json({
       ok: true,
       status: 'already_present',
       contentHash: expectedContentHash,
       packageId: existing.packageId,
       artifactId: existing.artifactId,
+      kind: existing.kind,
+      acContentSlug: existing.acContentSlug,
+      displayName: existing.displayName,
+      s3Key: existing.s3Key,
+      linked: Boolean(steamId),
+      steamId: steamId || undefined,
       needed: [],
       skip: files,
     });
@@ -267,6 +350,9 @@ export async function handleLibrarySlimUploadPlan(req: Request, res: Response): 
     skip,
     stagingDir,
     createdAt: Date.now(),
+    mode,
+    steamId,
+    syncHostCatalog: mode !== 'control',
   });
 
   res.json({
@@ -336,7 +422,11 @@ export async function handleLibrarySlimUploadPut(req: Request, res: Response): P
   res.json({ ok: true, rel, sha256: digest, size: buf.byteLength });
 }
 
-export async function handleLibrarySlimUploadCommit(req: Request, res: Response): Promise<void> {
+export async function handleLibrarySlimUploadCommit(
+  req: Request,
+  res: Response,
+  opts: SlimUploadHandlerOpts = {},
+): Promise<void> {
   purgeExpiredSessions();
   if (storageMode() !== 's3') {
     res.status(503).json({ ok: false, message: 'MOD_STORAGE_MODE=s3 required' });
@@ -348,6 +438,21 @@ export async function handleLibrarySlimUploadCommit(req: Request, res: Response)
   if (!session) {
     res.status(404).json({ ok: false, message: 'session not found or expired' });
     return;
+  }
+
+  const mode = opts.mode === 'control' ? 'control' : session.mode;
+  if (mode === 'control') {
+    const steamId =
+      normalizeSteamId(req.body?.steamId ?? req.body?.steam_id) || session.steamId || '';
+    if (!isValidSteam64(steamId)) {
+      res.status(400).json({ ok: false, message: 'steamId required (Steam64)' });
+      return;
+    }
+    if (session.steamId && session.steamId !== steamId) {
+      res.status(409).json({ ok: false, message: 'steamId mismatch vs plan session' });
+      return;
+    }
+    session.steamId = steamId;
   }
 
   try {
@@ -445,21 +550,33 @@ export async function handleLibrarySlimUploadCommit(req: Request, res: Response)
         s3SizeBytes: finalSize,
         s3Format: MOD_S3_FORMAT_TAR_GZ,
       },
+      syncHostCatalog: session.syncHostCatalog,
     });
 
+    if (session.steamId) {
+      await upsertModSteamLink(session.steamId, registered.packageId);
+    }
+
     console.log(
-      `[library-slim] ok artifact=${registered.artifactId.slice(0, 8)}… key=${key} put=${put.status}`,
+      `[library-slim] ok artifact=${registered.artifactId.slice(0, 8)}… key=${key} put=${put.status} mode=${session.mode}`,
     );
 
     res.json({
       ok: true,
-      message: 'Uploaded to Contabo library (S3)',
+      message:
+        session.mode === 'control'
+          ? 'Uploaded to library and linked to steamId'
+          : 'Uploaded to Contabo library (S3)',
       packageId: registered.packageId,
       artifactId: registered.artifactId,
       contentHash: verified.contentHash,
       sha256: verified.contentHash,
+      kind: session.kind,
+      displayName: session.displayName,
       acContentSlug: session.slug,
       s3Key: key,
+      linked: Boolean(session.steamId),
+      steamId: session.steamId || undefined,
       uploadedFiles: session.needed.length,
       skippedFiles: session.skip.length,
       hostCatalogSynced: registered.hostCatalogSynced === true,

@@ -138,6 +138,25 @@ Local inventory on each VPS is separate; availability merges central + edge inve
 | `GET` | `/v1/mods/availability?instanceId=` | Host BFF — `central: AVAILABLE` + `local: LOCAL|MISSING|DOWNLOADING|INSTALLING|ERROR` |
 | `POST` | `/v1/instances/:instanceId/mods/ensure` | Host BFF — idempotent materialize |
 
+### User library (steamId links — Contabo S3)
+
+Convex Action BFF uploads user mods here. **Hub stores blobs + `mod_steam_links`.** Convex does **not** store mod metadata — only auth + `steamId`. Same content hash → `already_present` and a new link (no second S3 object). User uploads do **not** sync to the public host-catalog.
+
+| Method | Path | Who |
+|--------|------|-----|
+| `POST` | `/v1/mods/library/zip-upload` | **Host preferred** — multipart ZIP + `steamId` + `kind`; hub does slim/hash/S3/link |
+| `POST` | `/v1/mods/library/slim-upload/plan` | Advanced — manifest + `steamId` + `expectedContentHash` |
+| `PUT` | `/v1/mods/library/slim-upload/file` | Advanced — raw body; slim session headers |
+| `POST` | `/v1/mods/library/slim-upload/commit` | Advanced — `{ sessionId, steamId }` |
+| `GET` | `/v1/mods/library/by-steam/:steamId` | Convex — list linked packages |
+| `DELETE` | `/v1/mods/library/:packageId` | Convex — body/query `steamId`; unlink; purge if last link |
+
+**ZIP upload (Host):** `multipart/form-data` fields `file`, `steamId`, `kind` (`car`\|`track`), optional `slug`, `displayName`. Hub extracts, filters server-slim paths, dedupes by content hash, links steamId. See [PROJECTD_CUSTOM_CARS_HOST.md](./PROJECTD_CUSTOM_CARS_HOST.md).
+
+Caps: `CONTROL_MOD_UPLOAD_MAX_BYTES` (default 500MB), `CONTROL_MOD_UPLOAD_MAX_FILES` (default 5000).
+
+Delete: removes `(steamId, packageId)`. If other steamIds still link the package → blob stays. If last link → same purge as admin library delete (S3 + all VPS), blocked with `409 mod_in_use` when servers still require the mod.
+
 Ensure body (either form):
 
 ```json

@@ -9,6 +9,9 @@ info:
 
     Central library: `GET /v1/mods`, `GET /v1/mods/{slug}`, `GET /v1/mods/availability`,
     `POST /v1/instances/{instanceId}/mods/ensure`.
+    User library (steamId links): `POST /v1/mods/library/zip-upload` (Host preferred),
+    `POST /v1/mods/library/slim-upload/*` (advanced),
+    `GET /v1/mods/library/by-steam/{steamId}`, `DELETE /v1/mods/library/{packageId}`.
     Legacy LOCAL CONTENT / INVENTORY: `GET /v1/instances/{instanceId}/mods/cars|tracks`
     (Redis disk scan — keep during Host cutover; do not use as the global library).
 
@@ -98,6 +101,186 @@ paths:
       responses:
         '200':
           description: Stored
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/mods/library/zip-upload:
+    post:
+      summary: Upload car/track ZIP; hub slim-filters, stores S3, links steamId
+      description: |
+        Preferred Host path. Multipart field `file` (ZIP) plus steamId and kind.
+        Hub extracts safely, filters server-slim files, dedupes by contentHash,
+        registers S3 artifact without host-catalog sync, upserts mod_steam_links.
+      operationId: controlLibraryZipUpload
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, steamId, kind]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                steamId:
+                  type: string
+                kind:
+                  type: string
+                  enum: [car, track]
+                slug:
+                  type: string
+                displayName:
+                  type: string
+      responses:
+        '200':
+          description: uploaded or already_present + linked
+        '400':
+          description: Validation / unsafe zip / no slim files
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          description: S3 mode or DB unavailable
+  /v1/mods/library/slim-upload/plan:
+    post:
+      summary: Plan user library slim upload (dedupe by contentHash)
+      description: |
+        Advanced. Requires steamId (Steam64). If content already in S3 library, returns
+        already_present and upserts mod_steam_links. Does not sync host-catalog.
+        Prefer zip-upload for Host.
+      operationId: controlLibrarySlimUploadPlan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [steamId, kind, slug, expectedContentHash, files]
+              properties:
+                steamId:
+                  type: string
+                  description: Steam64
+                kind:
+                  type: string
+                  enum: [car, track]
+                slug:
+                  type: string
+                displayName:
+                  type: string
+                expectedContentHash:
+                  type: string
+                files:
+                  type: array
+                  items:
+                    type: object
+                    required: [rel, size, sha256]
+                    properties:
+                      rel: { type: string }
+                      size: { type: number }
+                      sha256: { type: string }
+      responses:
+        '200':
+          description: already_present or need_upload
+        '400':
+          description: Validation error
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          description: S3 mode or DB unavailable
+  /v1/mods/library/slim-upload/file:
+    put:
+      summary: Upload one slim file for a plan session
+      operationId: controlLibrarySlimUploadFile
+      parameters:
+        - name: X-Slim-Session-Id
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Slim-Rel
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Slim-Sha256
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: File staged
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/mods/library/slim-upload/commit:
+    post:
+      summary: Commit user library upload to S3 and link steamId
+      operationId: controlLibrarySlimUploadCommit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sessionId, steamId]
+              properties:
+                sessionId: { type: string }
+                steamId: { type: string }
+      responses:
+        '200':
+          description: Registered + linked
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/mods/library/by-steam/{steamId}:
+    get:
+      summary: List packages linked to a steamId
+      operationId: listModsBySteam
+      parameters:
+        - name: steamId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Linked packages
+        '400':
+          description: Invalid steamId
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/mods/library/{packageId}:
+    delete:
+      summary: Unlink steamId from package; purge if last link
+      description: |
+        Body or query steamId required. If other users still link the package, only
+        the link is removed. Last link purges S3+VPS unless mod_in_use (409).
+      operationId: unlinkSteamLibraryMod
+      parameters:
+        - name: packageId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: steamId
+          in: query
+          required: false
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                steamId: { type: string }
+      responses:
+        '200':
+          description: unlinked or purged
+        '404':
+          description: link_not_found
+        '409':
+          description: mod_in_use
         '401':
           $ref: '#/components/responses/Unauthorized'
   /v1/mods:

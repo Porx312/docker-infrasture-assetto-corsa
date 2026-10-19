@@ -27,6 +27,19 @@ import {
 import { isModDbConfigured } from '../services/mods/db.js';
 import type { ModKind } from '@projectd/ac-data-shared/mods/types.js';
 import type { WorkerConfigSnapshotResult } from '@projectd/ac-data-shared/services/hud/workerConvexQueries.js';
+import {
+  handleLibrarySlimUploadCommit,
+  handleLibrarySlimUploadPlan,
+  handleLibrarySlimUploadPut,
+} from '../services/mods/hubLibrarySlimUpload.js';
+import { handleLibraryZipUpload } from '../services/mods/hubLibraryZipUpload.js';
+import {
+  isValidSteam64,
+  listModsForSteam,
+  normalizeSteamId,
+} from '../services/mods/modSteamLinks.js';
+import { unlinkSteamMod } from '../services/mods/unlinkSteamMod.js';
+import { ModInUseError } from '../services/mods/orchestrator.js';
 
 function requireModDb(res: Response): boolean {
   if (!isModDbConfigured()) {
@@ -411,5 +424,120 @@ export async function postDesiredConfigHandler(req: Request, res: Response): Pro
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(503).json({ ok: false, instanceId, errors: [message] });
+  }
+}
+
+/** User library ZIP upload — hub does slim + hash + S3 + steam link. */
+export async function controlLibraryZipUploadHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  if (!requireWorker(req, res)) return;
+  if (!requireModDb(res)) return;
+  await handleLibraryZipUpload(req, res);
+}
+
+/** User library slim-upload (Convex BFF). Links package to steamId; no host-catalog. */
+export async function controlLibrarySlimUploadPlanHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  if (!requireWorker(req, res)) return;
+  if (!requireModDb(res)) return;
+  await handleLibrarySlimUploadPlan(req, res, { mode: 'control' });
+}
+
+export async function controlLibrarySlimUploadFileHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  if (!requireWorker(req, res)) return;
+  if (!requireModDb(res)) return;
+  await handleLibrarySlimUploadPut(req, res);
+}
+
+export async function controlLibrarySlimUploadCommitHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  if (!requireWorker(req, res)) return;
+  if (!requireModDb(res)) return;
+  await handleLibrarySlimUploadCommit(req, res, { mode: 'control' });
+}
+
+export async function listModsBySteamHandler(req: Request, res: Response): Promise<void> {
+  if (!requireWorker(req, res)) return;
+  if (!requireModDb(res)) return;
+  const steamId = normalizeSteamId(req.params.steamId);
+  if (!isValidSteam64(steamId)) {
+    res.status(400).json({ ok: false, error: 'invalid_steam_id' });
+    return;
+  }
+  try {
+    const items = await listModsForSteam(steamId);
+    res.json({ ok: true, steamId, items });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ ok: false, error: message });
+  }
+}
+
+export async function unlinkSteamLibraryModHandler(req: Request, res: Response): Promise<void> {
+  if (!requireWorker(req, res)) return;
+  if (!requireModDb(res)) return;
+  const packageId = String(req.params.packageId || '').trim();
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const steamId = normalizeSteamId(
+    body.steamId ?? body.steam_id ?? req.query.steamId ?? req.query.steam_id,
+  );
+  if (!packageId) {
+    res.status(400).json({ ok: false, error: 'packageId_required' });
+    return;
+  }
+  if (!isValidSteam64(steamId)) {
+    res.status(400).json({ ok: false, error: 'invalid_steam_id' });
+    return;
+  }
+  try {
+    const result = await unlinkSteamMod(steamId, packageId);
+    if (result.status === 'unlinked') {
+      res.json({
+        ok: true,
+        status: 'unlinked',
+        packageId: result.packageId,
+        remainingLinks: result.remainingLinks,
+        message: 'Removed from your library; other users still use this mod',
+      });
+      return;
+    }
+    res.json({
+      ok: true,
+      status: 'purged',
+      packageId: result.packageId,
+      displayName: result.displayName,
+      edgesPurged: result.edgesPurged,
+      edgesFailed: result.edgesFailed,
+      message: 'Last user — deleted from library (S3 + VPS)',
+    });
+  } catch (err: unknown) {
+    if (err instanceof ModInUseError) {
+      res.status(409).json({
+        ok: false,
+        error: 'mod_in_use',
+        message: 'Mod is still required by a server config; remove it from servers first',
+        usage: err.usage,
+      });
+      return;
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === 'link_not_found') {
+      res.status(404).json({ ok: false, error: 'link_not_found', message });
+      return;
+    }
+    if (message === 'package_not_found') {
+      res.status(404).json({ ok: false, error: 'package_not_found', message });
+      return;
+    }
+    res.status(400).json({ ok: false, error: message });
   }
 }
