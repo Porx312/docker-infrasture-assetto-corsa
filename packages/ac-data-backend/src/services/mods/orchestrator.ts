@@ -38,8 +38,14 @@ import {
 import { deleteModPreviewImageFile } from './modPreviewImages.js';
 import { tryAcquireModLock, releaseModLock, forceReleaseModLock } from './modRedisLocks.js';
 import { syncHostCatalogDelete } from '../hostCatalog/index.js';
+import {
+  listPackageUsage,
+  ModInUseError,
+} from './serverModRequirements.js';
+import { fleetEdgeSecret } from '@projectd/ac-data-shared/services/secrets/fleetSecrets.js';
 
 export { syncFleetEdgesToDb } from './fleetEdgeDb.js';
+export { ModInUseError } from './serverModRequirements.js';
 
 const MAX_ATTEMPTS = Number(process.env.MOD_SYNC_MAX_ATTEMPTS || 5);
 /** Requeue `running` jobs whose started_at is older than this (dead agent / crash). */
@@ -350,6 +356,13 @@ export async function verifyArtifactOnEdges(artifactId: string, edgeIds: string[
 }
 
 export async function removePackageFromEdges(packageId: string, edgeIds: string[]): Promise<void> {
+  if (edgeIds.length === 0) {
+    return;
+  }
+  const usage = await listPackageUsage(packageId, edgeIds);
+  if (usage.length > 0) {
+    throw new ModInUseError(usage);
+  }
   await removeArtifactFromEdges(packageId, edgeIds);
   const pool = getModPool();
   const arts = await pool.query<{ id: string }>(`SELECT id FROM mod_artifacts WHERE package_id = $1`, [
@@ -362,19 +375,87 @@ export async function removePackageFromEdges(packageId: string, edgeIds: string[
   }
 }
 
+export type EdgePurgeResult = {
+  edgesPurged: string[];
+  edgesFailed: Array<{ edgeId: string; message: string }>;
+};
+
+/** DELETE local content folder on each edge (404 = already gone). Triggers inventory rescan on edge. */
+export async function purgeLocalContentOnEdges(
+  kind: 'car' | 'track',
+  slug: string,
+  edgeIds: string[],
+): Promise<EdgePurgeResult> {
+  const secret = fleetEdgeSecret();
+  const edgesPurged: string[] = [];
+  const edgesFailed: Array<{ edgeId: string; message: string }> = [];
+  if (!secret) {
+    for (const edgeId of edgeIds) {
+      edgesFailed.push({ edgeId, message: 'FLEET_EDGE_SECRET missing' });
+    }
+    return { edgesPurged, edgesFailed };
+  }
+  const timeoutMs = Number(process.env.FLEET_ADMIN_PROXY_TIMEOUT_MS || 60_000);
+  const settled = await Promise.allSettled(
+    edgeIds.map(async (edgeId) => {
+      const edge = resolveFleetEdge(edgeId);
+      if (!edge?.baseUrl) {
+        throw new Error('unknown_edge');
+      }
+      const url = new URL(
+        `/admin/mods/local-content/${encodeURIComponent(kind)}/${encodeURIComponent(slug)}`,
+        edge.baseUrl.endsWith('/') ? edge.baseUrl : `${edge.baseUrl}/`,
+      );
+      const upstream = await fetch(url, {
+        method: 'DELETE',
+        headers: { 'X-Worker-Secret': secret },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (upstream.status === 404) {
+        return edgeId;
+      }
+      if (!upstream.ok) {
+        const data = (await upstream.json().catch(() => ({}))) as { message?: string };
+        throw new Error(data.message || `http_${upstream.status}`);
+      }
+      return edgeId;
+    }),
+  );
+  for (let i = 0; i < settled.length; i++) {
+    const result = settled[i]!;
+    const edgeId = edgeIds[i]!;
+    if (result.status === 'fulfilled') {
+      edgesPurged.push(result.value);
+    } else {
+      const message =
+        result.reason instanceof Error ? result.reason.message : String(result.reason);
+      edgesFailed.push({ edgeId, message });
+    }
+  }
+  return { edgesPurged, edgesFailed };
+}
+
 /**
- * Force-delete a catalog package from the hub (DB + master blob + preview).
- * Missing/corrupt blobs do not fail the delete. Edge cache may remain until Remove/GC.
+ * Force-delete a catalog package from the hub (DB + S3 + all VPS local folders).
+ * Blocked when any server still lists the mod in server_mod_requirements.
  */
 export async function forceDeleteModPackage(packageId: string): Promise<{
   packageId: string;
   displayName: string;
   artifactsRemoved: number;
+  edgesPurged: string[];
+  edgesFailed: Array<{ edgeId: string; message: string }>;
 }> {
   const pkg = await getPackageById(packageId);
   if (!pkg) {
     throw new Error('package_not_found');
   }
+
+  const usage = await listPackageUsage(packageId);
+  if (usage.length > 0) {
+    throw new ModInUseError(usage);
+  }
+
   const artifacts = await listArtifactsForPackage(packageId);
   const artifactIds = artifacts.map((a) => a.id);
   const pool = getModPool();
@@ -389,15 +470,28 @@ export async function forceDeleteModPackage(packageId: string): Promise<{
     );
   }
 
-  try {
-    await syncFleetEdgesToDb();
-    const edgeIds = listFleetEdges().map((e) => e.id);
-    if (edgeIds.length > 0) {
-      await removePackageFromEdges(packageId, edgeIds);
+  let edgesPurged: string[] = [];
+  let edgesFailed: Array<{ edgeId: string; message: string }> = [];
+  if (pkg.kind === 'car' || pkg.kind === 'track') {
+    try {
+      await syncFleetEdgesToDb();
+      const edgeIds = listFleetEdges().map((e) => e.id);
+      if (edgeIds.length > 0 && pkg.ac_content_slug) {
+        const purge = await purgeLocalContentOnEdges(pkg.kind, pkg.ac_content_slug, edgeIds);
+        edgesPurged = purge.edgesPurged;
+        edgesFailed = purge.edgesFailed;
+        if (edgesFailed.length > 0) {
+          console.warn(
+            `[mods] forceDelete: VPS purge partial package=${packageId} failed=${edgesFailed
+              .map((f) => `${f.edgeId}:${f.message}`)
+              .join(',')}`,
+          );
+        }
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[mods] forceDelete: VPS purge failed: ${message}`);
     }
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.warn(`[mods] forceDelete: edge remove enqueue failed: ${message}`);
   }
 
   for (const art of artifacts) {
@@ -425,6 +519,8 @@ export async function forceDeleteModPackage(packageId: string): Promise<{
     packageId,
     displayName: pkg.display_name,
     artifactsRemoved: artifacts.length,
+    edgesPurged,
+    edgesFailed,
   };
 }
 

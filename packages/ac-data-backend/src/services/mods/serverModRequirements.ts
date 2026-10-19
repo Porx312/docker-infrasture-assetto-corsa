@@ -281,6 +281,65 @@ export async function getServerModReadiness(
   return { ready, items };
 }
 
+export type PackageUsageRow = {
+  edgeId: string;
+  serverName: string;
+  slug: string;
+};
+
+export class ModInUseError extends Error {
+  readonly code = 'mod_in_use' as const;
+  readonly usage: PackageUsageRow[];
+
+  constructor(usage: PackageUsageRow[]) {
+    super('mod_in_use');
+    this.name = 'ModInUseError';
+    this.usage = usage;
+  }
+}
+
+/** Servers still referencing this package (by package_id or matching kind+slug). */
+export async function listPackageUsage(
+  packageId: string,
+  /** Omit = any edge. Empty array = no matches. Non-empty = only those edges. */
+  edgeIds?: string[],
+): Promise<PackageUsageRow[]> {
+  const pool = getModPool();
+  const filterEdges = edgeIds !== undefined;
+  const edges = edgeIds?.map((e) => e.trim().toLowerCase()).filter(Boolean) ?? [];
+  if (filterEdges && edges.length === 0) {
+    return [];
+  }
+  const result = await pool.query<{
+    edge_id: string;
+    server_name: string;
+    ac_content_slug: string;
+  }>(
+    `SELECT r.edge_id, r.server_name, r.ac_content_slug
+     FROM server_mod_requirements r
+     JOIN mod_packages p ON p.id = $1
+     WHERE (
+       r.package_id = $1
+       OR (
+         lower(r.ac_content_slug) = lower(p.ac_content_slug)
+         AND r.kind = p.kind
+       )
+     )
+     AND (
+       $2::boolean = false
+       OR lower(r.edge_id) = ANY($3::text[])
+     )
+     ORDER BY r.edge_id, r.server_name
+     LIMIT 50`,
+    [packageId, filterEdges, edges],
+  );
+  return result.rows.map((row) => ({
+    edgeId: row.edge_id,
+    serverName: row.server_name,
+    slug: row.ac_content_slug,
+  }));
+}
+
 export type SyncMissingModsResult = {
   enqueued: number;
   errors: Array<{ acContentSlug: string; artifactId: string | null; message: string }>;

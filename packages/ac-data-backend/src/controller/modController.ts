@@ -20,6 +20,7 @@ import {
   verifyArtifactOnEdges,
   removePackageFromEdges,
   syncFleetEdgesToDb,
+  ModInUseError,
 } from '../services/mods/orchestrator.js';
 import { getArtifactById } from '../services/mods/catalogRepo.js';
 import { listCanonicalArtifactKeys } from '../services/mods/objectStorage.js';
@@ -36,6 +37,15 @@ import {
   refreshServerModRequirements,
   syncMissingModsForServer,
 } from '../services/mods/serverModRequirements.js';
+
+function formatModInUseMessage(usage: Array<{ edgeId: string; serverName: string }>): string {
+  const preview = usage
+    .slice(0, 5)
+    .map((u) => `${u.serverName}@${u.edgeId}`)
+    .join(', ');
+  const more = usage.length > 5 ? ` (+${usage.length - 5} more)` : '';
+  return `Mod is in use on ${usage.length} server(s). Remove it from server configs first: ${preview}${more}`;
+}
 import { readFleetEdgeIdFromRequest } from '../services/fleet/fleetAdminBridge.js';
 import { ensureFleetEdgeRegistered } from '../services/mods/fleetEdgeDb.js';
 import {
@@ -179,8 +189,22 @@ export async function modRemoveFromEdgesHandler(req: Request, res: Response): Pr
     return;
   }
   const edgeIds = req.body.edgeIds as string[];
-  await removePackageFromEdges(art.package_id, edgeIds);
-  res.json({ ok: true });
+  try {
+    await removePackageFromEdges(art.package_id, edgeIds);
+    res.json({ ok: true });
+  } catch (err: unknown) {
+    if (err instanceof ModInUseError) {
+      res.status(409).json({
+        ok: false,
+        error: 'mod_in_use',
+        message: formatModInUseMessage(err.usage),
+        usage: err.usage,
+      });
+      return;
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(400).json({ ok: false, message });
+  }
 }
 
 export async function modDeletePackageHandler(req: Request, res: Response): Promise<void> {
@@ -195,13 +219,26 @@ export async function modDeletePackageHandler(req: Request, res: Response): Prom
   }
   try {
     const result = await forceDeleteModPackage(packageId);
+    const failedN = result.edgesFailed.length;
+    const purgedN = result.edgesPurged.length;
     res.json({
       ok: true,
       ...result,
       message:
-        'Deleted from Contabo library (catalog + S3). VPS cache may remain until Remove from VPS.',
+        failedN > 0
+          ? `Deleted from library (S3 + catalog). Purged ${purgedN} VPS; ${failedN} VPS failed — retry Remove from VPS.`
+          : `Deleted from Contabo library (catalog + S3) and purged ${purgedN} VPS.`,
     });
   } catch (err: unknown) {
+    if (err instanceof ModInUseError) {
+      res.status(409).json({
+        ok: false,
+        error: 'mod_in_use',
+        message: formatModInUseMessage(err.usage),
+        usage: err.usage,
+      });
+      return;
+    }
     const message = err instanceof Error ? err.message : String(err);
     if (message === 'package_not_found') {
       res.status(404).json({ ok: false, error: 'package_not_found', message });

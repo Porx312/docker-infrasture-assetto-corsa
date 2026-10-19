@@ -810,7 +810,7 @@ function findInventoryItem(type, invSlug, artifactId, packageId) {
 async function deleteCatalogPackage(type, packageId, displayName) {
   const confirmed = await showConfirm(
     'Delete from library',
-    `Delete "${displayName}" from the Contabo library (S3 object + catalog)? This cannot be undone. VPS caches may remain until Remove from VPS.`,
+    `Delete "${displayName}" from the Contabo library (S3 + catalog) and remove it from all VPS? Blocked if any server still uses this mod. This cannot be undone.`,
     'Delete',
   );
   if (!confirmed) return;
@@ -820,6 +820,9 @@ async function deleteCatalogPackage(type, packageId, displayName) {
       showToast(data.message || 'Could not delete mod', 'error');
       return;
     }
+    libraryByType[type] = (libraryByType[type] || []).filter((i) => i.packageId !== packageId);
+    packagesByType[type] = (packagesByType[type] || []).filter((p) => p.id !== packageId);
+    filterCatalog(type);
     showToast(data.message || `Deleted ${displayName}`, 'success');
     stopCatalogDistPoll(type);
     closeCatalogSidePanel(type);
@@ -1194,7 +1197,7 @@ export async function openCatalogDistribution(type, artifactId, displayName, opt
         resolvedArtifactId
           ? `<section class="mod-dist-section">
         <p class="modal-mod-section">VPS distribution</p>
-        <p class="panel-hint">Install pulls from the Contabo library (S3) onto selected VPS. Inventory still shows what is cached locally. Remove deletes content on the selected VPS only.</p>
+        <p class="panel-hint">Install pulls from the Contabo library (S3) onto selected VPS. Inventory shows local cache. Remove deletes on selected VPS only (blocked if a server there still uses the mod). Delete from library also purges all VPS.</p>
         <table class="mod-dist-table">
           <thead><tr><th></th><th>VPS</th><th>Status</th></tr></thead>
           <tbody>
@@ -1323,14 +1326,17 @@ export async function openCatalogDistribution(type, artifactId, displayName, opt
       }
       const ok = await showConfirm(
         'Remove from VPS?',
-        `Delete this mod from ${edgeIds.length} selected VPS (local pool + blob). Catalog metadata stays on the hub.`,
+        `Delete this mod from ${edgeIds.length} selected VPS (local pool + blob). Blocked if a server on those VPS still uses it. Catalog stays on the hub.`,
         'Remove',
       );
       if (!ok) return;
-      const { data: res } = await apiPost(`/mods/artifacts/${resolvedArtifactId}/remove-from-edges`, {
+      const { res, data } = await apiPost(`/mods/artifacts/${resolvedArtifactId}/remove-from-edges`, {
         edgeIds,
       });
-      showToast(res.ok ? 'Remove scheduled' : res.message, res.ok ? 'success' : 'error');
+      showToast(
+        res.ok && data.ok ? 'Remove scheduled' : data.message || 'Could not remove from VPS',
+        res.ok && data.ok ? 'success' : 'error',
+      );
       await openCatalogDistribution(type, resolvedArtifactId, displayName, {
         packageId: resolvedPackageId,
         invSlug: acSlug,
