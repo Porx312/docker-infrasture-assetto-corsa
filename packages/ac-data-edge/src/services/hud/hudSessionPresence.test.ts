@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  overlaySessionContextFromPresence,
   sessionCacheCarMismatch,
+  sessionCacheTrackMismatch,
   setHudSessionPresenceTestHooks,
   shouldBypassJoinRefreshDedupe,
   shouldBypassSessionCacheForPresence,
@@ -352,4 +354,109 @@ test('shouldRefreshJoinContextForPresence returns false when names differ but fo
     setHudSessionPresenceTestHooks(null);
     resetManagedServersForTests();
   }
+});
+
+test('sessionCacheTrackMismatch detects stale session track vs presence', () => {
+  const session: HudSessionOk = {
+    ok: true,
+    version: 'v1',
+    context: {
+      server_id: 's1',
+      server_name: 'Porx',
+      track_id: 'pk_tail_of_the_dragon',
+      track_name: 'Tail',
+      layout_id: '',
+      layout_name: '',
+      car_id: 'ae86',
+      car_name: 'AE86',
+      player_steam_id: steamId,
+    },
+    profile: null,
+  };
+
+  assert.equal(sessionCacheTrackMismatch(session, 'sakanotsuji', 'downhill_grip'), true);
+  assert.equal(
+    sessionCacheTrackMismatch(session, 'csp/3465/../pk_tail_of_the_dragon', ''),
+    false,
+  );
+  assert.equal(sessionCacheTrackMismatch(session, '', 'downhill_grip'), false);
+});
+
+test('shouldBypassSessionCacheForPresence returns true when presence track differs', async () => {
+  const session: HudSessionOk = {
+    ok: true,
+    version: 'v1',
+    context: {
+      server_id: 's1',
+      server_name: 'Porx',
+      track_id: 'pk_tail_of_the_dragon',
+      track_name: 'Tail',
+      layout_id: '',
+      layout_name: '',
+      car_id: 'ae86',
+      car_name: 'AE86',
+      player_steam_id: steamId,
+    },
+    profile: {
+      name: 'Pilot',
+      rank: 1,
+      tier: 5,
+      best_lap_ms: 120_000,
+      car_name: 'AE86',
+      car_id: 'ae86',
+      steam_id: steamId,
+      rivals: { above: null, below: null },
+    },
+  };
+
+  setHudSessionPresenceTestHooks({
+    peekSessionCache: async () => session,
+    readPresenceCarModel: async () => 'ae86',
+    readPresenceTrack: async () => ({ track: 'sakanotsuji', trackConfig: 'downhill_grip' }),
+  });
+  try {
+    assert.equal(
+      await shouldBypassSessionCacheForPresence(steamId, 'Porx', {
+        track: 'sakanotsuji',
+        trackConfig: 'downhill_grip',
+      }),
+      true,
+    );
+    assert.equal(
+      await shouldRefreshJoinContextForPresence(steamId, 'Porx', {
+        track: 'sakanotsuji',
+        trackConfig: 'downhill_grip',
+      }),
+      true,
+    );
+  } finally {
+    setHudSessionPresenceTestHooks(null);
+  }
+});
+
+test('overlaySessionContextFromPresence patches stale track from presence', () => {
+  const session: HudSessionOk = {
+    ok: true,
+    version: 'v1',
+    context: {
+      server_id: 's1',
+      server_name: 'Porx',
+      track_id: 'pk_tail_of_the_dragon',
+      track_name: 'Tail',
+      layout_id: '',
+      layout_name: '',
+      car_id: 'ae86',
+      car_name: 'AE86',
+      player_steam_id: steamId,
+    },
+    profile: null,
+  };
+
+  const patched = overlaySessionContextFromPresence(session, {
+    track: 'csp/3465/../sakanotsuji',
+    trackConfig: 'downhill_grip',
+  });
+  assert.equal(patched.context.track_id, 'sakanotsuji');
+  assert.equal(patched.context.layout_id, 'downhill_grip');
+  assert.equal(session.context.track_id, 'pk_tail_of_the_dragon');
 });

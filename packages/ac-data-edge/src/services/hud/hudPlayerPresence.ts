@@ -9,6 +9,8 @@ import {
 import { invalidateSessionCache } from './hudSessionCache.js';
 import { lookupManagedServer } from './hudManagedServers.js';
 import { normalizeHudServerName } from '@projectd/ac-data-shared/services/hud/hudQueryNormalize.js';
+import { stripCspTrackPrefix } from '@projectd/ac-data-shared/mods/cspTrack.js';
+import { normalizeTrackConfigForIni } from '@projectd/ac-data-shared/controller/trackConfig.js';
 import { pickCarModelId, readCarModelFromEventData } from './hudCarModel.js';
 import {
   HUD_PRESENCE_JOIN_TTL_SEC,
@@ -212,10 +214,13 @@ export async function readHudPlayerPresenceRecord(
   return readPresenceRecord(steamId.trim());
 }
 
+/** Resolve to a comparable car id; empty if display-name / unparseable (no invalidate noise). */
 function normalizePresenceCarModel(carModel: string): string {
-  return pickCarModelId(carModel) ?? carModel.trim();
+  const id = pickCarModelId(carModel);
+  return id ? id.toLowerCase() : '';
 }
 
+/** True only for real car A→B when both sides resolve to car ids (not empty↔value or display noise). */
 function presenceCarChanged(prior: PlayerPresenceRecord, nextCarModel: string): boolean {
   const priorCar = normalizePresenceCarModel(prior.carModel);
   const nextCar = normalizePresenceCarModel(nextCarModel);
@@ -225,8 +230,38 @@ function presenceCarChanged(prior: PlayerPresenceRecord, nextCarModel: string): 
   return priorCar !== nextCar;
 }
 
+function normalizePresenceTrack(track: string): string {
+  return stripCspTrackPrefix(track || '').toLowerCase();
+}
+
+function normalizePresenceLayout(layout: string): string {
+  return (normalizeTrackConfigForIni(layout) ?? '').toLowerCase();
+}
+
+/** True for real track/layout A→B when both sides have track ids (not empty↔value). */
+function presenceTrackChanged(
+  prior: PlayerPresenceRecord,
+  nextTrack: string,
+  nextTrackConfig: string,
+): boolean {
+  const priorTrack = normalizePresenceTrack(prior.track);
+  const nextT = normalizePresenceTrack(nextTrack);
+  if (!priorTrack || !nextT) {
+    return false;
+  }
+  if (priorTrack !== nextT) {
+    return true;
+  }
+  const priorLayout = normalizePresenceLayout(prior.trackConfig);
+  const nextLayout = normalizePresenceLayout(nextTrackConfig);
+  if (!priorLayout || !nextLayout) {
+    return false;
+  }
+  return priorLayout !== nextLayout;
+}
+
 type HudPlayerPresenceTestHooks = {
-  onSessionCacheInvalidated?: (steamId: string, reason: 'server' | 'car') => void;
+  onSessionCacheInvalidated?: (steamId: string, reason: 'server' | 'car' | 'track') => void;
 };
 
 let presenceTestHooks: HudPlayerPresenceTestHooks | null = null;
@@ -367,6 +402,13 @@ export async function noteHudServerStatus(payload: Record<string, unknown>): Pro
         name: player.name,
       }),
     );
+    if (prior && presenceTrackChanged(prior, record.track, record.trackConfig)) {
+      await invalidateSessionCache({ steamId: player.steamId });
+      presenceTestHooks?.onSessionCacheInvalidated?.(player.steamId, 'track');
+      console.log(
+        `[hud-presence] steamId=${player.steamId} track changed ${normalizePresenceTrack(prior.track)} -> ${normalizePresenceTrack(record.track)} (server_status) session cache invalidated`,
+      );
+    }
     await writePresence(player.steamId, record);
   }
 
@@ -396,6 +438,8 @@ export async function noteHudPlayerJoin(payload: Record<string, unknown>): Promi
 
   const normalizedServer = normalizeHudServerName(serverName);
   const carModel = readCarModelFromEventData(data);
+  const nextTrack = typeof data.trackName === 'string' ? data.trackName : '';
+  const nextTrackConfig = typeof data.trackConfig === 'string' ? data.trackConfig : '';
   const prior = await readPresenceRecord(steamId);
   if (prior) {
     const priorServer = normalizeHudServerName(prior.serverName);
@@ -412,6 +456,14 @@ export async function noteHudPlayerJoin(payload: Record<string, unknown>): Promi
       const nextCar = normalizePresenceCarModel(carModel);
       console.log(
         `[hud-presence] steamId=${steamId} car changed ${priorCar} -> ${nextCar} session cache invalidated`,
+      );
+      const { clearJoinRefreshDedupe } = await import('./playerJoinContext.js');
+      clearJoinRefreshDedupe(steamId);
+    } else if (presenceTrackChanged(prior, nextTrack, nextTrackConfig)) {
+      await invalidateSessionCache({ steamId });
+      presenceTestHooks?.onSessionCacheInvalidated?.(steamId, 'track');
+      console.log(
+        `[hud-presence] steamId=${steamId} track changed ${normalizePresenceTrack(prior.track)} -> ${normalizePresenceTrack(nextTrack)} session cache invalidated`,
       );
       const { clearJoinRefreshDedupe } = await import('./playerJoinContext.js');
       clearJoinRefreshDedupe(steamId);

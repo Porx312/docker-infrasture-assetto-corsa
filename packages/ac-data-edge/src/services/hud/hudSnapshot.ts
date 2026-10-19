@@ -8,8 +8,10 @@ import { requireHudApiKeyFromQuery } from './hudBattleAuth.js';
 import { lookupManagedServer } from './hudManagedServers.js';
 import { resolvePlayerPresence } from './hudPlayerPresence.js';
 import {
+  overlaySessionContextFromPresence,
   sessionContextServerName,
   shouldRefreshJoinContextForPresence,
+  type PresenceCompareHints,
 } from './hudSessionPresence.js';
 import { isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 import { peekSessionCache } from './lapCompletedHudRefresh.js';
@@ -47,7 +49,7 @@ type SessionSnapshotPayload = {
 async function loadSessionSnapshotPayload(
   steamId: string,
   serverName: string,
-  presenceCarModel?: string,
+  presenceHints?: PresenceCompareHints,
 ): Promise<
   | { ok: true; payload: SessionSnapshotPayload }
   | { ok: false; reason: string; logLine: string }
@@ -57,13 +59,13 @@ async function loadSessionSnapshotPayload(
   const refreshJoin = await shouldRefreshJoinContextForPresence(
     steamId,
     serverName,
-    presenceCarModel,
+    presenceHints,
   );
   if (refreshJoin) {
     await refreshPlayerJoinFromConvex(steamId);
   }
 
-  const session = await peekSessionCache({ steamId });
+  let session = await peekSessionCache({ steamId });
   if (!session?.ok) {
     const reason = session?.reason ?? 'player_not_connected';
     if (reason === 'user_invalidated') {
@@ -75,6 +77,11 @@ async function loadSessionSnapshotPayload(
       logLine: `[hud-snapshot] steamId=${steamId} presenceServer=${serverName} managed=${managed?.folderSlug ?? '?'} session_ok=false reason=${reason}`,
     };
   }
+
+  session = overlaySessionContextFromPresence(session, {
+    track: presenceHints?.track,
+    trackConfig: presenceHints?.trackConfig,
+  });
 
   const profile = session.profile ? normalizeHudProfile(session.profile) : null;
   if (profile) {
@@ -176,7 +183,11 @@ export async function handleHudSnapshot(req: Request, res: Response): Promise<vo
   const sessionLoad = await loadSessionSnapshotPayload(
     steamId,
     resolved.presence.serverName,
-    resolved.presence.carModel,
+    {
+      carModel: resolved.presence.carModel,
+      track: resolved.presence.track,
+      trackConfig: resolved.presence.trackConfig,
+    },
   );
   if (!sessionLoad.ok) {
     console.log(sessionLoad.logLine);

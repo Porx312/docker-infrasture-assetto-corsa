@@ -144,3 +144,109 @@ test('noteHudPlayerJoin invalidates session cache when car changes', async () =>
     setHudPlayerPresenceTestHooks(null);
   }
 });
+
+test('noteHudPlayerJoin invalidates session cache when track changes', async () => {
+  if (!isHudRedisConfigured()) {
+    return;
+  }
+
+  const steamId = '76561199000000004';
+  const serverName = 'ProjectD';
+  let invalidateReason: 'server' | 'car' | 'track' | null = null;
+
+  setHudPlayerPresenceTestHooks({
+    onSessionCacheInvalidated: (_id, reason) => {
+      invalidateReason = reason;
+    },
+  });
+
+  try {
+    await noteHudPlayerJoin({
+      serverName,
+      data: {
+        steamId,
+        trackName: 'pk_tail_of_the_dragon',
+        trackConfig: '',
+        carModel: 'ks_toyota_gt86',
+      },
+    });
+    invalidateReason = null;
+
+    await noteHudPlayerJoin({
+      serverName,
+      data: {
+        steamId,
+        trackName: 'csp/3465/../sakanotsuji',
+        trackConfig: 'downhill_grip',
+        carModel: 'ks_toyota_gt86',
+      },
+    });
+    assert.equal(invalidateReason, 'track');
+  } finally {
+    setHudPlayerPresenceTestHooks(null);
+  }
+});
+
+test('noteHudPlayerJoin does not invalidate on empty car or display-name noise', async () => {
+  if (!isHudRedisConfigured()) {
+    return;
+  }
+
+  const steamId = '76561199000000003';
+  const serverName = 'ProjectD';
+  let invalidateReason: 'server' | 'car' | null = null;
+
+  setHudPlayerPresenceTestHooks({
+    onSessionCacheInvalidated: (_id, reason) => {
+      invalidateReason = reason;
+    },
+  });
+
+  try {
+    await noteHudPlayerJoin({
+      serverName,
+      data: {
+        steamId,
+        trackName: 'pk_akina',
+        trackConfig: 'downhill',
+        carModel: '',
+      },
+    });
+    invalidateReason = null;
+
+    await noteHudPlayerJoin({
+      serverName,
+      data: {
+        steamId,
+        trackName: 'pk_akina',
+        trackConfig: 'downhill',
+        carModel: 'ks_toyota_gt86',
+      },
+    });
+    assert.equal(invalidateReason, null);
+
+    await noteHudPlayerJoin({
+      serverName,
+      data: {
+        steamId,
+        trackName: 'pk_akina',
+        trackConfig: 'downhill',
+        carModel: 'Trueno AE86',
+      },
+    });
+    assert.equal(invalidateReason, null);
+
+    await noteHudPlayerJoin({
+      serverName,
+      data: {
+        steamId,
+        trackName: 'pk_akina',
+        trackConfig: 'downhill',
+        carModel: 'KS_TOYOTA_GT86',
+      },
+    });
+    assert.equal(invalidateReason, null);
+  } finally {
+    setHudPlayerPresenceTestHooks(null);
+  }
+});

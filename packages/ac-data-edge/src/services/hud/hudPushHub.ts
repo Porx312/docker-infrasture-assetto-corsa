@@ -4,7 +4,9 @@ import { normalizeHudProfile, profileCosmeticsFingerprint } from './hudProfile.j
 import { buildSessionCacheKey, sessionRedisKey } from '@projectd/ac-data-shared/services/hud/hudCacheKeys.js';
 import { invalidateSessionCache } from './hudSessionCache.js';
 import { refreshPlayerJoinFromConvex } from './playerJoinContext.js';
+import { readPlayerPresenceRecord } from './hudPlayerPresence.js';
 import {
+  overlaySessionContextFromPresence,
   shouldBypassSessionCacheForPresence,
   shouldRefreshJoinContextForPresence,
   sessionContextServerName,
@@ -282,6 +284,14 @@ export async function pushHudUpdateForSteamId(
     return;
   }
 
+  const presence = await readPlayerPresenceRecord(steamId);
+  if (presence) {
+    session = overlaySessionContextFromPresence(session, {
+      track: presence.track,
+      trackConfig: presence.trackConfig,
+    });
+  }
+
   const cosmeticsFp = profileCosmeticsFingerprint(session.profile);
   const versionForClient: HudVersionOk = buildHudVersionForSession(session, cosmeticsFp);
   emitHudVersionToSteamId(steamId, versionForClient);
@@ -293,9 +303,17 @@ export async function sendInitialHudPushSnapshot(
   presenceServerName?: string,
 ): Promise<void> {
   if (presenceServerName?.trim()) {
+    const presence = await readPlayerPresenceRecord(conn.steamId);
     const refreshJoin = await shouldRefreshJoinContextForPresence(
       conn.steamId,
       presenceServerName,
+      presence
+        ? {
+            carModel: presence.carModel,
+            track: presence.track,
+            trackConfig: presence.trackConfig,
+          }
+        : undefined,
     );
     if (refreshJoin) {
       console.log(
