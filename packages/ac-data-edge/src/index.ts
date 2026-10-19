@@ -36,17 +36,17 @@ import {
   shouldEdgeUseDirectConvex,
 } from '@projectd/ac-data-shared/services/hubWorkerUrl.js';
 
-const SERVERS_PATH = process.env.SERVERS_PATH;
+const SERVERS_PATH = (process.env.SERVERS_PATH || '').trim();
 if (!SERVERS_PATH) {
   console.error(`❌ SERVERS_PATH no está definido en ${resolveEnvFilePath()}`);
   process.exit(1);
 }
 
 /** Warn when mod pool and SERVERS_PATH/content are different trees (common on US VPS). */
-function warnIfContentPathDivergesFromServers(): void {
+function warnIfContentPathDivergesFromServers(serversPath: string): void {
   const contentPath = (process.env.CONTENT_PATH || '').trim();
   if (!contentPath) return;
-  const serversContent = path.join(SERVERS_PATH, 'content');
+  const serversContent = path.join(serversPath, 'content');
   try {
     if (!fs.existsSync(serversContent)) return;
     const realPool = fs.realpathSync(contentPath);
@@ -61,7 +61,7 @@ function warnIfContentPathDivergesFromServers(): void {
     // missing paths / bad symlinks — leave for runtime errors
   }
 }
-warnIfContentPathDivergesFromServers();
+warnIfContentPathDivergesFromServers(SERVERS_PATH);
 
 assertSecurityConfiguration();
 assertFleetBootGuards('edge');
