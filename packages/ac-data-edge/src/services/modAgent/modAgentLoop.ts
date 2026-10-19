@@ -22,6 +22,7 @@ import {
   createProgressThrottleState,
   shouldEmitProgress,
 } from './progressThrottle.js';
+import { notifyContentReadyForConfigApplier } from '../redisConfigApplier.js';
 
 const POLL_MS = Number(process.env.MOD_AGENT_POLL_MS || 1500);
 /** How many jobs to drain back-to-back before yielding to the poll interval. */
@@ -192,6 +193,11 @@ async function tick(): Promise<void> {
         console.log(
           `[mod-agent] job ${job.jobId.slice(0, 8)}… ${job.operation} ok in ${Date.now() - started}ms`,
         );
+        const slug =
+          job.acContentSlug || job.manifest.acContentSlugs[0] || job.manifest.rootPaths[0] || '';
+        if (slug && job.operation !== 'remove') {
+          notifyContentReadyForConfigApplier([slug]);
+        }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         console.error(`[mod-agent] job ${job.jobId.slice(0, 8)}… failed: ${message}`);

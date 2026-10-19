@@ -47,6 +47,12 @@ const APPLIER_ENABLED =
   (process.env.REDIS_CONFIG_APPLIER_ENABLED || 'true').trim().toLowerCase() === 'true';
 const RESTART_ON_BOOT =
   (process.env.REDIS_CONFIG_APPLIER_RESTART_ON_BOOT || 'false').trim().toLowerCase() === 'true';
+const PENDING_MAX_ATTEMPTS = Math.max(
+  1,
+  Number(process.env.REDIS_CONFIG_APPLIER_PENDING_MAX_ATTEMPTS || 8),
+);
+/** Backoff delays (ms) between pending reconcile retries after S3/mod skip. */
+const PENDING_BACKOFF_MS = [30_000, 60_000, 120_000, 180_000, 300_000, 300_000, 300_000, 300_000];
 
 type ServerRow = {
   serverId?: string;
@@ -83,6 +89,17 @@ type StreamReadResult = Array<{
 }>;
 
 const lastSignatures = new Map<string, string>();
+
+type PendingReconcile = {
+  row: ServerRow;
+  attempts: number;
+  timer: ReturnType<typeof setTimeout> | null;
+};
+
+/** Servers waiting for CONTENT_PATH mods before apply/start (create→S3 race). */
+const pendingReconcileByServer = new Map<string, PendingReconcile>();
+
+export type ReconcileOutcome = 'applied' | 'pending_mods' | 'skipped' | 'error';
 
 function parsePayload(message: StreamMessage): Record<string, unknown> | null {
   const raw = message.fields?.payload ?? message.message?.payload;
@@ -142,29 +159,40 @@ export function contentOverridesFromRow(row: ServerRow): ModContentOverrides {
   return overrides;
 }
 
+type PreflightResult = 'ok' | 'pending_mods' | 'unrecoverable';
+
 /**
  * Download track/cars from hub/S3 using Redis slugs before the local-car gate.
- * Returns false when reconcile should stop (unrecoverable / still no cars).
  */
-async function preflightModsForRow(row: ServerRow): Promise<boolean> {
+async function preflightModsForRow(row: ServerRow): Promise<PreflightResult> {
   if (row.isActive === false) {
-    return true;
+    return 'ok';
   }
   const overrides = contentOverridesFromRow(row);
   if (!overrides.track && !overrides.cars) {
-    return true;
+    return 'ok';
   }
 
   const { ensureModsReadyForServerStart, localContentExists, requiredSlugsFromConfig } =
     await import('./modAgent/startGate.js');
   const required = requiredSlugsFromConfig(overrides);
   if (required.length > 0 && required.every((slug) => localContentExists(slug))) {
-    return true;
+    // Folder may exist before extract finishes — still require usable cars when entries set.
+    if (row.entries && row.entries.length > 0) {
+      const { valid } = filterValidEntries(row.entries, getAvailableCars());
+      if (valid.length === 0) {
+        console.warn(
+          `[redis-config-applier] ${row.serverName}: content dirs present but cars not ready — pending retry`,
+        );
+        return 'pending_mods';
+      }
+    }
+    return 'ok';
   }
 
   const gate = await ensureModsReadyForServerStart(row.serverName, overrides);
   if (gate.ok) {
-    return true;
+    return 'ok';
   }
 
   const missing = (gate.items || []).map((i) => `${i.acContentSlug}(${i.status})`).join(',');
@@ -173,30 +201,135 @@ async function preflightModsForRow(row: ServerRow): Promise<boolean> {
   );
 
   if (gate.reason === 'unknown_package') {
-    return false;
+    return 'unrecoverable';
   }
 
   if (row.entries && row.entries.length > 0) {
     const { valid } = filterValidEntries(row.entries, getAvailableCars());
     if (valid.length === 0) {
       console.warn(
-        `[redis-config-applier] ${row.serverName}: still no local cars after preflight — skip apply/start`,
+        `[redis-config-applier] ${row.serverName}: still no local cars after preflight — pending retry`,
       );
-      return false;
+      return 'pending_mods';
     }
   }
-  return true;
+  // Track-only / partial: treat timeout as pending so we retry after mod-agent finishes.
+  if (gate.reason === 'install_timeout' || gate.code === 'MODS_NOT_READY') {
+    return 'pending_mods';
+  }
+  return 'ok';
 }
 
-async function reconcileServer(row: ServerRow, isFirstSnapshot: boolean): Promise<void> {
-  if (!row || !row.serverName) return;
-  if (row.instanceId && row.instanceId !== AC_INSTANCE_ID) return;
+function clearPendingReconcile(serverName: string): void {
+  const pending = pendingReconcileByServer.get(serverName);
+  if (!pending) return;
+  if (pending.timer) clearTimeout(pending.timer);
+  pendingReconcileByServer.delete(serverName);
+}
+
+function schedulePendingReconcile(row: ServerRow, reason: string): void {
+  const name = row.serverName;
+  const existing = pendingReconcileByServer.get(name);
+  const attempts = existing ? existing.attempts + 1 : 1;
+  if (existing?.timer) clearTimeout(existing.timer);
+
+  if (attempts > PENDING_MAX_ATTEMPTS) {
+    console.warn(
+      `[redis-config-applier] ${name}: giving up pending reconcile after ${PENDING_MAX_ATTEMPTS} attempts (${reason})`,
+    );
+    pendingReconcileByServer.delete(name);
+    return;
+  }
+
+  const delay = PENDING_BACKOFF_MS[Math.min(attempts - 1, PENDING_BACKOFF_MS.length - 1)] ?? 60_000;
+  console.log(
+    `[redis-config-applier] ${name}: schedule pending reconcile #${attempts} in ${Math.round(delay / 1000)}s (${reason})`,
+  );
+
+  const timer = setTimeout(() => {
+    const cur = pendingReconcileByServer.get(name);
+    if (!cur) return;
+    void reconcileServer(cur.row, false)
+      .then((outcome) => {
+        if (outcome === 'pending_mods') {
+          schedulePendingReconcile(cur.row, 'retry_still_pending');
+        }
+      })
+      .catch((err: unknown) => {
+        console.error(`[redis-config-applier] pending reconcile ${name} error:`, err);
+        schedulePendingReconcile(cur.row, 'retry_error');
+      });
+  }, delay);
+
+  pendingReconcileByServer.set(name, { row: { ...row }, attempts, timer });
+}
+
+/**
+ * Call after mod-agent installs content so skipped apply/start can run without a new hub push.
+ */
+export function notifyContentReadyForConfigApplier(slugs?: string[]): void {
+  const needle = (slugs || []).map((s) => s.trim()).filter(Boolean);
+  const names = [...pendingReconcileByServer.keys()];
+  for (const name of names) {
+    const pending = pendingReconcileByServer.get(name);
+    if (!pending) continue;
+    if (needle.length) {
+      const overrides = contentOverridesFromRow(pending.row);
+      const required = [
+        ...(overrides.track ? [overrides.track] : []),
+        ...(overrides.cars ? overrides.cars.split(/[;,]/).map((s) => s.trim()).filter(Boolean) : []),
+      ];
+      if (required.length && !required.some((s) => needle.includes(s))) {
+        continue;
+      }
+    }
+    if (pending.timer) {
+      clearTimeout(pending.timer);
+      pending.timer = null;
+    }
+    console.log(`[redis-config-applier] ${name}: content ready — flushing pending reconcile`);
+    void reconcileServer(pending.row, false)
+      .then((outcome) => {
+        if (outcome === 'pending_mods') {
+          schedulePendingReconcile(pending.row, 'flush_still_pending');
+        }
+      })
+      .catch((err: unknown) => {
+        console.error(`[redis-config-applier] flush pending ${name} error:`, err);
+        schedulePendingReconcile(pending.row, 'flush_error');
+      });
+  }
+}
+
+/** Test helper */
+export function _resetPendingReconcileForTests(): void {
+  for (const pending of pendingReconcileByServer.values()) {
+    if (pending.timer) clearTimeout(pending.timer);
+  }
+  pendingReconcileByServer.clear();
+}
+
+export function _pendingReconcileCountForTests(): number {
+  return pendingReconcileByServer.size;
+}
+
+async function reconcileServer(
+  row: ServerRow,
+  isFirstSnapshot: boolean,
+): Promise<ReconcileOutcome> {
+  if (!row || !row.serverName) return 'skipped';
+  if (row.instanceId && row.instanceId !== AC_INSTANCE_ID) return 'skipped';
 
   // Install from S3/hub first — otherwise resolveEntriesForApply aborts when 0 cars are local
   // and we never reach startServerWithMods.
-  const preflightOk = await preflightModsForRow(row);
-  if (!preflightOk) {
-    return;
+  const preflight = await preflightModsForRow(row);
+  if (preflight === 'unrecoverable') {
+    clearPendingReconcile(row.serverName);
+    return 'skipped';
+  }
+  if (preflight === 'pending_mods') {
+    schedulePendingReconcile(row, 'preflight_mods');
+    return 'pending_mods';
   }
 
   let entries: ReturnType<typeof resolveEntriesForApply>;
@@ -206,8 +339,9 @@ async function reconcileServer(row: ServerRow, isFirstSnapshot: boolean): Promis
     entries = resolveEntriesForApply(row.entries, availableCars, row.serverName);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn(`[redis-config-applier] ${message} — skip apply/start`);
-    return;
+    console.warn(`[redis-config-applier] ${message} — pending retry`);
+    schedulePendingReconcile(row, 'no_valid_cars');
+    return 'pending_mods';
   }
   if (entries !== undefined) {
     row = { ...row, entries };
@@ -231,7 +365,26 @@ async function reconcileServer(row: ServerRow, isFirstSnapshot: boolean): Promis
       const message = err instanceof Error ? err.message : String(err);
       console.warn(`[redis-config-applier] applyBranding ${row.serverName} failed: ${message}`);
     }
-    return;
+    // Still need start if we skipped earlier while mods downloaded (signature unchanged).
+    if (!running && shouldStartFromConfig(row.isActive) && !(isFirstSnapshot && !RESTART_ON_BOOT)) {
+      const { startServerWithMods } = await import('./modAgent/startGate.js');
+      const result = await startServerWithMods(row.serverName, contentOverrides);
+      console.log(
+        `[redis-config-applier] start ${row.serverName} (sig unchanged, was down): ${result.ok ? 'ok' : 'failed'} | ${result.message}${
+          result.ok
+            ? ''
+            : result.code === 'MODS_NOT_READY'
+              ? ` missing=${(result.missing || []).map((m) => m.acContentSlug).join(',')}`
+              : ''
+        }`,
+      );
+      if (!result.ok && result.code === 'MODS_NOT_READY') {
+        schedulePendingReconcile(row, 'start_mods_not_ready');
+        return 'pending_mods';
+      }
+    }
+    clearPendingReconcile(row.serverName);
+    return 'applied';
   }
 
   if (row.isActive === false) {
@@ -255,7 +408,8 @@ async function reconcileServer(row: ServerRow, isFirstSnapshot: boolean): Promis
       console.warn(`[redis-config-applier] applyBranding ${row.serverName} failed: ${message}`);
     }
     lastSignatures.set(row.serverName, signature);
-    return;
+    clearPendingReconcile(row.serverName);
+    return 'applied';
   }
 
   if (!shouldStartFromConfig(row.isActive)) {
@@ -285,7 +439,8 @@ async function reconcileServer(row: ServerRow, isFirstSnapshot: boolean): Promis
       );
     }
     lastSignatures.set(row.serverName, signature);
-    return;
+    clearPendingReconcile(row.serverName);
+    return 'applied';
   }
 
   const apply = applyServerConfiguration(row.serverName, rowToConfigPayload(row));
@@ -317,6 +472,10 @@ async function reconcileServer(row: ServerRow, isFirstSnapshot: boolean): Promis
         result.ok ? '' : result.code === 'MODS_NOT_READY' ? ` missing=${(result.missing || []).map((m) => m.acContentSlug).join(',')}` : ''
       }`,
     );
+    if (!result.ok && result.code === 'MODS_NOT_READY') {
+      schedulePendingReconcile(row, 'restart_mods_not_ready');
+      return 'pending_mods';
+    }
   } else if (!running) {
     if (isFirstSnapshot && !RESTART_ON_BOOT) {
       console.log(`[redis-config-applier] ${row.serverName} first snapshot skip (RESTART_ON_BOOT=false)`);
@@ -328,12 +487,18 @@ async function reconcileServer(row: ServerRow, isFirstSnapshot: boolean): Promis
           result.ok ? '' : result.code === 'MODS_NOT_READY' ? ` missing=${(result.missing || []).map((m) => m.acContentSlug).join(',')}` : ''
         }`,
       );
+      if (!result.ok && result.code === 'MODS_NOT_READY') {
+        schedulePendingReconcile(row, 'start_mods_not_ready');
+        return 'pending_mods';
+      }
     }
   } else {
     console.log(`[redis-config-applier] ${row.serverName} already running, config${changed ? ' changed' : ' unchanged'}`);
   }
 
   lastSignatures.set(row.serverName, signature);
+  clearPendingReconcile(row.serverName);
+  return 'applied';
 }
 
 async function handleSnapshot(payload: Record<string, unknown>, isFirstSnapshot: boolean): Promise<void> {

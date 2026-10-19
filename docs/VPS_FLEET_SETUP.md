@@ -74,11 +74,12 @@ Deploy: [deploy/backend-hub/README.md](../deploy/backend-hub/README.md) or monor
 ## Edge env (each VPS)
 
 ```bash
-AC_INSTANCE_ID=vps-eu-2         # = registry instanceId
-EDGE_ID=eu                      # = registry key (mod agent)
-SERVERS_PATH=/path/to/servers
-CONTENT_PATH=/path/to/assetto-install/.../content   # required SoT (cars/tracks)
+AC_INSTANCE_ID=vps-eu-2         # = registry instanceId (US edge: vps-us-1)
+EDGE_ID=eu                      # = registry key (mod agent); lowercased at runtime (US → us)
+SERVERS_PATH=/path/to/servers   # e.g. /root/assetto-infra/server
+CONTENT_PATH=/path/to/assetto-install/.../content   # required SoT (cars/tracks); may differ from SERVERS_PATH
 MOD_AGENT_ENABLED=true
+REDIS_CONFIG_APPLIER_RESTART_ON_BOOT=true   # required so first Redis snapshot can start acServer
 
 BACKEND_INGEST_URL=https://api.example.com
 # BACKEND_WORKER_URL=…          # defaults to BACKEND_INGEST_URL
@@ -92,6 +93,7 @@ REDIS_EVENTS_BRIDGE_ENABLED=true
 HUD_WS_ENABLED=true
 HUD_CONN_PRESENCE_TTL_SEC=45
 # BATTLE_REQUIRE_HUD_CONN=true  # on telemetry-data if battle gate needs overlay
+# If CONTENT_PATH ≠ SERVERS_PATH/content, instance content/ must link to the CONTENT_PATH pool.
 
 EDGE_REGISTRY_BASE_URL=http://10.0.0.2:3000   # private URL hub uses
 EDGE_PUBLIC_BASE_URL=https://eu-api.example.com  # player HUD WSS

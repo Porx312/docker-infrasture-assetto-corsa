@@ -1,6 +1,8 @@
 import '@projectd/ac-data-shared/config/loadEnv.js';
 import { assertFleetBootGuards } from '@projectd/ac-data-shared/services/fleet/fleetBootGuards.js';
 import { assertSecurityConfiguration } from './config/securityStartup.js';
+import fs from 'node:fs';
+import path from 'node:path';
 import { createServer } from 'node:http';
 import express from 'express';
 import cookieParser from 'cookie-parser';
@@ -39,6 +41,27 @@ if (!SERVERS_PATH) {
   console.error(`❌ SERVERS_PATH no está definido en ${resolveEnvFilePath()}`);
   process.exit(1);
 }
+
+/** Warn when mod pool and SERVERS_PATH/content are different trees (common on US VPS). */
+function warnIfContentPathDivergesFromServers(): void {
+  const contentPath = (process.env.CONTENT_PATH || '').trim();
+  if (!contentPath) return;
+  const serversContent = path.join(SERVERS_PATH, 'content');
+  try {
+    if (!fs.existsSync(serversContent)) return;
+    const realPool = fs.realpathSync(contentPath);
+    const realServers = fs.realpathSync(serversContent);
+    if (realPool !== realServers) {
+      console.warn(
+        `[ac-data-edge] CONTENT_PATH (${contentPath}) ≠ SERVERS_PATH/content (${serversContent}). ` +
+          'Mod-agent installs into CONTENT_PATH; ensure each instance content/ (or shared content) links to that pool.',
+      );
+    }
+  } catch {
+    // missing paths / bad symlinks — leave for runtime errors
+  }
+}
+warnIfContentPathDivergesFromServers();
 
 assertSecurityConfiguration();
 assertFleetBootGuards('edge');
