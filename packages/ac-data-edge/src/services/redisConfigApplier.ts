@@ -8,6 +8,7 @@ import {
   ServerConfigPayload,
 } from '../controller/controller.js';
 import { normalizeTrackConfigForIni } from '@projectd/ac-data-shared/controller/trackConfig.js';
+import { stripCspTrackPrefix } from '@projectd/ac-data-shared/mods/cspTrack.js';
 import { shouldStartFromConfig } from './serverPool.js';
 import { buildConfigSignature } from '@projectd/ac-data-shared/services/configApplierLogic.js';
 import {
@@ -135,7 +136,8 @@ export function contentOverridesFromRow(row: ServerRow): ModContentOverrides {
     ),
   ];
   const overrides: ModContentOverrides = {};
-  if (row.track?.trim()) overrides.track = row.track.trim();
+  const trackSlug = stripCspTrackPrefix(row.track || '');
+  if (trackSlug) overrides.track = trackSlug;
   if (models.length) overrides.cars = models.join(';');
   return overrides;
 }

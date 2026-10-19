@@ -89,6 +89,10 @@ CONVEX_WORKER_SECRET=...   # same as edges (admin proxy + agent + peer tree pull
 # MOD_PEER_PULL_ENABLED=0     # peer mesh OFF by default (set 1 only for emergency rollback)
 # MOD_S3_PULL_TIMEOUT_MS=600000  # AbortSignal on Contabo GET (default 10m)
 # MOD_AGENT_PROGRESS_MIN_MS=500  # throttle hub progress POSTs (also on each integer %)
+
+# --- CSP min version (edge) ---
+# AC_CSP_MIN_BUILD=2735   # default; TRACK=csp/2735/../<slug>. 0 / off = plain TRACK
+# Builds: CSP 0.2.1 → 2735, CSP 0.2.11 → 3465 (see https://c1xtz.github.io/csp-logs/)
 ```
 
 ### Contabo S3 library + install on-demand

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { readServerInstanceConfig } from '@projectd/ac-data-shared/services/serverInstanceConfig.js';
+import { stripCspTrackPrefix } from '@projectd/ac-data-shared/mods/cspTrack.js';
 import { contentPoolPath } from './materialize.js';
 import { isModAgentEnabled, refreshServerModsOnHub } from './hubModClient.js';
 import { restartServerCore, startServerCore } from '../../controller/controller.js';
@@ -64,7 +65,8 @@ export function requiredSlugsFromConfig(config: {
   cars?: string;
 }): string[] {
   const slugs: string[] = [];
-  if (config.track?.trim()) slugs.push(config.track.trim());
+  const trackSlug = stripCspTrackPrefix(config.track || '');
+  if (trackSlug) slugs.push(trackSlug);
   if (config.cars) {
     for (const part of config.cars.split(/[;,]/)) {
       const t = part.trim();

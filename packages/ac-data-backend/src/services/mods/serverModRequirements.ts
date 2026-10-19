@@ -1,5 +1,6 @@
 import { getModPool } from './db.js';
 import type { ModKind } from '@projectd/ac-data-shared/mods/types.js';
+import { stripCspTrackPrefix } from '@projectd/ac-data-shared/mods/cspTrack.js';
 import { ensureFleetEdgeRegistered } from './fleetEdgeDb.js';
 import { getModsCars, getModsTracks } from '../controlApi/modsInventory.js';
 
@@ -138,8 +139,9 @@ export async function refreshServerModRequirements(input: {
   const edgeId = await ensureFleetEdgeRegistered(input.edgeId);
   const pool = getModPool();
   const slugs: Array<{ acContentSlug: string; kind: ModKind }> = [];
-  if (input.track?.trim()) {
-    slugs.push({ acContentSlug: input.track.trim(), kind: 'track' });
+  const trackSlug = stripCspTrackPrefix(input.track || '');
+  if (trackSlug) {
+    slugs.push({ acContentSlug: trackSlug, kind: 'track' });
   }
   for (const car of parseCarsFromConfig(input.cars, input.entries)) {
     slugs.push({ acContentSlug: car, kind: 'car' });

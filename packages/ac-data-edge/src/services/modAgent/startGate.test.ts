@@ -17,6 +17,14 @@ test('requiredSlugsFromConfig parses track and cars', () => {
   assert.deepEqual(requiredSlugsFromConfig({}), []);
 });
 
+test('requiredSlugsFromConfig strips CSP TRACK wrapper for folder slug', () => {
+  assert.deepEqual(requiredSlugsFromConfig({ track: 'csp/2735/../pk_akina', cars: 'car_a' }), [
+    'pk_akina',
+    'car_a',
+  ]);
+  assert.deepEqual(requiredSlugsFromConfig({ track: 'csp/2735/../D/../pk_akina' }), ['pk_akina']);
+});
+
 test('isUnrecoverableModBlocker catches UNKNOWN_PACKAGE and catalog errors', () => {
   const blockers = isUnrecoverableModBlocker(
     [

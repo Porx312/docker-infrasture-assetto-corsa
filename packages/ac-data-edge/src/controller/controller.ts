@@ -5,6 +5,7 @@ import { resolveEnvFilePath } from '@projectd/ac-data-shared/config/loadEnv.js';
 import { getServerPorts } from './serverPorts.js';
 import { normalizeTrackConfigForIni } from '@projectd/ac-data-shared/controller/trackConfig.js';
 import { applyCmNameSuffix, readCmWrapperPort } from '@projectd/ac-data-shared/controller/cmWrapper.js';
+import { applyCspMinTrackForIni } from '@projectd/ac-data-shared/mods/cspTrack.js';
 
 /** Lazy so unit tests can import this module without SERVERS_PATH set. */
 function getServersPath(): string {
@@ -230,10 +231,11 @@ export function applyServerConfiguration(
         }
 
         if (track !== undefined) {
+            const trackValue = applyCspMinTrackForIni(track);
             if (/^TRACK=.*/m.test(content)) {
-                content = content.replace(/^TRACK=.*/m, `TRACK=${track}`);
+                content = content.replace(/^TRACK=.*/m, `TRACK=${trackValue}`);
             } else {
-                content += `\nTRACK=${track}`;
+                content += `\nTRACK=${trackValue}`;
             }
             modifications.push('track');
         }

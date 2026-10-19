@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { applyCmNameSuffix, readCmWrapperPort, stripCmNameSuffix } from '../controller/cmWrapper.js';
+import { applyCspMinTrackForIni, stripCspTrackPrefix } from '../mods/cspTrack.js';
 import { buildCmDescription, normalizeBranding } from './serverBranding.js';
 import '../config/loadEnv.js';
 
@@ -215,7 +216,7 @@ export function readServerInstanceConfig(serverName: string): ServerInstanceConf
     password: readIniField(ini, 'PASSWORD') ?? '',
     maxClients: maxClientsRaw ? Number.parseInt(maxClientsRaw, 10) || 0 : 0,
     cars: readIniField(ini, 'CARS') ?? '',
-    track: readIniField(ini, 'TRACK') ?? '',
+    track: stripCspTrackPrefix(readIniField(ini, 'TRACK') ?? ''),
     configTrack: readIniField(ini, 'CONFIG_TRACK') ?? '',
     description: readIniField(ini, 'DESCRIPTION') ?? '',
     webLink: readIniField(ini, 'WEBLINK') ?? '',
@@ -262,7 +263,7 @@ export async function updateServerInstanceConfig(
     ini = patchIniField(ini, 'CARS', input.cars.trim());
   }
   if (input.track !== undefined) {
-    ini = patchIniField(ini, 'TRACK', input.track.trim());
+    ini = patchIniField(ini, 'TRACK', applyCspMinTrackForIni(input.track));
   }
   if (input.configTrack !== undefined) {
     ini = patchIniField(ini, 'CONFIG_TRACK', input.configTrack.trim());

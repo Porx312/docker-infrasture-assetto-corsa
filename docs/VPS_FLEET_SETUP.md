@@ -99,6 +99,10 @@ EDGE_PUBLIC_BASE_URL=https://eu-api.example.com  # player HUD WSS
 MOD_AGENT_ENABLED=true
 MOD_INVENTORY_SCAN_ENABLED=true
 
+# CSP minimum version for clients (writes TRACK=csp/<build>/../<slug> in server_cfg.ini).
+# Default 2735 = CSP 0.2.1. Set 0 / off to disable. Examples: 0.2.1→2735, 0.2.11→3465.
+# AC_CSP_MIN_BUILD=2735
+
 # After ProjectD Host reads Control API live:
 # LIVE_INGEST_CONVEX=false
 ```
