@@ -56,6 +56,18 @@ const PENDING_MAX_ATTEMPTS = Math.max(
 );
 /** Backoff delays (ms) between pending reconcile retries after S3/mod skip. */
 const PENDING_BACKOFF_MS = [30_000, 60_000, 120_000, 180_000, 300_000, 300_000, 300_000, 300_000];
+const APPLIER_PENDING_RECLAIM_MIN_IDLE_MS = Math.max(
+  10_000,
+  Number(process.env.REDIS_CONFIG_APPLIER_PENDING_RECLAIM_MIN_IDLE_MS || 60_000),
+);
+const APPLIER_PENDING_RECLAIM_INTERVAL_MS = Math.max(
+  30_000,
+  Number(process.env.REDIS_CONFIG_APPLIER_PENDING_RECLAIM_INTERVAL_MS || 310_000),
+);
+const APPLIER_PENDING_RECLAIM_BATCH = Math.max(
+  1,
+  Number(process.env.REDIS_CONFIG_APPLIER_PENDING_RECLAIM_BATCH || 20),
+);
 
 type ServerRow = {
   serverId?: string;
@@ -504,11 +516,35 @@ async function reconcileServer(
   return 'applied';
 }
 
-async function handleSnapshot(payload: Record<string, unknown>, isFirstSnapshot: boolean): Promise<void> {
+/**
+ * Fail-closed: missing/blank instanceId must not apply (would fan out to every VPS).
+ * Foreign instanceId is a no-op (still ACKed by the caller).
+ */
+export function shouldApplyConfigSnapshot(
+  payload: Record<string, unknown>,
+  instanceId: string = AC_INSTANCE_ID,
+): { apply: boolean; reason?: 'missing_instance_id' | 'foreign_instance_id' } {
   const data = (payload.data as Record<string, unknown>) ?? {};
-  const instanceId = String(data.instanceId ?? payload.instanceId ?? '');
-  if (instanceId && instanceId !== AC_INSTANCE_ID) return;
+  const snapshotInstance = String(data.instanceId ?? payload.instanceId ?? '').trim();
+  if (!snapshotInstance) {
+    return { apply: false, reason: 'missing_instance_id' };
+  }
+  if (snapshotInstance !== instanceId) {
+    return { apply: false, reason: 'foreign_instance_id' };
+  }
+  return { apply: true };
+}
 
+async function handleSnapshot(payload: Record<string, unknown>, isFirstSnapshot: boolean): Promise<void> {
+  const gate = shouldApplyConfigSnapshot(payload);
+  if (!gate.apply) {
+    if (gate.reason === 'missing_instance_id') {
+      console.warn('[redis-config-applier] snapshot missing instanceId — rejected (fail-closed)');
+    }
+    return;
+  }
+
+  const data = (payload.data as Record<string, unknown>) ?? {};
   const rows = (data.servers as ServerRow[]) ?? [];
   if (!Array.isArray(rows) || rows.length === 0) return;
 
@@ -520,6 +556,118 @@ async function handleSnapshot(payload: Record<string, unknown>, isFirstSnapshot:
     } catch (err) {
       console.error(`[redis-config-applier] reconcile ${row?.serverName} error:`, err);
     }
+  }
+}
+
+async function processApplierStreamMessage(
+  client: RedisClientType,
+  ackRedis: ConfigAckRedis,
+  msg: StreamMessage,
+  state: { isFirstSnapshot: boolean },
+): Promise<void> {
+  const payload = parsePayload(msg);
+  if (!payload || payload.event !== 'server_config_snapshot') {
+    await client.xAck(REDIS_CONFIG_STREAM_KEY, APPLIER_GROUP, msg.id);
+    return;
+  }
+  const rawFields = msg.fields ?? msg.message ?? {};
+  const payloadJson =
+    typeof rawFields.payload === 'string' ? rawFields.payload : JSON.stringify(payload);
+  let applyOk = false;
+  let applyError: string | null = null;
+  try {
+    await handleSnapshot(payload, state.isFirstSnapshot);
+    applyOk = true;
+    state.isFirstSnapshot = false;
+  } catch (err) {
+    applyError = err instanceof Error ? err.message : String(err);
+    console.error('[redis-config-applier] snapshot handler error:', err);
+  }
+  try {
+    const outcome = await processConfigApplyOutcome({
+      redis: ackRedis,
+      streamKey: REDIS_CONFIG_STREAM_KEY,
+      group: APPLIER_GROUP,
+      msgId: msg.id,
+      instanceId: AC_INSTANCE_ID,
+      payloadJson,
+      applyError,
+      applyOk,
+      dlqStreamKey: CONFIG_DLQ_STREAM_KEY,
+    });
+    if (outcome.decision.action === 'nack') {
+      console.warn(
+        `[redis-config-applier] leave unacked msg=${msg.id} fails=${outcome.failCount} (PEL reclaim)`,
+      );
+    } else if (outcome.decision.action === 'dlq_failed') {
+      console.error(
+        `[redis-config-applier] DLQ write failed (left unacked) msg=${msg.id}: ${outcome.decision.reason}`,
+      );
+    } else if (outcome.decision.action === 'dlq_then_ack') {
+      console.error(
+        `[redis-config-applier] poison → DLQ ${CONFIG_DLQ_STREAM_KEY} originalMsgId=${msg.id} dlqId=${outcome.dlqId} (at-least-once; may duplicate if crash before XACK)`,
+      );
+    }
+  } catch (ackErr) {
+    console.error('[redis-config-applier] ack/dlq path error (left unacked):', ackErr);
+  }
+}
+
+/** Reclaim stale PEL entries stuck after crash between XREAD and XACK. */
+async function reclaimStaleApplierPending(
+  client: RedisClientType,
+  ackRedis: ConfigAckRedis,
+  state: { isFirstSnapshot: boolean },
+): Promise<number> {
+  let reclaimed = 0;
+  let cursor = '0-0';
+  while (reclaimed < APPLIER_PENDING_RECLAIM_BATCH) {
+    const raw = await client.xAutoClaim(
+      REDIS_CONFIG_STREAM_KEY,
+      APPLIER_GROUP,
+      APPLIER_CONSUMER,
+      APPLIER_PENDING_RECLAIM_MIN_IDLE_MS,
+      cursor,
+      { COUNT: Math.min(5, APPLIER_PENDING_RECLAIM_BATCH - reclaimed) },
+    );
+    const nextCursor = raw?.nextId;
+    const messages = raw?.messages as Array<{
+      id: string;
+      message: Record<string, string>;
+    } | null> | undefined;
+    cursor = typeof nextCursor === 'string' ? nextCursor : '0-0';
+    if (!messages || messages.length === 0) break;
+
+    for (const claimed of messages) {
+      if (!claimed) continue;
+      const msg: StreamMessage = { id: claimed.id, message: claimed.message };
+      await processApplierStreamMessage(client, ackRedis, msg, state);
+      reclaimed += 1;
+    }
+    if (cursor === '0-0') break;
+  }
+  if (reclaimed > 0) {
+    console.log(`[redis-config-applier] reclaimed ${reclaimed} stale pending message(s)`);
+  }
+  return reclaimed;
+}
+
+async function logApplierPendingMetric(client: RedisClientType): Promise<void> {
+  try {
+    const summary = await client.xPending(REDIS_CONFIG_STREAM_KEY, APPLIER_GROUP);
+    let pending: number | null = null;
+    if (summary && typeof summary === 'object') {
+      const row = summary as { pending?: number; count?: number };
+      if (typeof row.pending === 'number') pending = row.pending;
+      else if (typeof row.count === 'number') pending = row.count;
+    }
+    if (pending !== null && pending > 0) {
+      console.warn(
+        `[redis-config-applier] pending=${pending} group=${APPLIER_GROUP} (will auto-reclaim when idle>=${APPLIER_PENDING_RECLAIM_MIN_IDLE_MS}ms)`,
+      );
+    }
+  } catch (err) {
+    console.warn('[redis-config-applier] xpending metric failed:', err);
   }
 }
 
@@ -561,9 +709,28 @@ export async function startRedisConfigApplier(): Promise<void> {
     xAck: (stream, group, id) => client.xAck(stream, group, id),
   };
 
-  let isFirstSnapshot = true;
+  const state = { isFirstSnapshot: true };
+  try {
+    await logApplierPendingMetric(client);
+    await reclaimStaleApplierPending(client, ackRedis, state);
+  } catch (err) {
+    console.error('[redis-config-applier] initial pending reclaim error:', err);
+  }
+
+  let lastReclaimAt = Date.now();
   while (true) {
     try {
+      const now = Date.now();
+      if (now - lastReclaimAt >= APPLIER_PENDING_RECLAIM_INTERVAL_MS) {
+        lastReclaimAt = now;
+        try {
+          await logApplierPendingMetric(client);
+          await reclaimStaleApplierPending(client, ackRedis, state);
+        } catch (err) {
+          console.error('[redis-config-applier] periodic pending reclaim error:', err);
+        }
+      }
+
       const raw = await client.xReadGroup(
         APPLIER_GROUP,
         APPLIER_CONSUMER,
@@ -575,55 +742,7 @@ export async function startRedisConfigApplier(): Promise<void> {
 
       for (const stream of results) {
         for (const msg of stream.messages) {
-          const payload = parsePayload(msg);
-          if (!payload || payload.event !== 'server_config_snapshot') {
-            await client.xAck(REDIS_CONFIG_STREAM_KEY, APPLIER_GROUP, msg.id);
-            continue;
-          }
-          const rawFields = msg.fields ?? msg.message ?? {};
-          const payloadJson =
-            typeof rawFields.payload === 'string'
-              ? rawFields.payload
-              : JSON.stringify(payload);
-          let applyOk = false;
-          let applyError: string | null = null;
-          try {
-            await handleSnapshot(payload, isFirstSnapshot);
-            applyOk = true;
-            isFirstSnapshot = false;
-          } catch (err) {
-            applyError = err instanceof Error ? err.message : String(err);
-            console.error('[redis-config-applier] snapshot handler error:', err);
-          }
-          try {
-            const outcome = await processConfigApplyOutcome({
-              redis: ackRedis,
-              streamKey: REDIS_CONFIG_STREAM_KEY,
-              group: APPLIER_GROUP,
-              msgId: msg.id,
-              instanceId: AC_INSTANCE_ID,
-              payloadJson,
-              applyError,
-              applyOk,
-              dlqStreamKey: CONFIG_DLQ_STREAM_KEY,
-            });
-            if (outcome.decision.action === 'nack') {
-              console.warn(
-                `[redis-config-applier] leave unacked msg=${msg.id} fails=${outcome.failCount} (PEL reclaim)`,
-              );
-            } else if (outcome.decision.action === 'dlq_failed') {
-              console.error(
-                `[redis-config-applier] DLQ write failed (left unacked) msg=${msg.id}: ${outcome.decision.reason}`,
-              );
-            } else if (outcome.decision.action === 'dlq_then_ack') {
-              console.error(
-                `[redis-config-applier] poison → DLQ ${CONFIG_DLQ_STREAM_KEY} originalMsgId=${msg.id} dlqId=${outcome.dlqId} (at-least-once; may duplicate if crash before XACK)`,
-              );
-            }
-          } catch (ackErr) {
-            // Do not ACK if fail-counter / DLQ path throws — leave for PEL.
-            console.error('[redis-config-applier] ack/dlq path error (left unacked):', ackErr);
-          }
+          await processApplierStreamMessage(client, ackRedis, msg, state);
         }
       }
     } catch (err) {

@@ -43,6 +43,37 @@ def test_apply_snapshot_runtime_only(monkeypatch, tmp_path):
     ) == "battle"
 
 
+def test_apply_snapshot_rejects_other_instance(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "AC_INSTANCE_ID", "vps-eu-2")
+    monkeypatch.setattr(
+        settings, "REDIS_APPLIED_CONFIG_VERSIONS_FILE", str(tmp_path / "versions.json")
+    )
+    runtime_config.set_server_modes([])
+    applied, errors = apply_snapshot(
+        {},
+        {
+            "instanceId": "vps-us-1",
+            "data": {
+                "instanceId": "vps-us-1",
+                "version": "v9",
+                "servers": [{"serverName": "server-1", "type": "battle"}],
+            },
+        },
+    )
+    assert applied == 0
+    assert errors == 0
+    assert runtime_config.snapshot() == {}
+
+
+def test_default_config_consumer_group_includes_instance_id():
+    """When env does not override the group, default embeds AC_INSTANCE_ID."""
+    import os
+
+    if os.getenv("REDIS_CONFIG_CONSUMER_GROUP"):
+        return
+    assert settings.REDIS_CONFIG_CONSUMER_GROUP == f"ac-config-consumers-{settings.AC_INSTANCE_ID}"
+
+
 def test_transient_redis_loop_error_detects_timeout():
     if redis_exceptions is None:
         return

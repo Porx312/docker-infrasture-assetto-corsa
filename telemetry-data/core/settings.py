@@ -46,7 +46,13 @@ REDIS_STREAM_MAXLEN = _env_int("REDIS_STREAM_MAXLEN", "200000")
 REDIS_SCHEMA_VERSION = os.getenv("REDIS_SCHEMA_VERSION", "1")
 
 REDIS_CONFIG_CONSUMER_ENABLED = _env_bool("REDIS_CONFIG_CONSUMER_ENABLED", "true")
-REDIS_CONFIG_CONSUMER_GROUP = os.getenv("REDIS_CONFIG_CONSUMER_GROUP", "ac-config-consumers").strip()
+# Per-instance group (same pattern as Node ac-data-config-appliers-${AC_INSTANCE_ID}).
+# A shared group + XACK-on-mismatch drops the other VPS's runtime_config updates.
+_DEFAULT_CONFIG_CONSUMER_GROUP = f"ac-config-consumers-{AC_INSTANCE_ID}"
+REDIS_CONFIG_CONSUMER_GROUP = (
+    os.getenv("REDIS_CONFIG_CONSUMER_GROUP", _DEFAULT_CONFIG_CONSUMER_GROUP).strip()
+    or _DEFAULT_CONFIG_CONSUMER_GROUP
+)
 REDIS_CONFIG_CONSUMER_NAME = os.getenv(
     "REDIS_CONFIG_CONSUMER_NAME", f"py-{AC_INSTANCE_ID}"
 ).strip()

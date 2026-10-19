@@ -13,9 +13,11 @@ Presence keys: `ac:hud:conn:{steamId}` (SSE / `ac:hud:sse:*` removed from writer
 - `ac:config` (configurable via `REDIS_CONFIG_STREAM_KEY`) — `server_cfg.ini`
   snapshots produced by the edge/hub config path. **ac-data-edge** is the
   sole writer of local INI files and restarts AC processes
-  (`redisConfigApplier.ts`). **telemetry-data** consumes the same stream only
-  to update in-memory `runtime_config` (server modes + event constraints) via
-  `core/redis_config_sync.py`.
+  (`redisConfigApplier.ts`, consumer group per VPS
+  `ac-data-config-appliers-${AC_INSTANCE_ID}`). **telemetry-data** consumes the
+  same stream only to update in-memory `runtime_config` (server modes + event
+  constraints) via `core/redis_config_sync.py`, with consumer group
+  `ac-config-consumers-${AC_INSTANCE_ID}` (must not be shared across VPS).
 
 Both streams use `XADD` with approximate `MAXLEN` trim
 (`REDIS_STREAM_MAXLEN`, default `200000`) so they cannot grow unbounded.
