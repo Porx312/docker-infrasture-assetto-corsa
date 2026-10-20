@@ -16,10 +16,26 @@ function pending(event: string, id: string, serverName = 'server-a'): PendingIng
   };
 }
 
-test('isNonRetryableIngestError matches user_not_found', () => {
+test('isNonRetryableIngestError matches user_not_found and track_not_found', () => {
   assert.equal(isNonRetryableIngestError('user_not_found'), true);
   assert.equal(isNonRetryableIngestError(' USER_NOT_FOUND '), true);
+  assert.equal(isNonRetryableIngestError('track_not_found'), true);
+  assert.equal(isNonRetryableIngestError(' TRACK_NOT_FOUND '), true);
   assert.equal(isNonRetryableIngestError('Convex down'), false);
+});
+
+test('partition: lap_completed track_not_found is done (no retry)', () => {
+  const coalesced = [pending('lap_completed', '1'), pending('lap_completed', '2')];
+  const partitioned = partitionIngestResults(coalesced, {
+    ok: false,
+    results: [
+      { ok: false, error: 'track_not_found', eventType: 'lap_completed', index: 0 },
+      { ok: false, error: 'track_not_found', eventType: 'lap_completed', index: 1 },
+    ],
+  });
+  assert.deepEqual(partitioned.doneIndices, [0, 1]);
+  assert.equal(partitioned.retry.length, 0);
+  assert.equal(partitioned.nonRetryableCount, 2);
 });
 
 test('partition: all user_not_found is fully done (no retry)', () => {

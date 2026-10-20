@@ -1,3 +1,4 @@
+import { stripCspTrackPrefix } from '../mods/cspTrack.js';
 import { normalizeHudServerName } from './hud/hudQueryNormalize.js';
 
 export type IngestServerNameResolver = (
@@ -15,6 +16,20 @@ function defaultResolveIngestServerName(
     return trimmed;
   }
   return normalizeHudServerName(trimmed) || undefined;
+}
+
+/** Normalize track fields for Convex battle_tracks lookup (strip CSP TRACK= wrapper). */
+export function normalizeIngestTrackFields(
+  data: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...(data ?? {}) };
+  if (typeof out.trackName === 'string' && out.trackName.trim()) {
+    out.trackName = stripCspTrackPrefix(out.trackName);
+  }
+  if (typeof out.track === 'string' && out.track.trim()) {
+    out.track = stripCspTrackPrefix(out.track);
+  }
+  return out;
 }
 
 export function buildIngestEvent(
@@ -37,11 +52,13 @@ export function buildIngestEvent(
     );
   }
 
+  const normalizedData = normalizeIngestTrackFields(data);
+
   return {
     eventType: event,
     serverName,
     data: {
-      ...(data ?? {}),
+      ...normalizedData,
       _meta: {
         eventId: payload.eventId,
         schemaVersion: payload.schemaVersion,

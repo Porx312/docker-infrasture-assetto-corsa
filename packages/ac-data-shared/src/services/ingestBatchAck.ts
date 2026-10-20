@@ -1,6 +1,10 @@
 import type { PendingIngestMessage } from './coalesceIngestBatch.js';
 
-export const NON_RETRYABLE_INGEST_ERRORS = new Set(['user_not_found']);
+/** Soft permanent failures — XACK and do not re-buffer (avoid PEL spam). */
+export const NON_RETRYABLE_INGEST_ERRORS = new Set([
+  'user_not_found',
+  'track_not_found',
+]);
 
 export type IngestEventResult = {
   ok?: boolean;
