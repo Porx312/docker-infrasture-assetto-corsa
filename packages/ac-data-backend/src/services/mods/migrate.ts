@@ -3,12 +3,17 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getModPool, isModDbConfigured } from './db.js';
 
+/** Stable key so parallel test workers / hub boots serialize schema apply. */
+const MIGRATION_LOCK_KEY = `hashtext('assetto_mod_migrations')`;
+
 export async function runModMigrationsIfConfigured(): Promise<void> {
   if (!isModDbConfigured()) {
     console.log('[mod-db] DATABASE_URL not set — mod repository disabled');
     return;
   }
   const pool = getModPool();
+  // Session advisory lock must use one client for lock + migrate + unlock.
+  const client = await pool.connect();
   const here = path.dirname(fileURLToPath(import.meta.url));
   const migrationsDir = path.join(here, '..', '..', '..', 'migrations');
   const files = [
@@ -26,20 +31,30 @@ export async function runModMigrationsIfConfigured(): Promise<void> {
     '012_mod_artifact_s3_canonical.sql',
     '013_mod_steam_links.sql',
   ];
-  for (const file of files) {
-    const sqlPath = path.join(migrationsDir, file);
-    if (!fs.existsSync(sqlPath)) {
-      continue;
+  try {
+    await client.query(`SELECT pg_advisory_lock(${MIGRATION_LOCK_KEY})`);
+    for (const file of files) {
+      const sqlPath = path.join(migrationsDir, file);
+      if (!fs.existsSync(sqlPath)) {
+        continue;
+      }
+      const sql = fs.readFileSync(sqlPath, 'utf8');
+      try {
+        await client.query(sql);
+        console.log(`[mod-db] applied ${file}`);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        // Idempotent migrations may no-op; hard-fail only if later files cannot run.
+        console.error(`[mod-db] applied ${file} FAILED: ${message}`);
+        throw err;
+      }
     }
-    const sql = fs.readFileSync(sqlPath, 'utf8');
+  } finally {
     try {
-      await pool.query(sql);
-      console.log(`[mod-db] applied ${file}`);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      // Idempotent migrations may no-op; hard-fail only if later files cannot run.
-      console.error(`[mod-db] applied ${file} FAILED: ${message}`);
-      throw err;
+      await client.query(`SELECT pg_advisory_unlock(${MIGRATION_LOCK_KEY})`);
+    } catch {
+      // Client may already be broken; release still required.
     }
+    client.release();
   }
 }
