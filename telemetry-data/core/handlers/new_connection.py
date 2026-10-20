@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 
+from anticheat.hooks import hook_join
 from core import settings
 from core.cm_name import display_server_name
 from core.handlers.common import mark_driver_seen
@@ -44,6 +45,7 @@ def handle_new_connection(parser, server_state, addr) -> None:
         }
 
     log.info("[%s] connected car=%s name=%s model=%s guid=%s", server_state.port, car_id, name, model, guid)
+    hook_join(server_state, guid=guid, car_id=car_id)
     server_state.battle_manager.set_driver_name(guid, name)
 
     driver.lap_start_time = time.time() * 1000

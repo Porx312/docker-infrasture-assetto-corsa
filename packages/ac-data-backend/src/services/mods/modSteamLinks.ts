@@ -1,8 +1,27 @@
 import { getModPool } from './db.js';
+import { extractCarSkinsFromZipPaths } from '../hostCatalog/index.js';
 
 /** Steam64 (17 digits starting with 7656119). */
 export function isValidSteam64(steamId: string): boolean {
   return /^7656119\d{10}$/.test(steamId.trim());
+}
+
+/** Skin folder ids from artifact manifest entryPaths (slim-relative or ZIP-style). */
+export function skinsFromManifest(
+  kind: string,
+  acContentSlug: string,
+  manifestJson: unknown,
+): string[] {
+  if (kind !== 'car') return [];
+  const paths =
+    manifestJson &&
+    typeof manifestJson === 'object' &&
+    Array.isArray((manifestJson as { entryPaths?: unknown }).entryPaths)
+      ? ((manifestJson as { entryPaths: unknown[] }).entryPaths.filter(
+          (p) => typeof p === 'string',
+        ) as string[])
+      : [];
+  return extractCarSkinsFromZipPaths(paths, acContentSlug);
 }
 
 export function normalizeSteamId(raw: unknown): string {
@@ -58,6 +77,8 @@ export type SteamLinkedModRow = {
   artifactId: string | null;
   contentHash: string | null;
   sizeBytes: number | null;
+  /** Car skin folder ids for Host entry_list / picker (empty for tracks). */
+  skins: string[];
 };
 
 export async function listModsForSteam(steamId: string): Promise<SteamLinkedModRow[]> {
@@ -74,14 +95,15 @@ export async function listModsForSteam(steamId: string): Promise<SteamLinkedModR
     artifact_id: string | null;
     sha256: string | null;
     size_bytes: string | null;
+    manifest_json: unknown;
   }>(
     `SELECT p.id AS package_id, p.slug, p.display_name, p.kind, p.ac_content_slug,
             p.category, p.preview_image_filename, l.linked_at,
-            a.id AS artifact_id, a.sha256, a.size_bytes::text
+            a.id AS artifact_id, a.sha256, a.size_bytes::text, a.manifest_json
      FROM mod_steam_links l
      JOIN mod_packages p ON p.id = l.package_id
      LEFT JOIN LATERAL (
-       SELECT id, sha256, size_bytes
+       SELECT id, sha256, size_bytes, manifest_json
        FROM mod_artifacts
        WHERE package_id = p.id
        ORDER BY created_at DESC
@@ -104,5 +126,6 @@ export async function listModsForSteam(steamId: string): Promise<SteamLinkedModR
     artifactId: row.artifact_id,
     contentHash: row.sha256,
     sizeBytes: row.size_bytes != null ? Number(row.size_bytes) : null,
+    skins: skinsFromManifest(row.kind, row.ac_content_slug, row.manifest_json),
   }));
 }

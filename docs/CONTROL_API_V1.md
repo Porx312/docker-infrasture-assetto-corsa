@@ -144,18 +144,22 @@ Convex Action BFF uploads user mods here. **Hub stores blobs + `mod_steam_links`
 
 | Method | Path | Who |
 |--------|------|-----|
-| `POST` | `/v1/mods/library/zip-upload` | **Host preferred** — multipart ZIP + `steamId` + `kind`; hub does slim/hash/S3/link |
-| `POST` | `/v1/mods/library/slim-upload/plan` | Advanced — manifest + `steamId` + `expectedContentHash` |
-| `PUT` | `/v1/mods/library/slim-upload/file` | Advanced — raw body; slim session headers |
-| `POST` | `/v1/mods/library/slim-upload/commit` | Advanced — `{ sessionId, steamId }` |
+| `POST` | `/v1/mods/library/slim-upload/plan` | **Host preferred** — browser/BFF slim scan; body `steamId` + manifest + `expectedContentHash` |
+| `PUT` | `/v1/mods/library/slim-upload/file` | **Host preferred** — raw body; headers `X-Slim-Session-Id`, `X-Slim-Rel`, `X-Slim-Sha256` |
+| `POST` | `/v1/mods/library/slim-upload/commit` | **Host preferred** — `{ sessionId, steamId }` → S3 + link |
+| `POST` | `/v1/mods/library/zip-upload` | **Host fallback** — multipart ZIP; hub does slim/hash/S3/link |
 | `GET` | `/v1/mods/library/by-steam/:steamId` | Convex — list linked packages |
-| `DELETE` | `/v1/mods/library/:packageId` | Convex — body/query `steamId`; unlink; purge if last link |
+| `DELETE` | `/v1/mods/library/:packageId` | Convex — body/query `steamId`; always unlink; purge only if last link and not on servers |
 
-**ZIP upload (Host):** `multipart/form-data` fields `file`, `steamId`, `kind` (`car`\|`track`), optional `slug`, `displayName`. Hub extracts, filters server-slim paths, dedupes by content hash, links steamId. See [PROJECTD_CUSTOM_CARS_HOST.md](./PROJECTD_CUSTOM_CARS_HOST.md).
+**Slim upload (Host preferred):** browser slim-scan (`scanZipForSlimUpload` en el paquete Host `@projectd/ac-mod-slim-client`); BFF proxies plan/file/commit with worker secret. Plan may return `already_present` (link only) or `need_upload` + `sessionId`.
+
+**ZIP upload (fallback):** `multipart/form-data` fields `file`, `steamId`, `kind` (`car`\|`track`), optional `slug`, `displayName`. Hub extracts, filters server-slim paths, dedupes by content hash, links steamId.
+
+Full Host contract: [PROJECTD_CUSTOM_CARS_HOST.md](./PROJECTD_CUSTOM_CARS_HOST.md).
 
 Caps: `CONTROL_MOD_UPLOAD_MAX_BYTES` (default 500MB), `CONTROL_MOD_UPLOAD_MAX_FILES` (default 5000).
 
-Delete: removes `(steamId, packageId)`. If other steamIds still link the package → blob stays. If last link → same purge as admin library delete (S3 + all VPS), blocked with `409 mod_in_use` when servers still require the mod.
+Delete: always removes `(steamId, packageId)` so the user leaves “my library”. If other steamIds still link → blob stays (`unlinked`). If last link and no `server_mod_requirements` → purge S3+VPS (`purged`). If last link but servers still require the mod → link removed, package kept (`unlinked` + `purgeSkipped: "mod_in_use"`). Does **not** return 409 for user list removal.
 
 Ensure body (either form):
 

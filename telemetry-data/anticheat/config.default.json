@@ -1,0 +1,23 @@
+{
+  "enabled": false,
+  "mode": "observe",
+  "sanctions_enabled": false,
+  "max_speed_kmh": 450.0,
+  "min_dt_sec": 0.001,
+  "max_dt_sec": 0.5,
+  "position_jump_margin_m": 15.0,
+  "position_jump_speed_factor": 2.5,
+  "max_accel_ms2": 80.0,
+  "spline_out_of_range_eps": 0.05,
+  "min_valid_lap_ms": 10000,
+  "max_valid_lap_ms": 36000000,
+  "cuts_anomaly_threshold": 1,
+  "score_decay_per_sec": 0.5,
+  "score_weight_low": 1.0,
+  "score_weight_medium": 3.0,
+  "score_weight_high": 8.0,
+  "evidence_score_threshold": 12.0,
+  "ring_buffer_size": 8,
+  "sink_queue_size": 256,
+  "sink_drop_log_every": 50
+}

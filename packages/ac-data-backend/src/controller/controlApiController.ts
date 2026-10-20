@@ -501,12 +501,25 @@ export async function unlinkSteamLibraryModHandler(req: Request, res: Response):
   try {
     const result = await unlinkSteamMod(steamId, packageId);
     if (result.status === 'unlinked') {
+      const purgeSkipped = result.purgeSkipped;
       res.json({
         ok: true,
         status: 'unlinked',
         packageId: result.packageId,
         remainingLinks: result.remainingLinks,
-        message: 'Removed from your library; other users still use this mod',
+        ...(purgeSkipped
+          ? {
+              purgeSkipped,
+              usage: result.usage,
+              message:
+                'Removed from your library; package kept because a server still requires it',
+            }
+          : {
+              message:
+                result.remainingLinks > 0
+                  ? 'Removed from your library; other users still use this mod'
+                  : 'Removed from your library',
+            }),
       });
       return;
     }
@@ -521,6 +534,7 @@ export async function unlinkSteamLibraryModHandler(req: Request, res: Response):
     });
   } catch (err: unknown) {
     if (err instanceof ModInUseError) {
+      // Admin-style purge paths may still throw; user unlink no longer uses 409 for list removal.
       res.status(409).json({
         ok: false,
         error: 'mod_in_use',

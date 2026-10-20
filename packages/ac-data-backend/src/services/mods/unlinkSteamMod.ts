@@ -1,5 +1,5 @@
-import { forceDeleteModPackage, ModInUseError } from './orchestrator.js';
-import { listPackageUsage } from './serverModRequirements.js';
+import { forceDeleteModPackage } from './orchestrator.js';
+import { listPackageUsage, type PackageUsageRow } from './serverModRequirements.js';
 import {
   countPackageSteamLinks,
   deleteModSteamLink,
@@ -7,7 +7,14 @@ import {
 } from './modSteamLinks.js';
 
 export type UnlinkSteamModResult =
-  | { status: 'unlinked'; packageId: string; remainingLinks: number }
+  | {
+      status: 'unlinked';
+      packageId: string;
+      remainingLinks: number;
+      /** Present when last steam link was removed but S3/package kept (still on servers). */
+      purgeSkipped?: 'mod_in_use';
+      usage?: PackageUsageRow[];
+    }
   | {
       status: 'purged';
       packageId: string;
@@ -17,7 +24,9 @@ export type UnlinkSteamModResult =
     };
 
 /**
- * Remove steam↔package link. If last link, purge library (S3+VPS+DB) unless in use on servers.
+ * Remove steam↔package link always (user can leave "my cars").
+ * Purge S3+VPS+DB only when no steam links remain and the package is not
+ * required by any server config.
  */
 export async function unlinkSteamMod(
   steamId: string,
@@ -28,27 +37,34 @@ export async function unlinkSteamMod(
     throw new Error('link_not_found');
   }
 
-  const count = await countPackageSteamLinks(packageId);
-  if (count <= 1) {
-    const usage = await listPackageUsage(packageId);
-    if (usage.length > 0) {
-      throw new ModInUseError(usage);
-    }
-    // Last link: purge removes package (CASCADE drops remaining link).
-    const purged = await forceDeleteModPackage(packageId);
+  await deleteModSteamLink(steamId, packageId);
+  const remainingLinks = await countPackageSteamLinks(packageId);
+
+  if (remainingLinks > 0) {
     return {
-      status: 'purged',
-      packageId: purged.packageId,
-      displayName: purged.displayName,
-      edgesPurged: purged.edgesPurged,
-      edgesFailed: purged.edgesFailed,
+      status: 'unlinked',
+      packageId,
+      remainingLinks,
     };
   }
 
-  await deleteModSteamLink(steamId, packageId);
+  const usage = await listPackageUsage(packageId);
+  if (usage.length > 0) {
+    return {
+      status: 'unlinked',
+      packageId,
+      remainingLinks: 0,
+      purgeSkipped: 'mod_in_use',
+      usage,
+    };
+  }
+
+  const purged = await forceDeleteModPackage(packageId);
   return {
-    status: 'unlinked',
-    packageId,
-    remainingLinks: count - 1,
+    status: 'purged',
+    packageId: purged.packageId,
+    displayName: purged.displayName,
+    edgesPurged: purged.edgesPurged,
+    edgesFailed: purged.edgesFailed,
   };
 }

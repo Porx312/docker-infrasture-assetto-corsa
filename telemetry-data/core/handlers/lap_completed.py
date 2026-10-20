@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import struct
 
+from anticheat.hooks import hook_lap_completed
 from core import runtime_config, settings
 from core.cm_name import display_server_name
 from core.handlers.common import mark_driver_seen, resolve_server_mode
@@ -44,6 +45,15 @@ def handle_lap_completed(parser, server_state, addr) -> None:
             return
     else:
         mark_driver_seen(driver)
+
+    # Observe-only anticheat (no-op when ANTICHEAT_ENABLED=false).
+    hook_lap_completed(
+        server_state,
+        guid=driver.guid,
+        car_id=car_id,
+        lap_time_ms=ac_lap_time,
+        cuts=cuts,
+    )
 
     if ac_lap_time <= 0 or ac_lap_time > 36000000:
         return

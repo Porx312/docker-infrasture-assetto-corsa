@@ -12,7 +12,6 @@ import {
   upsertModSteamLink,
 } from './modSteamLinks.js';
 import { unlinkSteamMod } from './unlinkSteamMod.js';
-import { ModInUseError } from './orchestrator.js';
 
 const hasDb = isModDbConfigured();
 
@@ -132,7 +131,7 @@ test('unlinkSteamMod first user keeps package; last user purges', async (t) => {
   }
 });
 
-test('unlinkSteamMod last link blocked when server_mod_requirements', async (t) => {
+test('unlinkSteamMod last link unlinks but keeps package when server_mod_requirements', async (t) => {
   if (!hasDb) {
     t.skip('DATABASE_URL not set');
     return;
@@ -155,15 +154,18 @@ test('unlinkSteamMod last link blocked when server_mod_requirements', async (t) 
   );
 
   try {
-    await assert.rejects(
-      () => unlinkSteamMod(steamA, packageId),
-      (err: unknown) => err instanceof ModInUseError,
-    );
+    const result = await unlinkSteamMod(steamA, packageId);
+    assert.equal(result.status, 'unlinked');
+    if (result.status === 'unlinked') {
+      assert.equal(result.remainingLinks, 0);
+      assert.equal(result.purgeSkipped, 'mod_in_use');
+      assert.ok(result.usage && result.usage.length >= 1);
+    }
     const still = await getModPool().query(`SELECT id FROM mod_packages WHERE id = $1`, [
       packageId,
     ]);
     assert.equal(still.rows.length, 1);
-    assert.equal(await countPackageSteamLinks(packageId), 1);
+    assert.equal(await countPackageSteamLinks(packageId), 0);
   } finally {
     await getModPool().query(`DELETE FROM fleet_edges WHERE id = $1`, [edgeId]);
     await getModPool().query(`DELETE FROM mod_packages WHERE id = $1`, [packageId]);

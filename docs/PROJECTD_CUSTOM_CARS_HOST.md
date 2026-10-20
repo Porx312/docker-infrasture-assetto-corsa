@@ -64,19 +64,120 @@ Respuesta (resumen):
       "linkedAt": "…",
       "artifactId": "uuid",
       "contentHash": "…",
-      "sizeBytes": 123
+      "sizeBytes": 123,
+      "skins": ["00_black", "05_white"]
     }
   ]
 }
 ```
 
-**UI:** en el flujo de configurar/crear server, sección “Custom cars” = este array filtrado `kind === "car"` (tracks igual si se habilitan). No mezclar con el catálogo público sin etiquetar.
+**UI:** en el flujo de configurar/crear server, sección “Custom cars” = este array filtrado `kind === "car"`. Usar `items[].skins` como lista de skin ids (nombres de carpeta) para el picker / `entry_list` — **no** un fallback de “slots”. Misma idea que coches oficiales. Tracks: `skins` viene `[]`.
 
-### 2. Subir — ZIP (recomendado para Host)
+### 2. Subir — slim en el navegador (recomendado)
 
-**ProjectD no filtra slim ni calcula hashes.** El usuario elige un ZIP del coche → BFF manda el ZIP al hub → el hub hace slim + contentHash + S3 + link `steamId`.
+**Preferido:** el browser hace unzip + filtro server-slim + hashes (CPU/RAM del usuario) y solo sube los bytes slim. El BFF de Host (con `X-Worker-Secret`) llama al Control API. Misma lógica que el panel admin, pero sin exponer el secret al cliente.
 
-UI sugerida: botón **Custom car** (junto a Reset) → file picker `.zip` → Action → refresh My custom cars.
+Scan en Host: paquete `@projectd/ac-mod-slim-client` (vive en el monorepo **ProjectD Host**, no en assetto-infra). Allowlist slim alineada con hub [`serverSlimPaths`](../packages/ac-data-shared/src/mods/serverSlimPaths.ts).
+
+```mermaid
+sequenceDiagram
+  participant Browser as Host_Browser
+  participant BFF as Host_BFF
+  participant Hub as Control_API
+  Browser->>Browser: scanZipForSlimUpload kind car
+  Browser->>BFF: plan manifest
+  BFF->>Hub: POST /v1/mods/library/slim-upload/plan
+  alt already_present
+    Hub-->>BFF: packageId linked
+  else need_upload
+    Hub-->>BFF: sessionId plus needed
+    loop each needed file
+      Browser->>BFF: PUT file bytes
+      BFF->>Hub: PUT /v1/mods/library/slim-upload/file
+    end
+    Browser->>BFF: commit
+    BFF->>Hub: POST /v1/mods/library/slim-upload/commit
+  end
+```
+
+UI custom cars: forzar **`kind=car`**. File picker `.zip` → progreso de scan → progreso de PUT → refresh `by-steam`.
+
+#### 2a. Scan en el browser
+
+```ts
+import {
+  scanZipForSlimUpload,
+  slimScanToPlanFiles,
+  SLIM_SCAN_WARN_RAW_BYTES,
+  formatBytes,
+} from '@projectd/ac-mod-slim-client';
+
+const scan = await scanZipForSlimUpload(file, 'car');
+// scan.slug, scan.expectedContentHash, scan.files[].bytes
+if (scan.rawBytes > SLIM_SCAN_WARN_RAW_BYTES) {
+  // avisar o usar fallback zip-upload (§2c)
+}
+```
+
+El scan carga el ZIP en memoria del usuario. Umbral sugerido: ~250 MB raw → ofrecer fallback ZIP.
+
+#### 2b. Contrato BFF → Control API (headers/body exactos)
+
+Auth en todas las llamadas hub: `X-Worker-Secret: <secret>`.
+
+**1) Plan** — `POST /v1/mods/library/slim-upload/plan`  
+`Content-Type: application/json`
+
+```json
+{
+  "steamId": "76561199000000001",
+  "kind": "car",
+  "slug": "civic",
+  "displayName": "My Custom Civic",
+  "expectedContentHash": "<64 hex>",
+  "files": [
+    { "rel": "data.acd", "size": 123, "sha256": "<64 hex>" }
+  ]
+}
+```
+
+Respuestas 200:
+
+| `status` | Qué hacer |
+|----------|-----------|
+| `already_present` | Ya hay blob; hub ya linkó `steamId`. Refresh by-steam. Campos: `packageId`, `artifactId`, `contentHash`, `skins` (si el handler los devuelve en commit; en plan vienen package/artifact). `needed: []`. |
+| `need_upload` | Seguir con PUT. Campos: `sessionId`, `needed[]`, `skip[]`, `neededBytes`, `skipBytes`. |
+
+**2) File** — `PUT /v1/mods/library/slim-upload/file`  
+Body: **raw bytes** (`application/octet-stream` o `*/*`). Headers (nombres exactos, case-insensitive en Express):
+
+| Header | Valor |
+|--------|--------|
+| `X-Slim-Session-Id` | `sessionId` del plan |
+| `X-Slim-Rel` | path relativo slim (ej. `data.acd`, `skins/00_black/ui_skin.json`) |
+| `X-Slim-Sha256` | sha256 hex lowercase del body |
+
+Solo subir archivos listados en `needed`. Respuesta 200: `{ ok, rel, sha256, size }`.
+
+**3) Commit** — `POST /v1/mods/library/slim-upload/commit`  
+`Content-Type: application/json`
+
+```json
+{
+  "sessionId": "<from plan>",
+  "steamId": "76561199000000001"
+}
+```
+
+Respuesta 200 típica: `{ ok, status: "uploaded", packageId, artifactId, contentHash, kind, acContentSlug, displayName, linked, steamId, skins: [...] }`.
+
+Errores útiles: `400` validación / missing staged file; `401` secret; `404` session expired; `409` hash/size/steamId mismatch; `503` S3 mode off.
+
+Límites control: ~500 MB slim tree / 5000 files (`CONTROL_MOD_UPLOAD_MAX_*`). Sin host-catalog público.
+
+#### 2c. Fallback — ZIP al hub
+
+Si el scan falla o el ZIP es demasiado grande para el cliente:
 
 ```http
 POST /v1/mods/library/zip-upload
@@ -84,62 +185,17 @@ Header: X-Worker-Secret: <secret>
 Content-Type: multipart/form-data
 ```
 
-Campos:
-
 | Campo | Obligatorio | Descripción |
 |-------|-------------|-------------|
-| `file` | sí | ZIP del coche/track |
-| `steamId` | sí | Steam64 del usuario |
-| `kind` | sí | `car` o `track` |
-| `slug` | no | override; si no, se infiere de la carpeta del ZIP |
-| `displayName` | no | nombre para UI |
+| `file` | sí | ZIP del coche |
+| `steamId` | sí | Steam64 |
+| `kind` | sí | `car` (custom cars) |
+| `slug` | no | override |
+| `displayName` | no | nombre UI |
 
-Ejemplo (BFF):
+El hub hace extract + slim + S3 + link. Más lento (ZIP completo en red + CPU hub).
 
-```bash
-curl -X POST "$CONTROL_API_URL/v1/mods/library/zip-upload" \
-  -H "X-Worker-Secret: $CONVEX_WORKER_SECRET" \
-  -F "file=@/path/to/my_car.zip" \
-  -F "steamId=76561199000000001" \
-  -F "kind=car" \
-  -F "displayName=My Custom Civic"
-```
-
-**Respuesta** (nuevo o ya existía el mismo contenido):
-
-```json
-{
-  "ok": true,
-  "status": "uploaded",
-  "packageId": "…",
-  "artifactId": "…",
-  "contentHash": "…",
-  "kind": "car",
-  "acContentSlug": "my_car",
-  "displayName": "My Custom Civic",
-  "linked": true,
-  "steamId": "76561199000000001"
-}
-```
-
-Si el mismo árbol slim ya está en S3: `status: "already_present"` — solo se añade el link (no re-sube blob). Luego: `GET …/by-steam/{steamId}`.
-
-Estructura ZIP aceptada (cualquiera):
-
-- `my_car/data.acd` + slim files
-- `cars/my_car/...`
-- `content/cars/my_car/...`
-
-El hub rechaza path traversal (`../`) en entradas del ZIP (`400`).
-
-Límites: ~500MB / 5000 slim files. Sin host-catalog público.
-
-**No hace falta** copiar `isServerSlimRelativePath` / `contentHashFromFileEntries` en ProjectD.
-
-#### Avanzado: slim-upload plan/put/commit
-
-Solo si un cliente quiere subir archivo a archivo (ops). Host **no** debe implementarlo. Ver OpenAPI `/v1/mods/library/slim-upload/*`.
-
+Estructura ZIP aceptada: `my_car/…`, `cars/my_car/…`, `content/cars/my_car/…`. Path traversal → `400`.
 ### 3. Instalar en el VPS al usar el server
 
 Cuando el user elige un custom car en el preset/config del server:
@@ -152,9 +208,10 @@ Cuando el user elige un custom car en el preset/config del server:
 
 `DELETE /v1/mods/library/:packageId` con `steamId` (body o query).
 
-- Otros users con el mismo mod → solo se quita el link; el blob sigue.
-- Último user → hub borra S3 + VPS caches.
-- `409 mod_in_use` → el mod está en un server config; Host debe pedir quitarlo del server primero.
+- **Siempre** quita el link de ese `steamId` (sale de “My custom cars”), aunque el coche siga en un server preset.
+- Otros users con el mismo mod → blob sigue (`status: unlinked`, `remainingLinks > 0`).
+- Último link y **nadie** lo requiere en servers → hub purga S3 + VPS (`status: purged`).
+- Último link pero aún en `server_mod_requirements` → link borrado, package/S3 **se mantienen** (`status: unlinked`, `remainingLinks: 0`, `purgeSkipped: "mod_in_use"`, `usage` opcional). Host **no** debe bloquear el delete por preset; refrescar `by-steam` tras 200.
 
 ---
 
@@ -173,8 +230,10 @@ Cuando el user elige un custom car en el preset/config del server:
 2. UI server host: picker muestra **oficiales** + **My custom cars** (solo respuesta by-steam).
 3. Al seleccionar custom car → persistir `acContentSlug` / `artifactId` en preset Convex (eso sí es config del server, no catálogo del mod).
 4. Pipeline start: ensure artifact en el `instanceId` del server.
-5. UI upload: ZIP → `POST /v1/mods/library/zip-upload` + delete con ToS (“contenido responsabilidad del usuario”).
-6. Manejo errores: `401` secret, `400` steamId/unsafe zip, `409` mod_in_use, `already_present` / `uploaded` en zip-upload.
+5. UI upload (**preferido**): `@projectd/ac-mod-slim-client` `scanZipForSlimUpload(file, 'car')` → BFF proxy plan/file/commit → refresh by-steam.
+6. Fallback: ZIP → `POST /v1/mods/library/zip-upload` si scan falla o ZIP > ~250 MB.
+7. Delete con ToS (“contenido responsabilidad del usuario”).
+8. Manejo errores: `401` secret, `400` steamId/manifest, `404` session/link, `409` hash mismatch en slim PUT; delete lista → `200` `unlinked` | `purged` (incl. `purgeSkipped`).
 
 ---
 
@@ -182,4 +241,4 @@ Cuando el user elige un custom car en el preset/config del server:
 
 - Moderación / DMCA en hub.
 - Compartir custom car con otro steam sin re-subir (mismo hash → plan `already_present`, o futuro `POST …/link`).
-- Cambios en `assetto-infra` (API ya en el hub).
+- Implementación UI Host en este monorepo (solo paquete cliente + API + docs).

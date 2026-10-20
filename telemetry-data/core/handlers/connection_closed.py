@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from anticheat.hooks import hook_leave
 from core.driver_lifecycle import remove_driver
 from core.logging_config import get_logger
 from core.user_kick_common import clear_kick_state
@@ -23,6 +24,7 @@ def handle_connection_closed(parser, server_state, addr) -> None:
         return
 
     log.info("[%s] disconnected car=%s name=%s", server_state.port, car_id, driver.name)
+    hook_leave(server_state, guid=driver.guid)
     if driver.guid:
         clear_kick_state(server_state.port, driver.guid, car_id)
         invalidate_banned_cache(driver.guid)

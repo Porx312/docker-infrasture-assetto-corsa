@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 
+from anticheat.hooks import hook_car_update
 from core import runtime_config
 from core.handlers.common import mark_driver_seen, resolve_server_mode
 from core.user_ban_enforcer import maybe_kick_banned_driver_on_car_update
@@ -39,6 +40,20 @@ def handle_car_update(parser, server_state, addr) -> None:
 
     driver.car_id = car_id
     server_state.event_engine.check_idle(driver, speed_ms, now, meta)
+
+    # Observe-only anticheat (no-op when ANTICHEAT_ENABLED=false).
+    hook_car_update(
+        server_state,
+        guid=driver.guid,
+        car_id=car_id,
+        pos_x=pos_x,
+        pos_y=pos_y,
+        pos_z=pos_z,
+        v_x=v_x,
+        v_y=v_y,
+        v_z=v_z,
+        spline=spline,
+    )
 
     if not driver.guid.startswith("unknown_"):
         maybe_kick_banned_driver_on_car_update(server_state, driver)

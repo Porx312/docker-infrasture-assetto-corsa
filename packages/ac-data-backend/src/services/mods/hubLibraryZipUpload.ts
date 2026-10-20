@@ -31,8 +31,11 @@ import {
 import {
   isValidSteam64,
   normalizeSteamId,
+  skinsFromManifest,
   upsertModSteamLink,
 } from './modSteamLinks.js';
+import { extractCarSkinsFromZipPaths } from '../hostCatalog/index.js';
+import { getArtifactById } from './catalogRepo.js';
 
 type MulterFile = {
   path: string;
@@ -229,6 +232,7 @@ export type ZipUploadResult = {
   linked: true;
   steamId: string;
   hostCatalogSynced: boolean;
+  skins: string[];
 };
 
 export async function processLibraryZipUpload(input: {
@@ -271,9 +275,21 @@ export async function processLibraryZipUpload(input: {
     const entryPaths = await materializeSlimTree(contentRoot, input.kind, slimDir);
     const verified = await hashContentTree(slimDir, { slimKind: input.kind });
 
+    const skinsFromZip =
+      input.kind === 'car' ? extractCarSkinsFromZipPaths(entryPaths, slug) : [];
+
     const existing = await findLibraryByContentHash(verified.contentHash);
     if (existing) {
       await upsertModSteamLink(steamId, existing.packageId);
+      let skins = skinsFromZip;
+      if (skins.length === 0 && existing.kind === 'car') {
+        const art = await getArtifactById(existing.artifactId);
+        skins = skinsFromManifest(
+          existing.kind,
+          existing.acContentSlug,
+          art?.manifest_json,
+        );
+      }
       return {
         ok: true,
         status: 'already_present',
@@ -287,6 +303,7 @@ export async function processLibraryZipUpload(input: {
         linked: true,
         steamId,
         hostCatalogSynced: false,
+        skins,
       };
     }
 
@@ -359,6 +376,7 @@ export async function processLibraryZipUpload(input: {
       linked: true,
       steamId,
       hostCatalogSynced: registered.hostCatalogSynced === true,
+      skins: skinsFromZip,
     };
   } finally {
     void fsp.rm(workRoot, { recursive: true, force: true }).catch(() => undefined);
