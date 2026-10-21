@@ -5,6 +5,8 @@ import { stripCspTrackPrefix } from '@projectd/ac-data-shared/mods/cspTrack.js';
 import { contentPoolPath } from './materialize.js';
 import { isModAgentEnabled, refreshServerModsOnHub } from './hubModClient.js';
 import { restartServerCore, startServerCore } from '../../controller/controller.js';
+import { getServerLifecycle, setServerLifecycle } from '../serverLifecycle.js';
+import { getServerRuntime } from '../serverRuntime.js';
 
 export type ModStartGateItem = {
   acContentSlug: string;
@@ -188,6 +190,22 @@ function failUnrecoverable(
   };
 }
 
+function failLifecycleMods(
+  serverName: string,
+  reason: string,
+  items: ModStartGateItem[],
+): void {
+  const missing = items
+    .slice(0, 8)
+    .map((i) => `${i.acContentSlug}(${i.status})`)
+    .join(',');
+  setServerLifecycle(
+    serverName,
+    'FAILED',
+    `${reason}${missing ? `: ${missing}` : ''}`.slice(0, 240),
+  );
+}
+
 async function ensureModsReadyForServerStartInner(
   serverName: string,
   overrides?: ModContentOverrides,
@@ -197,6 +215,14 @@ async function ensureModsReadyForServerStartInner(
   const timeoutMs = Number(process.env.MOD_START_INSTALL_TIMEOUT_MS || 300_000);
   const pollMs = Number(process.env.MOD_START_INSTALL_POLL_MS || 2500);
   const resyncEveryMs = Number(process.env.MOD_START_RESYNC_EVERY_MS || 15_000);
+
+  setServerLifecycle(
+    serverName,
+    'PREPARING',
+    required.length
+      ? `checking ${required.length} required mod(s)`
+      : 'checking required mods',
+  );
 
   if (!isModAgentEnabled()) {
     const local = localOnlyReadiness(required);
@@ -209,10 +235,12 @@ async function ensureModsReadyForServerStartInner(
         .map((i) => i.acContentSlug)
         .join(', ')}`,
     );
+    const missing = local.items.filter((i) => i.status !== 'READY');
+    failLifecycleMods(serverName, 'mod_agent_disabled_and_content_missing', missing);
     return {
       ok: false,
       code: 'MODS_NOT_READY',
-      items: local.items.filter((i) => i.status !== 'READY'),
+      items: missing,
       reason: 'mod_agent_disabled_and_content_missing',
     };
   }
@@ -257,6 +285,7 @@ async function ensureModsReadyForServerStartInner(
 
   const blockers = isUnrecoverableModBlocker(unresolved, lastInstallErrors);
   if (blockers.length > 0) {
+    failLifecycleMods(serverName, UNRECOVERABLE_MODS_REASON, blockers);
     return failUnrecoverable(blockers, lastInstallErrors);
   }
 
@@ -264,6 +293,14 @@ async function ensureModsReadyForServerStartInner(
     `[mod-start-gate] waiting for ${unresolved.length} mod(s) (timeout=${timeoutMs}ms): ${unresolved
       .map((i) => `${i.acContentSlug}(${i.status})`)
       .join(', ')}`,
+  );
+  setServerLifecycle(
+    serverName,
+    'PREPARING',
+    `waiting for ${unresolved.length} mod(s): ${unresolved
+      .slice(0, 5)
+      .map((i) => i.acContentSlug)
+      .join(',')}`,
   );
 
   const deadline = Date.now() + Math.max(0, timeoutMs);
@@ -299,8 +336,17 @@ async function ensureModsReadyForServerStartInner(
       console.log(`[mod-start-gate] mods ready for ${serverName}`);
       return { ok: true };
     }
+    setServerLifecycle(
+      serverName,
+      'PREPARING',
+      `waiting for ${unresolved.length} mod(s): ${unresolved
+        .slice(0, 5)
+        .map((i) => i.acContentSlug)
+        .join(',')}`,
+    );
     const midBlockers = isUnrecoverableModBlocker(unresolved, lastInstallErrors);
     if (midBlockers.length > 0) {
+      failLifecycleMods(serverName, UNRECOVERABLE_MODS_REASON, midBlockers);
       return failUnrecoverable(midBlockers, lastInstallErrors);
     }
   }
@@ -310,6 +356,7 @@ async function ensureModsReadyForServerStartInner(
       .map((i) => `${i.acContentSlug}(${i.status})`)
       .join(', ')}`,
   );
+  failLifecycleMods(serverName, 'install_timeout', unresolved);
   return {
     ok: false,
     code: 'MODS_NOT_READY',
@@ -344,12 +391,38 @@ export async function ensureModsReadyForServerStart(
   return promise;
 }
 
+function afterSpawnLifecycle(serverName: string, spawnOk: boolean, message: string): void {
+  if (!spawnOk) {
+    setServerLifecycle(serverName, 'FAILED', message.slice(0, 240));
+    return;
+  }
+  setServerLifecycle(serverName, 'CHECKING', 'verifying process');
+  try {
+    const runtime = getServerRuntime(serverName);
+    if (runtime.running) {
+      setServerLifecycle(
+        serverName,
+        'ONLINE',
+        runtime.httpPort != null ? `httpPort=${runtime.httpPort}` : undefined,
+      );
+      return;
+    }
+  } catch {
+    /* fall through */
+  }
+  setServerLifecycle(serverName, 'FAILED', 'process not running after start');
+}
+
 export async function startServerWithMods(
   serverName: string,
   overrides?: ModContentOverrides,
 ): Promise<StartWithModsResult> {
   const gate = await ensureModsReadyForServerStart(serverName, overrides);
   if (!gate.ok) {
+    // FAILED already set inside ensure when applicable
+    if (getServerLifecycle(serverName)?.phase !== 'FAILED') {
+      failLifecycleMods(serverName, gate.reason || 'MODS_NOT_READY', gate.items || []);
+    }
     return {
       ok: false,
       code: gate.code,
@@ -361,7 +434,9 @@ export async function startServerWithMods(
       installErrors: gate.installErrors,
     };
   }
+  setServerLifecycle(serverName, 'STARTING', 'spawning acServer');
   const result = startServerCore(serverName);
+  afterSpawnLifecycle(serverName, result.ok, result.message);
   if (!result.ok) {
     return { ok: false, message: result.message };
   }
@@ -377,6 +452,9 @@ export async function restartServerWithMods(
 ): Promise<StartWithModsResult> {
   const gate = await ensureModsReadyForServerStart(serverName, overrides);
   if (!gate.ok) {
+    if (getServerLifecycle(serverName)?.phase !== 'FAILED') {
+      failLifecycleMods(serverName, gate.reason || 'MODS_NOT_READY', gate.items || []);
+    }
     return {
       ok: false,
       code: gate.code,
@@ -388,7 +466,9 @@ export async function restartServerWithMods(
       installErrors: gate.installErrors,
     };
   }
+  setServerLifecycle(serverName, 'STARTING', 'restarting acServer');
   const result = await restartServerCore(serverName);
+  afterSpawnLifecycle(serverName, result.ok, result.message);
   if (!result.ok) {
     return { ok: false, message: result.message };
   }

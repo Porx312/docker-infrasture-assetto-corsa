@@ -51,9 +51,34 @@ Body (register/heartbeat):
   "instanceId": "vps-eu-2",
   "region": "eu",
   "agentVersion": "1.0.0",
-  "servers": [{ "serverId": "…", "name": "SERVER_1", "status": "live", "playerCount": 2 }]
+  "servers": [{
+    "serverId": "SERVER_1",
+    "name": "SERVER_1",
+    "status": "starting",
+    "playerCount": 0,
+    "phase": "PREPARING",
+    "phaseDetail": "waiting for 2 mod(s)",
+    "phaseUpdatedAt": 1710000000000
+  }]
 }
 ```
+
+### Server lifecycle phases (Host startup UI)
+
+Brief para el equipo Host (copiar/enviar): [examples/HOST_SERVER_LIFECYCLE.md](./examples/HOST_SERVER_LIFECYCLE.md).
+
+`POST /v1/internal/desired-config` `{ ok: true }` means the snapshot was **accepted and pushed** — **not** that `acServer` is online. Host must poll `GET /v1/agents/:instanceId` and wait for the lobby slot:
+
+| `phase` | Coarse `status` | Meaning |
+|---------|-----------------|---------|
+| `PREPARING` | `starting` | Mod gate / CONTENT_PATH wait |
+| `CONFIGURING` | `starting` | Apply INI / branding |
+| `STARTING` | `starting` | Spawn / restart process |
+| `CHECKING` | `starting` | Verify process / ports |
+| `ONLINE` | `live` | Ready for joins |
+| `FAILED` | `error` | Terminal failure (`phaseDetail` has reason) |
+
+Omit `phase` / `phaseDetail` / `phaseUpdatedAt` when the server is genuinely idle/stopped (or older edge without lifecycle). **Missing phase ≠ ONLINE.** Phase changes force an immediate heartbeat (not only the ~20s interval). `phaseUpdatedAt` is Unix **ms**.
 
 Disable on edge: `CONTROL_API_AGENT_PRESENCE_ENABLED=false`.
 
@@ -140,7 +165,7 @@ Local inventory on each VPS is separate; availability merges central + edge inve
 
 ### User library (steamId links — Contabo S3)
 
-Convex Action BFF uploads user mods here. **Hub stores blobs + `mod_steam_links`.** Convex does **not** store mod metadata — only auth + `steamId`. Same content hash → `already_present` and a new link (no second S3 object). User uploads do **not** sync to the public host-catalog.
+Convex Action BFF uploads user mods here. **Hub stores blobs + `mod_steam_links`.** Convex does **not** store mod metadata — only auth + `steamId`. Same content hash → `already_present` and a new link (no second S3 object). If the folder **slug is already taken** but the slim tree is **different** (tuned car / edited track), the hub allocates `{slug}-c1`, `{slug}-c2`, … and returns `slugAllocated: true` + final `slug` / `acContentSlug` (no silent replace). User uploads do **not** sync to the public host-catalog.
 
 | Method | Path | Who |
 |--------|------|-----|
@@ -151,15 +176,15 @@ Convex Action BFF uploads user mods here. **Hub stores blobs + `mod_steam_links`
 | `GET` | `/v1/mods/library/by-steam/:steamId` | Convex — list linked packages |
 | `DELETE` | `/v1/mods/library/:packageId` | Convex — body/query `steamId`; always unlink; purge only if last link and not on servers |
 
-**Slim upload (Host preferred):** browser slim-scan (`scanZipForSlimUpload` en el paquete Host `@projectd/ac-mod-slim-client`); BFF proxies plan/file/commit with worker secret. Plan may return `already_present` (link only) or `need_upload` + `sessionId`.
+**Slim upload (Host preferred):** browser slim-scan (`scanZipForSlimUpload` en el paquete Host `@projectd/ac-mod-slim-client`); BFF proxies plan/file/commit with worker secret. Plan may return `already_present` (link only) or `need_upload` + `sessionId` (includes final `slug`, `requestedSlug`, `slugAllocated`).
 
-**ZIP upload (fallback):** `multipart/form-data` fields `file`, `steamId`, `kind` (`car`\|`track`), optional `slug`, `displayName`. Hub extracts, filters server-slim paths, dedupes by content hash, links steamId.
+**ZIP upload (fallback):** `multipart/form-data` fields `file`, `steamId`, `kind` (`car`\|`track`), optional `slug`, `displayName`. Hub extracts, filters server-slim paths, dedupes by content hash, may allocate `-cN` slug, links steamId.
 
 Full Host contract: [PROJECTD_CUSTOM_CARS_HOST.md](./PROJECTD_CUSTOM_CARS_HOST.md).
 
 Caps: `CONTROL_MOD_UPLOAD_MAX_BYTES` (default 500MB), `CONTROL_MOD_UPLOAD_MAX_FILES` (default 5000).
 
-Delete: always removes `(steamId, packageId)` so the user leaves “my library”. If other steamIds still link → blob stays (`unlinked`). If last link and no `server_mod_requirements` → purge S3+VPS (`purged`). If last link but servers still require the mod → link removed, package kept (`unlinked` + `purgeSkipped: "mod_in_use"`). Does **not** return 409 for user list removal.
+Delete: always removes `(steamId, packageId)` so the user leaves “my library”. If other steamIds still link → blob stays (`unlinked`). If last link and no **running** requiring server → purge S3+VPS+hub package (`purged`); Convex host-catalog slug is **kept**. If last link but a requiring server is still **live** (or presence unknown) → link removed, package kept (`unlinked` + `purgeSkipped: "mod_in_use"`). Idle/stopped servers that still list the mod in config do **not** block purge. Does **not** return 409 for user list removal.
 
 Ensure body (either form):
 

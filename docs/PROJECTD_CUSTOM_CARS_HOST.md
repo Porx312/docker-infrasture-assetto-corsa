@@ -145,8 +145,8 @@ Respuestas 200:
 
 | `status` | Qué hacer |
 |----------|-----------|
-| `already_present` | Ya hay blob; hub ya linkó `steamId`. Refresh by-steam. Campos: `packageId`, `artifactId`, `contentHash`, `skins` (si el handler los devuelve en commit; en plan vienen package/artifact). `needed: []`. |
-| `need_upload` | Seguir con PUT. Campos: `sessionId`, `needed[]`, `skip[]`, `neededBytes`, `skipBytes`. |
+| `already_present` | Ya hay blob; hub ya linkó `steamId`. Refresh by-steam. Campos: `packageId`, `artifactId`, `contentHash`, `slug` / `acContentSlug`, `requestedSlug`, `slugAllocated: false`. `needed: []`. |
+| `need_upload` | Seguir con PUT. Campos: `sessionId`, `needed[]`, `skip[]`, `neededBytes`, `skipBytes`, **`slug`** (final), **`requestedSlug`**, **`slugAllocated`**, `displayName`. Si `slugAllocated`, el hub guardará como `{requested}-cN` (variante distinta al slug de carpeta). |
 
 **2) File** — `PUT /v1/mods/library/slim-upload/file`  
 Body: **raw bytes** (`application/octet-stream` o `*/*`). Headers (nombres exactos, case-insensitive en Express):
@@ -169,9 +169,11 @@ Solo subir archivos listados en `needed`. Respuesta 200: `{ ok, rel, sha256, siz
 }
 ```
 
-Respuesta 200 típica: `{ ok, status: "uploaded", packageId, artifactId, contentHash, kind, acContentSlug, displayName, linked, steamId, skins: [...] }`.
+Respuesta 200 típica: `{ ok, status: "uploaded", packageId, artifactId, contentHash, kind, slug, requestedSlug, slugAllocated, acContentSlug, displayName, linked, steamId, skins: [...] }`.
 
-Errores útiles: `400` validación / missing staged file; `401` secret; `404` session expired; `409` hash/size/steamId mismatch; `503` S3 mode off.
+Si `slugAllocated: true`, mostrar toast “Guardado como `{slug}`” (p. ej. `pk_gunma-c1` cuando el nombre de carpeta ya existía con otro contenido).
+
+Errores útiles: `400` validación / missing staged file; `401` secret; `404` session expired; `409` hash/size/steamId mismatch o `slug_allocate_exhausted`; `503` S3 mode off.
 
 Límites control: ~500 MB slim tree / 5000 files (`CONTROL_MOD_UPLOAD_MAX_*`). Sin host-catalog público.
 
@@ -193,7 +195,7 @@ Content-Type: multipart/form-data
 | `slug` | no | override |
 | `displayName` | no | nombre UI |
 
-El hub hace extract + slim + S3 + link. Más lento (ZIP completo en red + CPU hub).
+El hub hace extract + slim + S3 + link. Más lento (ZIP completo en red + CPU hub). Misma política de slug que slim: mismo hash → `already_present`; slug ocupado + contenido distinto → `slugAllocated` / `{slug}-cN`.
 
 Estructura ZIP aceptada: `my_car/…`, `cars/my_car/…`, `content/cars/my_car/…`. Path traversal → `400`.
 ### 3. Instalar en el VPS al usar el server
@@ -211,9 +213,24 @@ Cuando el user elige un custom car en el preset/config del server:
 - **Siempre** quita el link de ese `steamId` (sale de “My custom cars”), aunque el coche siga en un server preset.
 - Otros users con el mismo mod → blob sigue (`status: unlinked`, `remainingLinks > 0`).
 - Último link y **nadie** lo requiere en servers → hub purga S3 + VPS (`status: purged`).
-- Último link pero aún en `server_mod_requirements` → link borrado, package/S3 **se mantienen** (`status: unlinked`, `remainingLinks: 0`, `purgeSkipped: "mod_in_use"`, `usage` opcional). Host **no** debe bloquear el delete por preset; refrescar `by-steam` tras 200.
+- Último link y servers que lo listan estánagados (`idle`) o sin requirements → purge S3+VPS+hub (`status: purged`). Convex catálogo **no** se borra (slug identificador).
+- Último link pero algún server que lo requiere sigue **live** (o presence desconocida) → link borrado, package/S3 **se mantienen** (`status: unlinked`, `purgeSkipped: "mod_in_use"`, `usage` = servers que bloquean). Host **no** debe bloquear el delete por preset; refrescar `by-steam` tras 200.
 
 ---
+
+## Arranque de server — fases (no confundir con desired-config ok)
+
+**Brief para el equipo web:** [examples/HOST_SERVER_LIFECYCLE.md](./examples/HOST_SERVER_LIFECYCLE.md) (checklist + contrato + poll).
+
+Tras Convex `isActive` / desired-config, el hub responde `{ ok: true }` cuando el snapshot se **empuja** al edge — **no** cuando el proceso está ONLINE.
+
+Host debe poll `GET /v1/agents/:instanceId` (BFF + worker secret), localizar el slot por lobby/`serverId`, y esperar:
+
+1. `phase === "ONLINE"` → UI “En línea”
+2. `phase === "FAILED"` → UI error + `phaseDetail` + reintentar
+3. Mientras `PREPARING` | `CONFIGURING` | `STARTING` | `CHECKING` → mostrar el paso correspondiente (`status` será `starting`)
+
+Campos: `phase`, `phaseDetail`, `phaseUpdatedAt` (ms). Si faltan (agente viejo o server idle), **no** asumir ONLINE. Detalle: [CONTROL_API_V1.md](./CONTROL_API_V1.md) § Agent presence.
 
 ## Qué NO hacer en ProjectD
 
@@ -221,6 +238,7 @@ Cuando el user elige un custom car en el preset/config del server:
 - No listar custom cars desde `GET /v1/mods` (eso es library central/ops, no “míos”).
 - No llamar al hub desde el browser con el worker secret.
 - No asumir que custom car está en disco del VPS hasta que `ensure` diga LOCAL/READY.
+- No tratar `desired-config` `{ ok: true }` ni `status: starting` como “server listo”.
 
 ---
 

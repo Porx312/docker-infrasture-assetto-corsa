@@ -9,7 +9,7 @@
     "start": "node dist/index.js",
     "test": "bash scripts/run-unit-tests.sh",
     "test:unit": "npm run test",
-    "test:integration": "bash -c 'mapfile -t files < <(find src -name \"*.integration.test.ts\" | sort); if [ ${#files[@]} -eq 0 ]; then echo \"No integration tests\"; exit 0; fi; exec tsx --test --test-concurrency=1 \"${files[@]}\"'"
+    "test:integration": "bash -c 'mapfile -t files < <(find test -name \"*.integration.test.ts\" | sort); if [ ${#files[@]} -eq 0 ]; then echo \"No integration tests\"; exit 0; fi; exec tsx --test --test-concurrency=1 \"${files[@]}\"'"
   },
   "keywords": [],
   "author": "",

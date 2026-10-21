@@ -37,10 +37,10 @@ import {
 } from './objectStorage.js';
 import { deleteModPreviewImageFile } from './modPreviewImages.js';
 import { tryAcquireModLock, releaseModLock, forceReleaseModLock } from './modRedisLocks.js';
-import { syncHostCatalogDelete } from '../hostCatalog/index.js';
 import {
-  listPackageUsage,
+  listLivePackageUsage,
   ModInUseError,
+  type ServerPresenceLookup,
 } from './serverModRequirements.js';
 import { fleetEdgeSecret } from '@projectd/ac-data-shared/services/secrets/fleetSecrets.js';
 
@@ -355,11 +355,17 @@ export async function verifyArtifactOnEdges(artifactId: string, edgeIds: string[
   return enqueued;
 }
 
-export async function removePackageFromEdges(packageId: string, edgeIds: string[]): Promise<void> {
+export async function removePackageFromEdges(
+  packageId: string,
+  edgeIds: string[],
+  opts?: { presenceLookup?: ServerPresenceLookup },
+): Promise<void> {
   if (edgeIds.length === 0) {
     return;
   }
-  const usage = await listPackageUsage(packageId, edgeIds);
+  const usage = await listLivePackageUsage(packageId, edgeIds, {
+    presenceLookup: opts?.presenceLookup,
+  });
   if (usage.length > 0) {
     throw new ModInUseError(usage);
   }
@@ -437,9 +443,14 @@ export async function purgeLocalContentOnEdges(
 
 /**
  * Force-delete a catalog package from the hub (DB + S3 + all VPS local folders).
- * Blocked when any server still lists the mod in server_mod_requirements.
+ * Blocked when any requiring server is live or presence is unknown.
+ * Idle/stopped requirements do not block. Does not delete Convex host-catalog
+ * (slug stays as Host/preset identifier).
  */
-export async function forceDeleteModPackage(packageId: string): Promise<{
+export async function forceDeleteModPackage(
+  packageId: string,
+  opts?: { presenceLookup?: ServerPresenceLookup },
+): Promise<{
   packageId: string;
   displayName: string;
   artifactsRemoved: number;
@@ -451,7 +462,9 @@ export async function forceDeleteModPackage(packageId: string): Promise<{
     throw new Error('package_not_found');
   }
 
-  const usage = await listPackageUsage(packageId);
+  const usage = await listLivePackageUsage(packageId, undefined, {
+    presenceLookup: opts?.presenceLookup,
+  });
   if (usage.length > 0) {
     throw new ModInUseError(usage);
   }
@@ -508,12 +521,6 @@ export async function forceDeleteModPackage(packageId: string): Promise<{
   }
 
   await pool.query(`DELETE FROM mod_packages WHERE id = $1`, [packageId]);
-
-  await syncHostCatalogDelete({
-    kind: pkg.kind,
-    acContentSlug: pkg.ac_content_slug,
-    displayName: pkg.display_name,
-  });
 
   return {
     packageId,

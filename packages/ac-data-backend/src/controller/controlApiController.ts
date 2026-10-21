@@ -512,7 +512,7 @@ export async function unlinkSteamLibraryModHandler(req: Request, res: Response):
               purgeSkipped,
               usage: result.usage,
               message:
-                'Removed from your library; package kept because a server still requires it',
+                'Removed from your library; package kept because a requiring server is still running (or status unknown)',
             }
           : {
               message:
@@ -530,7 +530,7 @@ export async function unlinkSteamLibraryModHandler(req: Request, res: Response):
       displayName: result.displayName,
       edgesPurged: result.edgesPurged,
       edgesFailed: result.edgesFailed,
-      message: 'Last user — deleted from library (S3 + VPS)',
+      message: 'Last user — deleted from library (S3 + VPS); Convex catalog slug kept',
     });
   } catch (err: unknown) {
     if (err instanceof ModInUseError) {
@@ -538,7 +538,8 @@ export async function unlinkSteamLibraryModHandler(req: Request, res: Response):
       res.status(409).json({
         ok: false,
         error: 'mod_in_use',
-        message: 'Mod is still required by a server config; remove it from servers first',
+        message:
+          'Mod is still required by a running server; stop those servers (or remove the mod from their config) first',
         usage: err.usage,
       });
       return;

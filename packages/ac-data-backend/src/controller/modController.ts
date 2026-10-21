@@ -44,7 +44,7 @@ function formatModInUseMessage(usage: Array<{ edgeId: string; serverName: string
     .map((u) => `${u.serverName}@${u.edgeId}`)
     .join(', ');
   const more = usage.length > 5 ? ` (+${usage.length - 5} more)` : '';
-  return `Mod is in use on ${usage.length} server(s). Remove it from server configs first: ${preview}${more}`;
+  return `Mod is in use on ${usage.length} running server(s). Stop those servers (or remove the mod from their config) before deleting: ${preview}${more}`;
 }
 import { readFleetEdgeIdFromRequest } from '../services/fleet/fleetAdminBridge.js';
 import { ensureFleetEdgeRegistered } from '../services/mods/fleetEdgeDb.js';

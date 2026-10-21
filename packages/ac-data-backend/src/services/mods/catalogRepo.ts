@@ -671,6 +671,16 @@ export async function getPackageById(packageId: string): Promise<ModPackageRow |
   return result.rows[0] ?? null;
 }
 
+export async function getPackageBySlug(slug: string): Promise<ModPackageRow | null> {
+  const pool = getModPool();
+  const result = await pool.query<ModPackageRow>(
+    `SELECT id, slug, display_name, kind, ac_content_slug, notes, category, preview_image_filename, created_at, updated_at
+     FROM mod_packages WHERE slug = $1`,
+    [slug],
+  );
+  return result.rows[0] ?? null;
+}
+
 export async function setPackagePreviewImageFilename(
   packageId: string,
   filename: string | null,

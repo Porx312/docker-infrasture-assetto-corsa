@@ -111,6 +111,8 @@ paths:
         Multipart field `file` (ZIP) plus steamId and kind.
         Hub extracts safely, filters server-slim files, dedupes by contentHash,
         registers S3 artifact without host-catalog sync, upserts mod_steam_links.
+        If slug is taken but content differs, allocates `{slug}-c1`…`-cN` and sets
+        `slugAllocated: true` (final `slug` / `acContentSlug` in response).
         Response includes `skins` (car skin folder ids) for Host picker.
         Prefer `/v1/mods/library/slim-upload/*` for Host custom cars.
       operationId: controlLibraryZipUpload
@@ -150,8 +152,9 @@ paths:
         Host preferred path. Requires steamId (Steam64). Client (browser) scans ZIP
         (Host slim-client package) and sends manifest + expectedContentHash; BFF adds
         X-Worker-Secret. If content already in S3 library, returns already_present and
-        upserts mod_steam_links. Otherwise returns need_upload + sessionId + needed[].
-        Does not sync host-catalog.
+        upserts mod_steam_links. Otherwise allocates a free slug (`{slug}-cN` when the
+        requested folder name is taken) and returns need_upload + sessionId + needed[]
+        plus `slug`, `requestedSlug`, `slugAllocated`. Does not sync host-catalog.
       operationId: controlLibrarySlimUploadPlan
       requestBody:
         required: true
@@ -267,7 +270,9 @@ paths:
       description: |
         Body or query steamId required. Always removes the steamId link (leaves "my library").
         Last link purges S3+VPS when not required by servers; if still required, returns
-        200 unlinked with purgeSkipped=mod_in_use (package kept).
+        200 unlinked with purgeSkipped=mod_in_use when a requiring server is still
+        live or presence unknown (package kept). Idle requiring servers do not block
+        purge; Convex host-catalog slug is never deleted on purge.
       operationId: unlinkSteamLibraryMod
       parameters:
         - name: packageId
@@ -563,6 +568,12 @@ components:
               - $ref: '#/components/schemas/LiveJoinFields'
     AgentServerSlot:
       type: object
+      description: |
+        Edge agent presence slot. Optional lifecycle fields (`phase`, `phaseDetail`,
+        `phaseUpdatedAt`) report Host-facing startup progress. When `phase` is set,
+        hub maps it to coarse `status` (PREPARING…CHECKING→starting, ONLINE→live,
+        FAILED→error). Missing phase = older agent or genuinely idle — do not assume ONLINE.
+        desired-config `{ ok: true }` only means config was pushed, not ONLINE.
       properties:
         serverId:
           type: string
@@ -573,6 +584,17 @@ components:
           enum: [idle, starting, live, draining, error]
         playerCount:
           type: number
+        httpPort:
+          type: number
+        phase:
+          type: string
+          enum: [PREPARING, CONFIGURING, STARTING, CHECKING, ONLINE, FAILED]
+        phaseDetail:
+          type: string
+          description: Short diagnostic (max ~240 chars)
+        phaseUpdatedAt:
+          type: number
+          description: Unix timestamp in milliseconds
     AgentRegisterBody:
       type: object
       required: [instanceId]

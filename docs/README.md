@@ -32,6 +32,7 @@ Fleet model: **hub** (`ac-data-backend`) + **edges** (`ac-data-edge`) + **shared
 | [PROJECTD_WEB_CONVEX_HUB_HANDOFF.md](./examples/PROJECTD_WEB_CONVEX_HUB_HANDOFF.md) | Web / Convex ↔ hub |
 | [PROJECTD_HOST_TEAM_HANDOFF.md](./examples/PROJECTD_HOST_TEAM_HANDOFF.md) | Host team |
 | [PROJECTD_BFF_INSTALL.md](./examples/PROJECTD_BFF_INSTALL.md) | BFF install notes |
+| [HOST_SERVER_LIFECYCLE.md](./examples/HOST_SERVER_LIFECYCLE.md) | Host UI — fases arranque server (poll agents) |
 
 ## Secrets (strict / prod)
 

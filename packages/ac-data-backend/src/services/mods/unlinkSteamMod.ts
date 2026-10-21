@@ -1,5 +1,9 @@
 import { forceDeleteModPackage } from './orchestrator.js';
-import { listPackageUsage, type PackageUsageRow } from './serverModRequirements.js';
+import {
+  listLivePackageUsage,
+  type PackageUsageRow,
+  type ServerPresenceLookup,
+} from './serverModRequirements.js';
 import {
   countPackageSteamLinks,
   deleteModSteamLink,
@@ -11,7 +15,7 @@ export type UnlinkSteamModResult =
       status: 'unlinked';
       packageId: string;
       remainingLinks: number;
-      /** Present when last steam link was removed but S3/package kept (still on servers). */
+      /** Present when last steam link was removed but S3/package kept (live/unknown usage). */
       purgeSkipped?: 'mod_in_use';
       usage?: PackageUsageRow[];
     }
@@ -23,14 +27,19 @@ export type UnlinkSteamModResult =
       edgesFailed: Array<{ edgeId: string; message: string }>;
     };
 
+export type UnlinkSteamModOpts = {
+  presenceLookup?: ServerPresenceLookup;
+};
+
 /**
  * Remove steam↔package link always (user can leave "my cars").
- * Purge S3+VPS+DB only when no steam links remain and the package is not
- * required by any server config.
+ * Purge S3+VPS+DB when no steam links remain and no requiring server is live
+ * (idle/stopped requirements do not block). Convex host-catalog slug is kept.
  */
 export async function unlinkSteamMod(
   steamId: string,
   packageId: string,
+  opts?: UnlinkSteamModOpts,
 ): Promise<UnlinkSteamModResult> {
   const linked = await hasModSteamLink(steamId, packageId);
   if (!linked) {
@@ -48,18 +57,22 @@ export async function unlinkSteamMod(
     };
   }
 
-  const usage = await listPackageUsage(packageId);
-  if (usage.length > 0) {
+  const liveUsage = await listLivePackageUsage(packageId, undefined, {
+    presenceLookup: opts?.presenceLookup,
+  });
+  if (liveUsage.length > 0) {
     return {
       status: 'unlinked',
       packageId,
       remainingLinks: 0,
       purgeSkipped: 'mod_in_use',
-      usage,
+      usage: liveUsage,
     };
   }
 
-  const purged = await forceDeleteModPackage(packageId);
+  const purged = await forceDeleteModPackage(packageId, {
+    presenceLookup: opts?.presenceLookup,
+  });
   return {
     status: 'purged',
     packageId: purged.packageId,

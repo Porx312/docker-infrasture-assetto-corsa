@@ -29,6 +29,10 @@ import {
   packSlimTarGz,
 } from './hubLibrarySlimUpload.js';
 import {
+  allocateLibrarySlug,
+  displayNameForAllocatedSlug,
+} from './librarySlugAllocate.js';
+import {
   isValidSteam64,
   normalizeSteamId,
   skinsFromManifest,
@@ -226,6 +230,10 @@ export type ZipUploadResult = {
   artifactId: string;
   contentHash: string;
   kind: string;
+  /** Final package / AC folder slug (may be requested-cN). */
+  slug: string;
+  requestedSlug: string;
+  slugAllocated: boolean;
   acContentSlug: string;
   displayName: string;
   s3Key: string | null;
@@ -258,25 +266,32 @@ export async function processLibraryZipUpload(input: {
   const extractDir = path.join(workRoot, 'extract');
   try {
     await extractZipSafe(input.zipPath, extractDir);
-    const { contentRoot, slug } = await resolveContentRoot(
+    const { contentRoot, slug: resolvedSlug } = await resolveContentRoot(
       extractDir,
       input.kind,
       input.slug ? sanitizeSlug(input.slug) : undefined,
     );
-    if (!slug) {
+    if (!resolvedSlug) {
       throw new Error('slug_required');
     }
-    const displayName =
+    const requestedSlug = resolvedSlug;
+    const rawDisplayName =
       typeof input.displayName === 'string' && input.displayName.trim()
         ? input.displayName.trim()
-        : slug;
+        : requestedSlug;
 
-    const slimDir = path.join(workRoot, 'slim', slug);
-    const entryPaths = await materializeSlimTree(contentRoot, input.kind, slimDir);
-    const verified = await hashContentTree(slimDir, { slimKind: input.kind });
+    const slimDirRequested = path.join(workRoot, 'slim', requestedSlug);
+    const entryPaths = await materializeSlimTree(
+      contentRoot,
+      input.kind,
+      slimDirRequested,
+    );
+    const verified = await hashContentTree(slimDirRequested, { slimKind: input.kind });
 
     const skinsFromZip =
-      input.kind === 'car' ? extractCarSkinsFromZipPaths(entryPaths, slug) : [];
+      input.kind === 'car'
+        ? extractCarSkinsFromZipPaths(entryPaths, requestedSlug)
+        : [];
 
     const existing = await findLibraryByContentHash(verified.contentHash);
     if (existing) {
@@ -297,6 +312,9 @@ export async function processLibraryZipUpload(input: {
         artifactId: existing.artifactId,
         contentHash: verified.contentHash,
         kind: existing.kind,
+        slug: existing.acContentSlug,
+        requestedSlug,
+        slugAllocated: false,
         acContentSlug: existing.acContentSlug,
         displayName: existing.displayName,
         s3Key: existing.s3Key,
@@ -305,6 +323,20 @@ export async function processLibraryZipUpload(input: {
         hostCatalogSynced: false,
         skins,
       };
+    }
+
+    const allocated = await allocateLibrarySlug(requestedSlug);
+    const slug = allocated.slug;
+    const displayName = displayNameForAllocatedSlug(
+      rawDisplayName,
+      requestedSlug,
+      allocated.suffix,
+    );
+
+    let slimDir = slimDirRequested;
+    if (allocated.allocated && slug !== requestedSlug) {
+      slimDir = path.join(workRoot, 'slim', slug);
+      await fsp.rename(slimDirRequested, slimDir);
     }
 
     const gzPath = path.join(workRoot, 'slim.tar.gz');
@@ -370,6 +402,9 @@ export async function processLibraryZipUpload(input: {
       artifactId: registered.artifactId,
       contentHash: verified.contentHash,
       kind: input.kind,
+      slug,
+      requestedSlug,
+      slugAllocated: allocated.allocated,
       acContentSlug: slug,
       displayName,
       s3Key: key,
@@ -438,6 +473,10 @@ export async function handleLibraryZipUpload(req: Request, res: Response): Promi
     console.error(`[library-zip] ${message}`);
     if (message === 's3_required') {
       res.status(503).json({ ok: false, message: 'MOD_STORAGE_MODE=s3 required' });
+      return;
+    }
+    if (message.startsWith('slug_allocate_exhausted')) {
+      res.status(409).json({ ok: false, message, code: 'slug_allocate_exhausted' });
       return;
     }
     if (

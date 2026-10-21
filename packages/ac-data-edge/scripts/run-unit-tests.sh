@@ -14,7 +14,7 @@ unset REDIS_HOST REDIS_URL REDIS_PASSWORD REDIS_PORT REDIS_USERNAME REDIS_DB \
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-mapfile -t files < <(find src -name '*.test.ts' ! -name '*.integration.test.ts' | sort)
+mapfile -t files < <(find test -name '*.test.ts' ! -name '*.integration.test.ts' | sort)
 if [[ ${#files[@]} -eq 0 ]]; then
   echo "No unit tests found"
   exit 0

@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "rimraf ./dist && tsc -p tsconfig.build.json",
-    "test": "bash -c \"export NODE_ENV=test SKIP_ASSETTO_ENV_LOAD=1; shopt -s globstar && tsx --test src/**/*.test.ts\""
+    "test": "bash -c \"export NODE_ENV=test SKIP_ASSETTO_ENV_LOAD=1; shopt -s globstar && tsx --test test/**/*.test.ts\""
   },
   "dependencies": {
     "convex": "^1.29.1",

@@ -1,8 +1,10 @@
 import { getModPool } from './db.js';
 import type { ModKind } from '@projectd/ac-data-shared/mods/types.js';
 import { stripCspTrackPrefix } from '@projectd/ac-data-shared/mods/cspTrack.js';
+import { resolveFleetEdge } from '@projectd/ac-data-shared/services/fleet/fleetRegistry.js';
 import { ensureFleetEdgeRegistered } from './fleetEdgeDb.js';
 import { getModsCars, getModsTracks } from '../controlApi/modsInventory.js';
+import { getAgentPresence } from '../controlApi/agentPresence.js';
 
 export type ServerModRequirementView = {
   acContentSlug: string;
@@ -338,6 +340,86 @@ export async function listPackageUsage(
     serverName: row.server_name,
     slug: row.ac_content_slug,
   }));
+}
+
+/** Agent presence for a lobby on an edge: live blocks purge; idle allows; unknown blocks. */
+export type ServerPresenceState = 'live' | 'idle' | 'unknown';
+
+export type ServerPresenceLookup = (
+  edgeId: string,
+  serverName: string,
+) => Promise<ServerPresenceState>;
+
+function normalizeLobbyKey(raw: string): string {
+  return raw.trim().toLowerCase();
+}
+
+export async function defaultServerPresenceLookup(
+  edgeId: string,
+  serverName: string,
+): Promise<ServerPresenceState> {
+  const edge = resolveFleetEdge(edgeId);
+  const instanceId = (edge?.instanceId || edge?.id || edgeId).trim();
+  if (!instanceId) {
+    return 'unknown';
+  }
+  try {
+    const presence = await getAgentPresence(instanceId);
+    if (!presence?.servers?.length) {
+      return 'unknown';
+    }
+    const want = normalizeLobbyKey(serverName);
+    const slot = presence.servers.find((s) => {
+      const byName = normalizeLobbyKey(s.name || '');
+      const byId = normalizeLobbyKey(s.serverId || '');
+      return byName === want || byId === want;
+    });
+    if (!slot) {
+      return 'unknown';
+    }
+    const status = String(slot.status || '')
+      .trim()
+      .toLowerCase();
+    // starting = mid-boot (treat as live for purge safety); error/FAILED = not running
+    if (status === 'live' || status === 'starting') {
+      return 'live';
+    }
+    if (
+      status === 'idle' ||
+      status === 'stopped' ||
+      status === 'offline' ||
+      status === 'error'
+    ) {
+      return 'idle';
+    }
+    return 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
+ * Requirement rows that currently block purge: live servers, or unknown presence
+ * (fail-safe). Idle/stopped requiring servers are omitted so cleanup can proceed.
+ */
+export async function listLivePackageUsage(
+  packageId: string,
+  edgeIds?: string[],
+  opts?: { presenceLookup?: ServerPresenceLookup },
+): Promise<PackageUsageRow[]> {
+  const rows = await listPackageUsage(packageId, edgeIds);
+  if (rows.length === 0) {
+    return [];
+  }
+  const lookup = opts?.presenceLookup ?? defaultServerPresenceLookup;
+  const blocking: PackageUsageRow[] = [];
+  for (const row of rows) {
+    const state = await lookup(row.edgeId, row.serverName);
+    if (state !== 'idle') {
+      blocking.push(row);
+    }
+  }
+  return blocking;
 }
 
 export type SyncMissingModsResult = {

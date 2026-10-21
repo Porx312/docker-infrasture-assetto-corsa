@@ -5,6 +5,11 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { listServerInstanceNames } from '@projectd/ac-data-shared/services/serverBranding.js';
 import { getServerRuntime } from './serverRuntime.js';
+import {
+  coarseStatusForPhase,
+  getServerLifecycle,
+  setLifecycleHeartbeatPublisher,
+} from './serverLifecycle.js';
 
 function workerSecret(): string {
   return fleetEdgeSecret();
@@ -31,18 +36,26 @@ function agentVersion(): string {
   }
 }
 
-/**
- * Sole source of `servers[]` on register/heartbeat.
- * Feeds hub agent presence → Convex Host catalog `servers` sync
- * (`services/hostCatalog` on the hub). See docs/HOST_CATALOG_SYNC.md.
- */
-export function listAgentPresenceServers(): Array<{
+export type AgentPresenceServerSlot = {
   serverId: string;
   name: string;
   status: string;
   playerCount: number;
   httpPort?: number;
-}> {
+  phase?: string;
+  phaseDetail?: string;
+  phaseUpdatedAt?: number;
+};
+
+/**
+ * Sole source of `servers[]` on register/heartbeat.
+ * Feeds hub agent presence → Convex Host catalog `servers` sync
+ * (`services/hostCatalog` on the hub). See docs/HOST_CATALOG_SYNC.md.
+ *
+ * Lifecycle `phase` (when set) drives coarse `status` and is not overridden by
+ * runtime.running alone.
+ */
+export function listAgentPresenceServers(): AgentPresenceServerSlot[] {
   let names: string[] = [];
   try {
     names = listServerInstanceNames().filter((n) => n !== 'server-template');
@@ -52,9 +65,10 @@ export function listAgentPresenceServers(): Array<{
   return names.map((name) => {
     let status = 'idle';
     let httpPort: number | undefined;
+    let running = false;
     try {
       const runtime = getServerRuntime(name);
-      if (runtime.running) status = 'live';
+      running = runtime.running;
       if (
         typeof runtime.httpPort === 'number' &&
         Number.isFinite(runtime.httpPort) &&
@@ -65,12 +79,27 @@ export function listAgentPresenceServers(): Array<{
     } catch {
       /* ignore */
     }
+
+    const life = getServerLifecycle(name);
+    if (life) {
+      status = coarseStatusForPhase(life.phase);
+    } else if (running) {
+      status = 'live';
+    }
+
     return {
       serverId: name,
       name,
       status,
       playerCount: 0,
       ...(httpPort != null ? { httpPort } : {}),
+      ...(life
+        ? {
+            phase: life.phase,
+            ...(life.phaseDetail ? { phaseDetail: life.phaseDetail } : {}),
+            phaseUpdatedAt: life.phaseUpdatedAt,
+          }
+        : {}),
     };
   });
 }
@@ -124,6 +153,16 @@ async function sendHeartbeat(): Promise<void> {
     servers: listAgentPresenceServers(),
   });
 }
+
+/** Immediate heartbeat (used by server lifecycle phase changes). */
+export async function forceAgentHeartbeat(): Promise<void> {
+  if (!isControlApiAgentPresenceEnabled()) return;
+  if (!getHubWorkerBaseUrl() || !workerSecret()) return;
+  await sendHeartbeat();
+}
+
+// Default publisher so lifecycle updates force a heartbeat even before the loop starts.
+setLifecycleHeartbeatPublisher(() => forceAgentHeartbeat());
 
 export function startControlApiAgentPresenceLoop(): void {
   if (!isControlApiAgentPresenceEnabled()) {

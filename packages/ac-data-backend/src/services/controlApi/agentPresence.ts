@@ -1,6 +1,17 @@
 import { hudRedisGet, hudRedisSet, isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
 import { AGENT_PRESENCE_TTL_SEC, instanceAgentKey } from './redisKeys.js';
 
+const LIFECYCLE_PHASES = new Set([
+  'PREPARING',
+  'CONFIGURING',
+  'STARTING',
+  'CHECKING',
+  'ONLINE',
+  'FAILED',
+]);
+
+const PHASE_DETAIL_MAX = 240;
+
 export type AgentServerSlot = {
   serverId?: string;
   name?: string;
@@ -8,6 +19,10 @@ export type AgentServerSlot = {
   playerCount?: number;
   /** HTTP_PORT from edge server_cfg — used for acstuff join URLs. */
   httpPort?: number;
+  /** Host startup phase (optional; older agents omit). */
+  phase?: string;
+  phaseDetail?: string;
+  phaseUpdatedAt?: number;
 };
 
 export type AgentPresenceDoc = {
@@ -28,6 +43,12 @@ export type StoreAgentPresenceInput = {
   isHeartbeat?: boolean;
 };
 
+function coarseStatusForPhase(phase: string): 'starting' | 'live' | 'error' {
+  if (phase === 'ONLINE') return 'live';
+  if (phase === 'FAILED') return 'error';
+  return 'starting';
+}
+
 function normalizeServers(raw: unknown): AgentServerSlot[] {
   if (!Array.isArray(raw)) {
     return [];
@@ -42,12 +63,49 @@ function normalizeServers(raw: unknown): AgentServerSlot[] {
         httpPortRaw > 0
           ? Math.trunc(httpPortRaw)
           : undefined;
+
+      let phase: string | undefined;
+      const phaseRaw = row.phase;
+      if (typeof phaseRaw === 'string' && LIFECYCLE_PHASES.has(phaseRaw.trim())) {
+        phase = phaseRaw.trim();
+      }
+
+      let phaseDetail: string | undefined;
+      if (typeof row.phaseDetail === 'string') {
+        const d = row.phaseDetail.trim();
+        if (d) {
+          phaseDetail = d.length > PHASE_DETAIL_MAX ? d.slice(0, PHASE_DETAIL_MAX) : d;
+        }
+      }
+
+      let phaseUpdatedAt: number | undefined;
+      if (
+        typeof row.phaseUpdatedAt === 'number' &&
+        Number.isFinite(row.phaseUpdatedAt) &&
+        row.phaseUpdatedAt >= 0
+      ) {
+        phaseUpdatedAt = Math.trunc(row.phaseUpdatedAt);
+      }
+
+      // Valid phase drives status (do not trust client status over lifecycle).
+      let status = typeof row.status === 'string' ? row.status : undefined;
+      if (phase) {
+        status = coarseStatusForPhase(phase);
+      }
+
       return {
         serverId: typeof row.serverId === 'string' ? row.serverId : undefined,
         name: typeof row.name === 'string' ? row.name : undefined,
-        status: typeof row.status === 'string' ? row.status : undefined,
+        status,
         playerCount: typeof row.playerCount === 'number' ? row.playerCount : undefined,
         ...(httpPort != null ? { httpPort } : {}),
+        ...(phase
+          ? {
+              phase,
+              ...(phaseDetail ? { phaseDetail } : {}),
+              ...(phaseUpdatedAt != null ? { phaseUpdatedAt } : {}),
+            }
+          : {}),
       };
     });
 }
@@ -118,4 +176,9 @@ export async function getAgentPresence(instanceId: string): Promise<AgentPresenc
   } catch {
     return null;
   }
+}
+
+/** Test/export helper for slot normalization. */
+export function _normalizeAgentServersForTests(raw: unknown): AgentServerSlot[] {
+  return normalizeServers(raw);
 }

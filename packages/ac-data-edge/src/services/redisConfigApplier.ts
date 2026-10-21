@@ -35,6 +35,7 @@ import {
   UNRECOVERABLE_MODS_REASON,
   type ModContentOverrides,
 } from './modAgent/startGate.js';
+import { clearServerLifecycle, setServerLifecycle } from './serverLifecycle.js';
 
 const REDIS_CONFIG_STREAM_KEY = process.env.REDIS_CONFIG_STREAM_KEY || 'ac:config';
 const AC_INSTANCE_ID = process.env.AC_INSTANCE_ID || 'default';
@@ -188,6 +189,8 @@ async function preflightModsForRow(row: ServerRow): Promise<PreflightResult> {
     return 'ok';
   }
 
+  setServerLifecycle(row.serverName, 'PREPARING', 'preflight mods');
+
   const { ensureModsReadyForServerStart, localContentExists, requiredSlugsFromConfig } =
     await import('./modAgent/startGate.js');
   const required = requiredSlugsFromConfig(overrides);
@@ -199,6 +202,7 @@ async function preflightModsForRow(row: ServerRow): Promise<PreflightResult> {
         console.warn(
           `[redis-config-applier] ${row.serverName}: content dirs present but cars not ready — pending retry`,
         );
+        setServerLifecycle(row.serverName, 'PREPARING', 'waiting for local cars');
         return 'pending_mods';
       }
     }
@@ -216,6 +220,11 @@ async function preflightModsForRow(row: ServerRow): Promise<PreflightResult> {
   );
 
   if (gate.reason === UNRECOVERABLE_MODS_REASON || gate.reason === 'unknown_package') {
+    setServerLifecycle(
+      row.serverName,
+      'FAILED',
+      `unrecoverable mods: ${missing}`.slice(0, 240),
+    );
     return 'unrecoverable';
   }
 
@@ -225,11 +234,17 @@ async function preflightModsForRow(row: ServerRow): Promise<PreflightResult> {
       console.warn(
         `[redis-config-applier] ${row.serverName}: still no local cars after preflight — pending retry`,
       );
+      setServerLifecycle(row.serverName, 'PREPARING', 'waiting for local cars after preflight');
       return 'pending_mods';
     }
   }
   // Track-only / partial: treat timeout as pending so we retry after mod-agent finishes.
   if (gate.reason === 'install_timeout' || gate.code === 'MODS_NOT_READY') {
+    setServerLifecycle(
+      row.serverName,
+      'PREPARING',
+      `pending mods: ${missing || gate.reason || 'not_ready'}`.slice(0, 240),
+    );
     return 'pending_mods';
   }
   return 'ok';
@@ -411,6 +426,7 @@ async function reconcileServer(
     } else {
       console.log(`[redis-config-applier] ${row.serverName} inactive (no process to stop)`);
     }
+    clearServerLifecycle(row.serverName);
     try {
       const brandingMods = await applyServerBrandingIfPresent(row);
       if (brandingMods.length) {
@@ -428,9 +444,11 @@ async function reconcileServer(
   }
 
   if (!shouldStartFromConfig(row.isActive)) {
+    setServerLifecycle(row.serverName, 'CONFIGURING', 'pool idle config');
     const apply = applyServerConfiguration(row.serverName, rowToConfigPayload(row));
     if (!apply.ok) {
       console.warn(`[redis-config-applier] applyConfig ${row.serverName} failed: ${apply.reason}`);
+      setServerLifecycle(row.serverName, 'FAILED', `applyConfig: ${apply.reason}`.slice(0, 240));
     } else if (apply.modifications.length) {
       console.log(
         `[redis-config-applier] applyConfig ${row.serverName} (pool idle): ${apply.modifications.join(', ')}`,
@@ -453,14 +471,17 @@ async function reconcileServer(
         `[redis-config-applier] pool stop ${row.serverName}: ${result.ok ? 'ok' : 'failed'} | ${result.message}`,
       );
     }
+    clearServerLifecycle(row.serverName);
     lastSignatures.set(row.serverName, signature);
     clearPendingReconcile(row.serverName);
     return 'applied';
   }
 
+  setServerLifecycle(row.serverName, 'CONFIGURING', 'applying server_cfg / branding');
   const apply = applyServerConfiguration(row.serverName, rowToConfigPayload(row));
   if (!apply.ok) {
     console.warn(`[redis-config-applier] applyConfig ${row.serverName} failed: ${apply.reason}`);
+    setServerLifecycle(row.serverName, 'FAILED', `applyConfig: ${apply.reason}`.slice(0, 240));
   } else if (apply.modifications.length) {
     console.log(
       `[redis-config-applier] applyConfig ${row.serverName} updated: ${apply.modifications.join(', ')}`,

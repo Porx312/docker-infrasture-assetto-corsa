@@ -36,6 +36,10 @@ import {
   normalizeSteamId,
   upsertModSteamLink,
 } from './modSteamLinks.js';
+import {
+  allocateLibrarySlug,
+  displayNameForAllocatedSlug,
+} from './librarySlugAllocate.js';
 
 const SESSION_TTL_MS = Number(process.env.MOD_SLIM_UPLOAD_SESSION_TTL_MS || 30 * 60 * 1000);
 const MAX_FILE_BYTES = Number(process.env.MOD_SLIM_UPLOAD_MAX_FILE_BYTES || 64 * 1024 * 1024);
@@ -50,7 +54,10 @@ type SlimUploadFileEntry = ContentTreeFileEntry;
 type LibrarySession = {
   id: string;
   kind: ServerSlimKind;
+  /** Final package / AC folder slug (may be requested-cN). */
   slug: string;
+  requestedSlug: string;
+  slugAllocated: boolean;
   displayName: string;
   expectedContentHash: string;
   files: SlimUploadFileEntry[];
@@ -254,8 +261,8 @@ export async function handleLibrarySlimUploadPlan(
     return;
   }
   const kind = kindRaw as ServerSlimKind;
-  const slug = String(req.body?.slug || '').trim();
-  if (!slug || slug.includes('..') || slug.includes('/')) {
+  const requestedSlug = String(req.body?.slug || '').trim();
+  if (!requestedSlug || requestedSlug.includes('..') || requestedSlug.includes('/')) {
     res.status(400).json({ ok: false, message: 'slug required' });
     return;
   }
@@ -266,10 +273,10 @@ export async function handleLibrarySlimUploadPlan(
     res.status(400).json({ ok: false, message: 'expectedContentHash required' });
     return;
   }
-  const displayName =
+  const rawDisplayName =
     typeof req.body?.displayName === 'string' && req.body.displayName.trim()
       ? req.body.displayName.trim()
-      : slug;
+      : requestedSlug;
 
   let files: SlimUploadFileEntry[];
   try {
@@ -323,6 +330,9 @@ export async function handleLibrarySlimUploadPlan(
       packageId: existing.packageId,
       artifactId: existing.artifactId,
       kind: existing.kind,
+      slug: existing.acContentSlug,
+      requestedSlug,
+      slugAllocated: false,
       acContentSlug: existing.acContentSlug,
       displayName: existing.displayName,
       s3Key: existing.s3Key,
@@ -334,6 +344,21 @@ export async function handleLibrarySlimUploadPlan(
     return;
   }
 
+  let allocated;
+  try {
+    allocated = await allocateLibrarySlug(requestedSlug);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(409).json({ ok: false, message, code: 'slug_allocate_exhausted' });
+    return;
+  }
+  const slug = allocated.slug;
+  const displayName = displayNameForAllocatedSlug(
+    rawDisplayName,
+    requestedSlug,
+    allocated.suffix,
+  );
+
   const sessionId = crypto.randomBytes(16).toString('hex');
   const stagingDir = path.join(stagingRoot(), sessionId);
   await fsp.mkdir(stagingDir, { recursive: true });
@@ -343,6 +368,8 @@ export async function handleLibrarySlimUploadPlan(
     id: sessionId,
     kind,
     slug,
+    requestedSlug,
+    slugAllocated: allocated.allocated,
     displayName,
     expectedContentHash,
     files,
@@ -360,6 +387,11 @@ export async function handleLibrarySlimUploadPlan(
     status: 'need_upload',
     sessionId,
     contentHash: expectedContentHash,
+    slug,
+    requestedSlug,
+    slugAllocated: allocated.allocated,
+    displayName,
+    acContentSlug: slug,
     needed: needed.map(({ rel, size, sha256 }) => ({ rel, size, sha256 })),
     skip: skip.map(({ rel, size, sha256 }) => ({ rel, size, sha256 })),
     neededBytes: needed.reduce((n, f) => n + f.size, 0),
@@ -563,6 +595,7 @@ export async function handleLibrarySlimUploadCommit(
 
     res.json({
       ok: true,
+      status: 'uploaded',
       message:
         session.mode === 'control'
           ? 'Uploaded to library and linked to steamId'
@@ -572,6 +605,9 @@ export async function handleLibrarySlimUploadCommit(
       contentHash: verified.contentHash,
       sha256: verified.contentHash,
       kind: session.kind,
+      slug: session.slug,
+      requestedSlug: session.requestedSlug,
+      slugAllocated: session.slugAllocated,
       displayName: session.displayName,
       acContentSlug: session.slug,
       s3Key: key,

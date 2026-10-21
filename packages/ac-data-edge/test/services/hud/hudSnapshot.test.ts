@@ -1,0 +1,342 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import type { Request, Response } from 'express';
+
+import { buildSessionCacheKey, connPresenceRedisKey, sessionRedisKey } from '@projectd/ac-data-shared/services/hud/hudCacheKeys.js';
+import { buildHudSessionEvent, buildHudVersionEvent } from '../../../src/services/hud/hudPushHub.js';
+import { formatWsMessage } from '../../../src/services/hud/hudWsFormat.js';
+import { normalizeHudProfile } from '../../../src/services/hud/hudProfile.js';
+import { handleHudSnapshot } from '../../../src/services/hud/hudSnapshot.js';
+import { parseHudSnapshotSections } from '../../../src/services/hud/hudSnapshotSections.js';
+import { isHudConvexConfigured } from '../../../src/services/hud/hudConvex.js';
+import { resetHudConvexQueryStatsForTests, getHudConvexQueryStats } from '../../../src/services/hud/hudConvexQueryStats.js';
+import { resetManagedServersForTests, updateManagedServersFromSnapshot } from '../../../src/services/hud/hudManagedServers.js';
+import {
+  buildPresenceRecordForTests,
+  registerBattleWsPresence,
+  resetBattleWsPresenceForTests,
+} from '../../../src/services/hud/hudPlayerPresence.js';
+import { clearHudConnPresence } from '../../../src/services/hud/hudConnPresence.js';
+import { HUD_SESSION_TTL_SEC, hudRedisDel, hudRedisGet, hudRedisSet, isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
+import {
+  resetConvexClientForTests,
+  setConvexClientForTests,
+} from '@projectd/ac-data-shared/services/convexClient.js';
+
+test('snapshot JSON session field matches WSS hud_session event shape', () => {
+  const steamId = '76561199000000001';
+  const session = buildHudSessionEvent(steamId, {
+    ok: true,
+    version: 'server:track:layout:car:1',
+    context: {
+      server_id: 's1',
+      server_name: 'testing xd',
+      track_id: 'pk_akina',
+      track_name: 'Akina',
+      layout_id: 'downhill',
+      layout_name: 'Downhill',
+      car_id: 'ae86',
+      car_name: 'AE86',
+      player_steam_id: steamId,
+    },
+    profile: normalizeHudProfile({
+      name: 'Alice',
+      rank: 12,
+      tier: 7,
+      bestLapMs: 275_432,
+      lastLapMs: 276_100,
+      carName: 'AE86',
+      carId: 'ae86',
+      steamId,
+      rivals: { above: null, below: null },
+    }),
+  });
+
+  const wsFrame = formatWsMessage('hud_session', session);
+  const parsed = JSON.parse(wsFrame) as { event: string; data: typeof session };
+  assert.equal(parsed.event, 'hud_session');
+  assert.match(JSON.stringify(parsed.data), /"best_lap_ms":275432/);
+  assert.match(JSON.stringify(parsed.data), /"last_lap_ms":276100/);
+
+  const snapshotPayload = {
+    ok: true,
+    steamId,
+    version: buildHudVersionEvent(steamId, {
+      ok: true,
+      version: 'server:track:layout:car:1',
+      lbVersion: 'server:track:layout:car:1',
+      playerVersion: 1,
+    }),
+    session,
+    battle: { ok: false, reason: 'no_battle' },
+  };
+
+  assert.equal(snapshotPayload.session, session);
+  assert.deepEqual(Object.keys(snapshotPayload.session ?? {}), [
+    'steamId',
+    'ok',
+    'version',
+    'context',
+    'profile',
+  ]);
+});
+
+test('snapshot battle field uses same event name as WSS (battle)', () => {
+  const battle = { ok: true, version: '1', state: 'active' };
+  const wsFrame = formatWsMessage('battle', battle);
+  const parsed = JSON.parse(wsFrame) as { event: string; data: typeof battle };
+  assert.equal(parsed.event, 'battle');
+  assert.deepEqual(parsed.data, battle);
+});
+
+test('parseHudSnapshotSections accepts battle, session, and defaults to full', () => {
+  assert.equal(parseHudSnapshotSections('battle'), 'battle');
+  assert.equal(parseHudSnapshotSections('BATTLE'), 'battle');
+  assert.equal(parseHudSnapshotSections('session'), 'session');
+  assert.equal(parseHudSnapshotSections('SESSION'), 'session');
+  assert.equal(parseHudSnapshotSections(undefined), 'full');
+  assert.equal(parseHudSnapshotSections('full'), 'full');
+});
+
+test('handleHudSnapshot returns 404 with convex_unreachable when Convex fetch fails', async () => {
+  if (!isHudRedisConfigured() || !isHudConvexConfigured()) {
+    return;
+  }
+
+  const steamId = '76561199000000998';
+  resetManagedServersForTests();
+  updateManagedServersFromSnapshot([
+    {
+      serverName: 'server',
+      displayName: 'testing xd',
+      type: 'testing',
+    },
+  ]);
+
+  const record = buildPresenceRecordForTests(
+    'testing xd',
+    { trackName: 'pk_akina', trackConfig: 'downhill' },
+    steamId,
+    'ks_toyota_gt86',
+  );
+  registerBattleWsPresence({
+    steamId,
+    ...record,
+    serverType: 'testing',
+    folderSlug: 'server',
+  });
+
+  setConvexClientForTests({
+    query: async () => {
+      throw new TypeError('fetch failed', { cause: new Error('read ECONNRESET') });
+    },
+    mutation: async () => {
+      throw new TypeError('fetch failed');
+    },
+  });
+
+  let statusCode = 0;
+  let body: unknown;
+  const apiKey = (process.env.HUD_API_KEY || '').trim();
+  const req = {
+    query: { steamId, sections: 'full', api_key: apiKey },
+    headers: {},
+  } as unknown as Request;
+  const res = {
+    headersSent: false,
+    status(code: number) {
+      statusCode = code;
+      return this;
+    },
+    json(payload: unknown) {
+      body = payload;
+    },
+  } as unknown as Response;
+
+  try {
+    await handleHudSnapshot(req, res);
+    assert.equal(statusCode, 404);
+    assert.deepEqual(body, { ok: false, reason: 'convex_unreachable' });
+  } finally {
+    resetConvexClientForTests();
+    resetBattleWsPresenceForTests();
+    resetManagedServersForTests();
+  }
+});
+
+test('handleHudSnapshot sections=battle does not call Convex metadata queries', async () => {
+  if (!isHudRedisConfigured()) {
+    return;
+  }
+
+  resetHudConvexQueryStatsForTests();
+
+  const steamId = '76561199000000996';
+  resetManagedServersForTests();
+  updateManagedServersFromSnapshot([
+    {
+      serverName: 'server',
+      displayName: 'Battle',
+      type: 'battle',
+    },
+  ]);
+
+  const record = buildPresenceRecordForTests(
+    'Battle',
+    { trackName: 'pk_akina', trackConfig: 'downhill' },
+    steamId,
+    'ks_toyota_gt86',
+  );
+  registerBattleWsPresence({
+    steamId,
+    ...record,
+    serverType: 'battle',
+    folderSlug: 'server',
+  });
+
+  setConvexClientForTests({
+    query: async () => {
+      throw new Error('Convex must not be called for sections=battle');
+    },
+    mutation: async () => {
+      throw new Error('Convex must not be called for sections=battle');
+    },
+  });
+
+  let body: Record<string, unknown> | undefined;
+  const apiKey = (process.env.HUD_API_KEY || '').trim();
+  const req = {
+    query: { steamId, sections: 'battle', api_key: apiKey },
+    headers: {},
+  } as unknown as Request;
+  const res = {
+    headersSent: false,
+    status(_code: number) {
+      return this;
+    },
+    json(payload: unknown) {
+      body = payload as Record<string, unknown>;
+    },
+  } as unknown as Response;
+
+  try {
+    await handleHudSnapshot(req, res);
+    assert.equal(body?.ok, true);
+    assert.equal(body?.sections, 'battle');
+    assert.equal(body?.battle != null, true);
+    assert.equal(body?.session, undefined);
+    assert.equal(body?.version, undefined);
+    const stats = getHudConvexQueryStats();
+    assert.equal(stats.queries.fetchHudVersion ?? 0, 0);
+    assert.equal(stats.queries.fetchHudSession ?? 0, 0);
+  } finally {
+    resetConvexClientForTests();
+    resetBattleWsPresenceForTests();
+    resetManagedServersForTests();
+    resetHudConvexQueryStatsForTests();
+  }
+});
+
+test('handleHudSnapshot marks overlay presence on successful poll', async () => {
+  if (!isHudRedisConfigured() || !isHudConvexConfigured()) {
+    return;
+  }
+
+  const steamId = '76561199000000997';
+  const sessionVersion = 'server:track:layout:car:poll-test';
+
+  resetManagedServersForTests();
+  updateManagedServersFromSnapshot([
+    {
+      serverName: 'server',
+      displayName: 'testing xd',
+      type: 'battle',
+    },
+  ]);
+
+  const record = buildPresenceRecordForTests(
+    'testing xd',
+    { trackName: 'pk_akina', trackConfig: 'downhill' },
+    steamId,
+    'ks_toyota_gt86',
+  );
+  registerBattleWsPresence({
+    steamId,
+    ...record,
+    serverType: 'battle',
+    folderSlug: 'server',
+  });
+
+  const sessionKey = sessionRedisKey(buildSessionCacheKey({ steamId }));
+  await hudRedisSet(
+    sessionKey,
+    JSON.stringify({
+      ok: true,
+      version: sessionVersion,
+      context: {
+        server_id: 's1',
+        server_name: 'testing xd',
+        track_id: 'pk_akina',
+        track_name: 'Akina',
+        layout_id: 'downhill',
+        layout_name: 'Downhill',
+        car_id: 'ks_toyota_gt86',
+        car_name: 'GT86',
+        player_steam_id: steamId,
+      },
+      profile: null,
+    }),
+    HUD_SESSION_TTL_SEC,
+  );
+
+  const connKey = connPresenceRedisKey(steamId);
+  await clearHudConnPresence(steamId);
+
+  setConvexClientForTests({
+    query: async (_name: string, args: Record<string, unknown>) => {
+      if (args.steamId === steamId) {
+        return {
+          ok: true,
+          version: sessionVersion,
+          lbVersion: sessionVersion,
+          playerVersion: 1,
+        };
+      }
+      throw new Error('unexpected query');
+    },
+    mutation: async () => {
+      throw new Error('unexpected mutation');
+    },
+  });
+
+  let statusCode = 0;
+  let body: Record<string, unknown> | undefined;
+  const apiKey = (process.env.HUD_API_KEY || '').trim();
+  const req = {
+    query: { steamId, sections: 'full', api_key: apiKey },
+    headers: {},
+  } as unknown as Request;
+  const res = {
+    headersSent: false,
+    status(code: number) {
+      statusCode = code;
+      return this;
+    },
+    json(payload: unknown) {
+      body = payload as Record<string, unknown>;
+    },
+  } as unknown as Response;
+
+  try {
+    await handleHudSnapshot(req, res);
+    assert.equal(statusCode, 0);
+    assert.equal(body?.ok, true);
+    assert.equal(await hudRedisGet(connKey), '1');
+  } finally {
+    resetConvexClientForTests();
+    resetBattleWsPresenceForTests();
+    resetManagedServersForTests();
+    await hudRedisDel(sessionKey);
+    await clearHudConnPresence(steamId);
+  }
+});
