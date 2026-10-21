@@ -2,7 +2,7 @@
 
 Documento para el equipo **ProjectD** (Host / Convex). El hub (`assetto-infra` Control API) ya expone la API. Host solo consume.
 
-Relacionado: [CONTROL_API_V1.md](./CONTROL_API_V1.md) (sección *User library*), OpenAPI [openapi/control-api-v1.yaml](./openapi/control-api-v1.yaml).
+Relacionado: [CONTROL_API_V1.md](./CONTROL_API_V1.md) (sección *User library*), OpenAPI [openapi/control-api-v1.yaml](./openapi/control-api-v1.yaml). Custom tracks (mismo library, `kind=track`): [PROJECTD_CUSTOM_TRACKS_HOST.md](./PROJECTD_CUSTOM_TRACKS_HOST.md).
 
 ---
 
@@ -71,7 +71,7 @@ Respuesta (resumen):
 }
 ```
 
-**UI:** en el flujo de configurar/crear server, sección “Custom cars” = este array filtrado `kind === "car"`. Usar `items[].skins` como lista de skin ids (nombres de carpeta) para el picker / `entry_list` — **no** un fallback de “slots”. Misma idea que coches oficiales. Tracks: `skins` viene `[]`.
+**UI:** en el flujo de configurar/crear server, sección “Custom cars” = este array filtrado `kind === "car"`. Usar `items[].skins` como lista de skin ids (nombres de carpeta) para el picker / `entry_list` — **no** un fallback de “slots”. Misma idea que coches oficiales. Para tracks (`skins: []`, layouts, ensure): [PROJECTD_CUSTOM_TRACKS_HOST.md](./PROJECTD_CUSTOM_TRACKS_HOST.md).
 
 ### 2. Subir — slim en el navegador (recomendado)
 

@@ -180,7 +180,7 @@ Convex Action BFF uploads user mods here. **Hub stores blobs + `mod_steam_links`
 
 **ZIP upload (fallback):** `multipart/form-data` fields `file`, `steamId`, `kind` (`car`\|`track`), optional `slug`, `displayName`. Hub extracts, filters server-slim paths, dedupes by content hash, may allocate `-cN` slug, links steamId.
 
-Full Host contract: [PROJECTD_CUSTOM_CARS_HOST.md](./PROJECTD_CUSTOM_CARS_HOST.md).
+Full Host contracts: cars — [PROJECTD_CUSTOM_CARS_HOST.md](./PROJECTD_CUSTOM_CARS_HOST.md); tracks — [PROJECTD_CUSTOM_TRACKS_HOST.md](./PROJECTD_CUSTOM_TRACKS_HOST.md).
 
 Caps: `CONTROL_MOD_UPLOAD_MAX_BYTES` (default 500MB), `CONTROL_MOD_UPLOAD_MAX_FILES` (default 5000).
 
