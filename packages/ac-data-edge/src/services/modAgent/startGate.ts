@@ -5,8 +5,11 @@ import { stripCspTrackPrefix } from '@projectd/ac-data-shared/mods/cspTrack.js';
 import { contentPoolPath } from './materialize.js';
 import { isModAgentEnabled, refreshServerModsOnHub } from './hubModClient.js';
 import { restartServerCore, startServerCore } from '../../controller/controller.js';
-import { getServerLifecycle, setServerLifecycle } from '../serverLifecycle.js';
-import { getServerRuntime } from '../serverRuntime.js';
+import {
+  getServerLifecycle,
+  markOnlineIfRunning,
+  setServerLifecycle,
+} from '../serverLifecycle.js';
 
 export type ModStartGateItem = {
   acContentSlug: string;
@@ -397,18 +400,8 @@ function afterSpawnLifecycle(serverName: string, spawnOk: boolean, message: stri
     return;
   }
   setServerLifecycle(serverName, 'CHECKING', 'verifying process');
-  try {
-    const runtime = getServerRuntime(serverName);
-    if (runtime.running) {
-      setServerLifecycle(
-        serverName,
-        'ONLINE',
-        runtime.httpPort != null ? `httpPort=${runtime.httpPort}` : undefined,
-      );
-      return;
-    }
-  } catch {
-    /* fall through */
+  if (markOnlineIfRunning(serverName)) {
+    return;
   }
   setServerLifecycle(serverName, 'FAILED', 'process not running after start');
 }

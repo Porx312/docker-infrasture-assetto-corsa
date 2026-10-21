@@ -35,7 +35,11 @@ import {
   UNRECOVERABLE_MODS_REASON,
   type ModContentOverrides,
 } from './modAgent/startGate.js';
-import { clearServerLifecycle, setServerLifecycle } from './serverLifecycle.js';
+import {
+  clearServerLifecycle,
+  markOnlineIfRunning,
+  setServerLifecycle,
+} from './serverLifecycle.js';
 
 const REDIS_CONFIG_STREAM_KEY = process.env.REDIS_CONFIG_STREAM_KEY || 'ac:config';
 const AC_INSTANCE_ID = process.env.AC_INSTANCE_ID || 'default';
@@ -189,11 +193,11 @@ async function preflightModsForRow(row: ServerRow): Promise<PreflightResult> {
     return 'ok';
   }
 
-  setServerLifecycle(row.serverName, 'PREPARING', 'preflight mods');
-
   const { ensureModsReadyForServerStart, localContentExists, requiredSlugsFromConfig } =
     await import('./modAgent/startGate.js');
   const required = requiredSlugsFromConfig(overrides);
+  // Fast path: content already local — do not flash PREPARING (would stick if
+  // reconcile then early-returns on unchanged signature while process is up).
   if (required.length > 0 && required.every((slug) => localContentExists(slug))) {
     // Folder may exist before extract finishes — still require usable cars when entries set.
     if (row.entries && row.entries.length > 0) {
@@ -209,6 +213,7 @@ async function preflightModsForRow(row: ServerRow): Promise<PreflightResult> {
     return 'ok';
   }
 
+  setServerLifecycle(row.serverName, 'PREPARING', 'preflight mods');
   const gate = await ensureModsReadyForServerStart(row.serverName, overrides);
   if (gate.ok) {
     return 'ok';
@@ -343,6 +348,29 @@ export function _pendingReconcileCountForTests(): number {
   return pendingReconcileByServer.size;
 }
 
+/** Test helper */
+export function _resetLastSignaturesForTests(): void {
+  lastSignatures.clear();
+}
+
+/** Test helper */
+export function _seedLastSignatureForTests(row: ServerRow): void {
+  lastSignatures.set(row.serverName, buildSignature(row));
+}
+
+/** Test helper */
+export async function _reconcileServerForTests(
+  row: ServerRow,
+  isFirstSnapshot: boolean,
+): Promise<ReconcileOutcome> {
+  return reconcileServer(row, isFirstSnapshot);
+}
+
+/** Test helper */
+export async function _preflightModsForRowForTests(row: ServerRow): Promise<PreflightResult> {
+  return preflightModsForRow(row);
+}
+
 async function reconcileServer(
   row: ServerRow,
   isFirstSnapshot: boolean,
@@ -412,6 +440,9 @@ async function reconcileServer(
         schedulePendingReconcile(row, 'start_mods_not_ready');
         return 'pending_mods';
       }
+    } else if (running && shouldStartFromConfig(row.isActive)) {
+      // Recover ONLINE after preflight (or leave it stable on healthy re-snapshots).
+      markOnlineIfRunning(row.serverName);
     }
     clearPendingReconcile(row.serverName);
     return 'applied';
@@ -529,7 +560,10 @@ async function reconcileServer(
       }
     }
   } else {
-    console.log(`[redis-config-applier] ${row.serverName} already running, config${changed ? ' changed' : ' unchanged'}`);
+    console.log(
+      `[redis-config-applier] ${row.serverName} already running, config${changed ? ' changed' : ' unchanged'}`,
+    );
+    markOnlineIfRunning(row.serverName);
   }
 
   lastSignatures.set(row.serverName, signature);

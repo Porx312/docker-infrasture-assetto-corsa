@@ -3,6 +3,8 @@
  * Phases are Host-facing; coarse status is derived for purge/compat.
  */
 
+import { getServerRuntime } from './serverRuntime.js';
+
 export type ServerLifecyclePhase =
   | 'PREPARING'
   | 'CONFIGURING'
@@ -118,6 +120,27 @@ export function clearServerLifecycle(serverName: string): void {
   if (!states.has(key)) return;
   states.delete(key);
   scheduleForcedHeartbeat();
+}
+
+/**
+ * If acServer is running, publish ONLINE (recovers after preflight PREPARING on
+ * unchanged-signature reconciles). Returns true when ONLINE was set.
+ */
+export function markOnlineIfRunning(serverName: string): boolean {
+  const key = normalizeServerName(serverName);
+  if (!key) return false;
+  try {
+    const runtime = getServerRuntime(key);
+    if (!runtime.running) return false;
+    setServerLifecycle(
+      key,
+      'ONLINE',
+      runtime.httpPort != null ? `httpPort=${runtime.httpPort}` : undefined,
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Test helper. */

@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
+import { activeServers } from '../../src/controller/controller.js';
 import {
   _flushLifecycleHeartbeatForTests,
   _resetServerLifecycleForTests,
   clearServerLifecycle,
   coarseStatusForPhase,
   getServerLifecycle,
+  markOnlineIfRunning,
   setLifecycleHeartbeatPublisher,
   setServerLifecycle,
 } from '../../src/services/serverLifecycle.js';
@@ -85,4 +90,57 @@ test('servers stay isolated', () => {
   clearServerLifecycle('a');
   assert.equal(getServerLifecycle('a'), null);
   assert.equal(getServerLifecycle('b')!.phase, 'FAILED');
+});
+
+test('markOnlineIfRunning sets ONLINE when process is up', () => {
+  _resetServerLifecycleForTests();
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-life-online-'));
+  const prevServers = process.env.SERVERS_PATH;
+  const name = 'server-1';
+  process.env.SERVERS_PATH = tmp;
+  try {
+    fs.mkdirSync(path.join(tmp, name, 'cfg'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmp, name, 'cfg', 'server_cfg.ini'),
+      '[SERVER]\nNAME=t\nHTTP_PORT=8081\nUDP_PORT=9600\nTCP_PORT=9600\n',
+      'utf-8',
+    );
+    activeServers[name] = { pid: 4242, process: {} as never };
+    setServerLifecycle(name, 'PREPARING', 'preflight mods');
+    assert.equal(markOnlineIfRunning(name), true);
+    const st = getServerLifecycle(name);
+    assert.equal(st?.phase, 'ONLINE');
+    assert.match(st?.phaseDetail || '', /httpPort=8081/);
+  } finally {
+    delete activeServers[name];
+    if (prevServers !== undefined) process.env.SERVERS_PATH = prevServers;
+    else delete process.env.SERVERS_PATH;
+    fs.rmSync(tmp, { recursive: true, force: true });
+    _resetServerLifecycleForTests();
+  }
+});
+
+test('markOnlineIfRunning returns false when not running', () => {
+  _resetServerLifecycleForTests();
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-life-offline-'));
+  const prevServers = process.env.SERVERS_PATH;
+  const name = 'server-2';
+  process.env.SERVERS_PATH = tmp;
+  try {
+    fs.mkdirSync(path.join(tmp, name, 'cfg'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmp, name, 'cfg', 'server_cfg.ini'),
+      '[SERVER]\nNAME=t\nHTTP_PORT=8082\n',
+      'utf-8',
+    );
+    delete activeServers[name];
+    setServerLifecycle(name, 'PREPARING', 'waiting');
+    assert.equal(markOnlineIfRunning(name), false);
+    assert.equal(getServerLifecycle(name)?.phase, 'PREPARING');
+  } finally {
+    if (prevServers !== undefined) process.env.SERVERS_PATH = prevServers;
+    else delete process.env.SERVERS_PATH;
+    fs.rmSync(tmp, { recursive: true, force: true });
+    _resetServerLifecycleForTests();
+  }
 });
