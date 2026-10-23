@@ -49,7 +49,7 @@ function registerManagedServerRow(row: ManagedServerRow): void {
   const entry: ManagedServer = {
     folderSlug: row.serverName,
     displayName,
-    type: row.type ?? inferServerType(row.serverName, displayName),
+    type: row.type?.trim() || inferServerType(row.serverName, displayName),
   };
   byDisplayName.set(displayKey(displayName), entry);
   byDisplayName.set(displayKey(row.serverName), entry);

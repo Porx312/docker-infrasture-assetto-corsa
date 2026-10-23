@@ -6,6 +6,8 @@ import { getServerPorts } from './serverPorts.js';
 import { normalizeTrackConfigForIni } from '@projectd/ac-data-shared/controller/trackConfig.js';
 import { applyCmNameSuffix, readCmWrapperPort } from '@projectd/ac-data-shared/controller/cmWrapper.js';
 import { applyCspMinTrackForIni } from '@projectd/ac-data-shared/mods/cspTrack.js';
+import { patchIniSectionField } from '@projectd/ac-data-shared/services/iniHelpers.js';
+import { resolveTimeOfDayPreset } from '@projectd/ac-data-shared/services/timeOfDayPresets.js';
 
 /** Lazy so unit tests can import this module without SERVERS_PATH set. */
 function getServersPath(): string {
@@ -181,6 +183,9 @@ export type ServerConfigPayload = {
     bannerImageUrl?: string;
     loadingImageUrl?: string;
     loadingImageUrls?: string[];
+    /** day | night | dynamic → SUN_ANGLE + TIME_OF_DAY_MULT */
+    timeOfDay?: string;
+    tyreBlanketsAllowed?: boolean;
 };
 
 /** Escribe server_cfg.ini / entry_list.ini según payload (misma lógica que la antigua API). */
@@ -195,6 +200,8 @@ export function applyServerConfiguration(
         configTrack,
         maxClients,
         entries,
+        timeOfDay,
+        tyreBlanketsAllowed,
     } = payload;
 
     const serversPath = getServersPath();
@@ -211,51 +218,33 @@ export function applyServerConfiguration(
         let content = fs.readFileSync(cfgPath, 'utf-8');
 
         if (displayName !== undefined) {
+            const cleanName = String(displayName).trim();
             const wrapperPort = readCmWrapperPort(serversPath, serverName);
-            const nameValue = applyCmNameSuffix(displayName, wrapperPort);
-            if (/^NAME=.*/m.test(content)) {
-                content = content.replace(/^NAME=.*/m, `NAME=${nameValue}`);
-            } else {
-                content += `\nNAME=${nameValue}`;
-            }
-            modifications.push('displayName (NAME)');
+            const nameValue = applyCmNameSuffix(cleanName, wrapperPort);
+            content = patchIniSectionField(content, 'SERVER', 'NAME', nameValue);
+            content = patchIniSectionField(content, 'PRACTICE', 'NAME', cleanName);
+            modifications.push('displayName (SERVER+PRACTICE NAME)');
         }
 
         if (password !== undefined) {
-            if (/^PASSWORD=.*/m.test(content)) {
-                content = content.replace(/^PASSWORD=.*/m, `PASSWORD=${password}`);
-            } else {
-                content += `\nPASSWORD=${password}`;
-            }
+            content = patchIniSectionField(content, 'SERVER', 'PASSWORD', password);
             modifications.push('password');
         }
 
         if (track !== undefined) {
             const trackValue = applyCspMinTrackForIni(track);
-            if (/^TRACK=.*/m.test(content)) {
-                content = content.replace(/^TRACK=.*/m, `TRACK=${trackValue}`);
-            } else {
-                content += `\nTRACK=${trackValue}`;
-            }
+            content = patchIniSectionField(content, 'SERVER', 'TRACK', trackValue);
             modifications.push('track');
         }
 
         if (configTrack !== undefined) {
             const value = normalizeTrackConfigForIni(configTrack) ?? '';
-            if (/^CONFIG_TRACK=.*/m.test(content)) {
-                content = content.replace(/^CONFIG_TRACK=.*/m, `CONFIG_TRACK=${value}`);
-            } else {
-                content += `\nCONFIG_TRACK=${value}`;
-            }
+            content = patchIniSectionField(content, 'SERVER', 'CONFIG_TRACK', value);
             modifications.push('configTrack');
         }
 
         if (maxClients !== undefined) {
-            if (/^MAX_CLIENTS=.*/m.test(content)) {
-                content = content.replace(/^MAX_CLIENTS=.*/m, `MAX_CLIENTS=${maxClients}`);
-            } else {
-                content += `\nMAX_CLIENTS=${maxClients}`;
-            }
+            content = patchIniSectionField(content, 'SERVER', 'MAX_CLIENTS', String(maxClients));
             modifications.push('maxClients');
         }
 
@@ -263,11 +252,7 @@ export function applyServerConfiguration(
             const models = entries.map((e: { model: string }) => e.model);
             const uniqueModels = [...new Set(models)].join(';');
 
-            if (/^CARS=.*/m.test(content)) {
-                content = content.replace(/^CARS=.*/m, `CARS=${uniqueModels}`);
-            } else {
-                content += `\nCARS=${uniqueModels}`;
-            }
+            content = patchIniSectionField(content, 'SERVER', 'CARS', uniqueModels);
             modifications.push('cars (server_cfg.ini)');
 
             let entryListContent = '';
@@ -296,6 +281,39 @@ export function applyServerConfiguration(
             }
             fs.writeFileSync(entryListPath, entryListContent, 'utf-8');
             modifications.push('entry_list.ini (regenerated)');
+        }
+
+        if (tyreBlanketsAllowed !== undefined) {
+            content = patchIniSectionField(
+                content,
+                'SERVER',
+                'TYRE_BLANKETS_ALLOWED',
+                tyreBlanketsAllowed ? '1' : '0',
+            );
+            modifications.push('tyreBlanketsAllowed');
+        }
+
+        if (timeOfDay !== undefined) {
+            const preset = resolveTimeOfDayPreset(timeOfDay);
+            if (preset) {
+                content = patchIniSectionField(
+                    content,
+                    'SERVER',
+                    'SUN_ANGLE',
+                    String(preset.sunAngle),
+                );
+                content = patchIniSectionField(
+                    content,
+                    'SERVER',
+                    'TIME_OF_DAY_MULT',
+                    String(preset.timeOfDayMult),
+                );
+                modifications.push(`timeOfDay (${String(timeOfDay).trim().toLowerCase()})`);
+            } else {
+                console.warn(
+                    `[applyServerConfiguration] ${serverName}: unknown timeOfDay=${String(timeOfDay)}`,
+                );
+            }
         }
 
         if (modifications.length === 0) {

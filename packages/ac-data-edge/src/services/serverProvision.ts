@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { applyCmNameSuffix } from '@projectd/ac-data-shared/controller/cmWrapper.js';
+import { patchIniSectionField } from '@projectd/ac-data-shared/services/iniHelpers.js';
 import { derivePortsFromFolderName } from '../controller/serverPorts.js';
 import { stopServerCore } from '../controller/controller.js';
 import { listServerInstanceNames } from '@projectd/ac-data-shared/services/serverBranding.js';
@@ -201,14 +202,6 @@ export function copyDirRecursiveForTest(
   copyDirRecursive(src, dest, serversRoot);
 }
 
-function patchIniField(content: string, field: string, value: string): string {
-  const line = `${field}=${value}`;
-  if (new RegExp(`^${field}=`, 'm').test(content)) {
-    return content.replace(new RegExp(`^${field}=.*$`, 'm'), line);
-  }
-  return `${content.trimEnd()}\n${line}\n`;
-}
-
 function wrapperOffset(): number {
   const raw = process.env.WRAPPER_PORT_OFFSET?.trim();
   const parsed = raw ? Number.parseInt(raw, 10) : 10_000;
@@ -267,15 +260,16 @@ export async function provisionServerInstance(options: {
   const pluginLocal = pluginListen + 1;
 
   let ini = fs.readFileSync(cfgPath, 'utf-8');
-  ini = patchIniField(ini, 'HTTP_PORT', String(httpPort));
-  ini = patchIniField(ini, 'UDP_PORT', String(ports.udp));
-  ini = patchIniField(ini, 'TCP_PORT', String(ports.tcp));
-  ini = patchIniField(ini, 'UDP_PLUGIN_ADDRESS', `127.0.0.1:${pluginListen}`);
-  ini = patchIniField(ini, 'UDP_PLUGIN_LOCAL_PORT', String(pluginLocal));
+  ini = patchIniSectionField(ini, 'SERVER', 'HTTP_PORT', String(httpPort));
+  ini = patchIniSectionField(ini, 'SERVER', 'UDP_PORT', String(ports.udp));
+  ini = patchIniSectionField(ini, 'SERVER', 'TCP_PORT', String(ports.tcp));
+  ini = patchIniSectionField(ini, 'SERVER', 'UDP_PLUGIN_ADDRESS', `127.0.0.1:${pluginListen}`);
+  ini = patchIniSectionField(ini, 'SERVER', 'UDP_PLUGIN_LOCAL_PORT', String(pluginLocal));
 
   const lobbyName = options.displayName?.trim() || `ProjectD ${serverName}`;
   const wrapperPort = httpPort + wrapperOffset();
-  ini = patchIniField(ini, 'NAME', applyCmNameSuffix(lobbyName, wrapperPort));
+  ini = patchIniSectionField(ini, 'SERVER', 'NAME', applyCmNameSuffix(lobbyName, wrapperPort));
+  ini = patchIniSectionField(ini, 'PRACTICE', 'NAME', lobbyName);
 
   fs.writeFileSync(cfgPath, ini, 'utf-8');
 

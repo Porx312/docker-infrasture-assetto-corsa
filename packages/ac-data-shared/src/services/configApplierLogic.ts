@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { normalizeTrackConfigForIni } from '../controller/trackConfig.js';
+import { normalizeTimeOfDay } from './timeOfDayPresets.js';
 
 export type ConfigServerRow = {
   serverId?: string;
@@ -16,6 +17,9 @@ export type ConfigServerRow = {
   trackConfig?: string;
   entries?: Array<{ model: string; skin?: string; count?: number }>;
   updatedAt?: number;
+  /** day | night | dynamic → SUN_ANGLE + TIME_OF_DAY_MULT */
+  timeOfDay?: string;
+  tyreBlanketsAllowed?: boolean;
 };
 
 /** Stable hash of config fields that trigger INI apply / restart. */
@@ -32,6 +36,9 @@ export function buildConfigSignature(row: ConfigServerRow): string {
       skin: e.skin ?? '',
       count: e.count ?? 1,
     })),
+    timeOfDay: normalizeTimeOfDay(row.timeOfDay) ?? '',
+    tyreBlanketsAllowed:
+      row.tyreBlanketsAllowed === undefined ? null : !!row.tyreBlanketsAllowed,
   };
   return crypto.createHash('sha1').update(JSON.stringify(normalized)).digest('hex');
 }

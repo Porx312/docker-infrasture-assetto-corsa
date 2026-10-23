@@ -283,6 +283,17 @@ Handler:
 3. Push to edge (`/hud/worker/push-config-snapshot`) or hub Redis `ac:config`.
 4. Return `{ ok, errors?: ["track_not_installed:…", "car_not_installed:…"] }`.
 
+### Optional per-server fields (Host / Convex snapshot rows)
+
+Convex `getWorkerInstanceServerConfigs` (and desired-config `servers[]`) may include:
+
+| Field | Type | Edge effect |
+|-------|------|-------------|
+| `timeOfDay` | `"day"` \| `"night"` \| `"dynamic"` | Writes `SUN_ANGLE` + `TIME_OF_DAY_MULT` (`day` 16/1, `night` -80/1, `dynamic` 16/5) |
+| `tyreBlanketsAllowed` | `boolean` | `TYRE_BLANKETS_ALLOWED=0\|1` |
+
+These enter the config signature (restart when they change). Host owns the values in Convex; infra only applies them. Battle eligibility stays driven by snapshot `type` / name heuristic (all servers can still use the battle system).
+
 Existing `POST /hud/worker/refresh-config` remains for migration.
 
 ---

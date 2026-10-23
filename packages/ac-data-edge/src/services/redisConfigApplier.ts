@@ -95,6 +95,8 @@ type ServerRow = {
   bannerImageUrl?: string;
   loadingImageUrl?: string;
   loadingImageUrls?: string[];
+  timeOfDay?: string;
+  tyreBlanketsAllowed?: boolean;
 };
 
 type StreamMessage = {
@@ -151,6 +153,8 @@ function rowToConfigPayload(row: ServerRow): ServerConfigPayload {
   if (row.bannerImageUrl !== undefined) payload.bannerImageUrl = row.bannerImageUrl;
   if (row.loadingImageUrl !== undefined) payload.loadingImageUrl = row.loadingImageUrl;
   if (row.loadingImageUrls !== undefined) payload.loadingImageUrls = row.loadingImageUrls;
+  if (row.timeOfDay !== undefined) payload.timeOfDay = row.timeOfDay;
+  if (row.tyreBlanketsAllowed !== undefined) payload.tyreBlanketsAllowed = row.tyreBlanketsAllowed;
   return payload;
 }
 

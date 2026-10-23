@@ -4,6 +4,12 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { applyCmNameSuffix, readCmWrapperPort, stripCmNameSuffix } from '../controller/cmWrapper.js';
 import { applyCspMinTrackForIni, stripCspTrackPrefix } from '../mods/cspTrack.js';
+import {
+  patchIniField,
+  patchIniSectionField,
+  readIniField,
+  readIniSectionField,
+} from './iniHelpers.js';
 import { buildCmDescription, normalizeBranding } from './serverBranding.js';
 import '../config/loadEnv.js';
 
@@ -108,50 +114,7 @@ function wrapperJsonPath(serverName: string): string {
   return path.join(serversPath(), serverName, 'cfg', 'cm_wrapper_params.json');
 }
 
-function readIniField(content: string, field: string): string | null {
-  const match = new RegExp(`^${field}=(.*)$`, 'm').exec(content);
-  return match ? match[1].trim() : null;
-}
-
-function patchIniField(content: string, field: string, value: string): string {
-  const line = `${field}=${value}`;
-  if (new RegExp(`^${field}=`, 'm').test(content)) {
-    return content.replace(new RegExp(`^${field}=.*$`, 'm'), line);
-  }
-  return `${content.trimEnd()}\n${line}\n`;
-}
-
 const WEATHER_INI_SECTION = 'WEATHER_0';
-
-function extractIniSection(content: string, section: string): string {
-  const re = new RegExp(`\\[${section}\\]\\s*([\\s\\S]*?)(?=\\n\\[|$)`, 'm');
-  const match = re.exec(content);
-  return match?.[1] ?? '';
-}
-
-function readIniSectionField(content: string, section: string, field: string): string | null {
-  const block = extractIniSection(content, section);
-  if (!block) {
-    return null;
-  }
-  return readIniField(block, field);
-}
-
-function patchIniSectionField(
-  content: string,
-  section: string,
-  field: string,
-  value: string,
-): string {
-  if (!extractIniSection(content, section)) {
-    return `${content.trimEnd()}\n[${section}]\n${field}=${value}\n`;
-  }
-  const re = new RegExp(`(\\[${section}\\]\\s*)([\\s\\S]*?)(?=\\n\\[|$)`, 'm');
-  return content.replace(re, (_full, header: string, body: string) => {
-    const patchedBody = patchIniField(body, field, value);
-    return `${header}${patchedBody}`;
-  });
-}
 
 function parseIniNumber(raw: string | null, fallback = 0): number {
   if (raw === null || raw.trim() === '') {
@@ -249,9 +212,11 @@ export async function updateServerInstanceConfig(
   let ini = fs.readFileSync(cfgPath, 'utf-8');
 
   if (input.displayName !== undefined) {
+    const cleanName = input.displayName.trim();
     const wrapperPort = readCmWrapperPort(serversPath(), serverName);
-    const nameValue = applyCmNameSuffix(input.displayName.trim(), wrapperPort);
-    ini = patchIniField(ini, 'NAME', nameValue);
+    const nameValue = applyCmNameSuffix(cleanName, wrapperPort);
+    ini = patchIniSectionField(ini, 'SERVER', 'NAME', nameValue);
+    ini = patchIniSectionField(ini, 'PRACTICE', 'NAME', cleanName);
   }
   if (input.password !== undefined) {
     ini = patchIniField(ini, 'PASSWORD', input.password);
