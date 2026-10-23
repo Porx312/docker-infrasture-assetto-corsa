@@ -11,7 +11,9 @@ export function patchIniField(content: string, field: string, value: string): st
 }
 
 export function extractIniSection(content: string, section: string): string {
-  const re = new RegExp(`\\[${section}\\]\\s*([\\s\\S]*?)(?=\\n\\[|$)`, 'm');
+  // No `m` flag: with multiline, `$` matches end-of-line and truncates the body
+  // to the first key, causing patchIniSectionField to append duplicates.
+  const re = new RegExp(`\\[${section}\\]\\s*([\\s\\S]*?)(?=\\n\\[|$)`);
   const match = re.exec(content);
   return match?.[1] ?? '';
 }
@@ -43,7 +45,7 @@ export function patchIniSectionField(
   if (!extractIniSection(content, section)) {
     return `${content.trimEnd()}\n[${section}]\n${field}=${value}\n`;
   }
-  const re = new RegExp(`(\\[${section}\\]\\s*)([\\s\\S]*?)(?=\\n\\[|$)`, 'm');
+  const re = new RegExp(`(\\[${section}\\]\\s*)([\\s\\S]*?)(?=\\n\\[|$)`);
   return content.replace(re, (_full, header: string, body: string) => {
     const patchedBody = patchIniField(body, field, value);
     return `${header}${patchedBody}`;
