@@ -1,4 +1,5 @@
 import type { FleetEdge } from '@projectd/ac-data-shared/services/fleet/fleetRegistry.js';
+import { requireOutboundBaseUrl } from '@projectd/ac-data-shared/services/fleet/outboundBaseUrl.js';
 import { fleetEdgeSecret } from '@projectd/ac-data-shared/services/secrets/fleetSecrets.js';
 
 const PROXY_TIMEOUT_MS = Number(process.env.FLEET_ADMIN_PROXY_TIMEOUT_MS || 120_000);
@@ -8,7 +9,8 @@ function workerSecret(): string {
 }
 
 function buildAdminUrl(baseUrl: string, pathWithQuery: string): URL {
-  return new URL(pathWithQuery, baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`);
+  const base = requireOutboundBaseUrl(baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`);
+  return new URL(pathWithQuery, base);
 }
 
 export async function fetchEdgeJson<T>(

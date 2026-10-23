@@ -29,8 +29,34 @@ export function assertSecurityConfiguration(
 ): void {
   const envFile = resolveEnvFilePath();
   const allowInsecure = envBool('ALLOW_INSECURE_DEFAULTS', false);
-  const strict = isProductionLike() || !allowInsecure;
+  const productionLike = isProductionLike();
+
+  // Prod must never run with ALLOW_INSECURE_DEFAULTS (even if other secrets look fine).
+  if (productionLike && allowInsecure) {
+    console.error(`❌ Security configuration failed (${envFile}):`);
+    console.error(
+      '   - ALLOW_INSECURE_DEFAULTS=true is forbidden when ASSETTO_ENV is prod/production',
+    );
+    process.exit(1);
+  }
+
+  const strict = productionLike || !allowInsecure;
   const errors: string[] = [];
+
+  if (productionLike) {
+    const hudCors = (process.env.HUD_CORS_ORIGIN || '*').trim();
+    const launcherCors = (process.env.CLIENT_LAUNCHER_CORS_ORIGIN || '*').trim();
+    if (hudCors === '*') {
+      console.warn(
+        '⚠️ HUD_CORS_ORIGIN is * in production — set an explicit Host/overlay origin',
+      );
+    }
+    if (role === 'hub' && launcherCors === '*') {
+      console.warn(
+        '⚠️ CLIENT_LAUNCHER_CORS_ORIGIN is * in production — set an explicit Host origin',
+      );
+    }
+  }
 
   const hudApiKey = (process.env.HUD_API_KEY || '').trim();
   if (!hudApiKey) {

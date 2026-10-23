@@ -5,6 +5,8 @@ import { assertModS3PullBootGuard } from './config/modS3BootGuards.js';
 import { createServer } from 'node:http';
 import express from 'express';
 import cookieParser from 'cookie-parser';
+import rateLimit from 'express-rate-limit';
+import { ipKeyGenerator } from 'express-rate-limit';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import adminRoutes from './routes/adminRoutes.js';
@@ -51,13 +53,18 @@ const BIND_HOST = process.env.AC_DATA_BIND_HOST || '0.0.0.0';
 const HUD_CORS = process.env.HUD_CORS_ORIGIN || '*';
 
 app.use((req, res, next) => {
+  const corsPath =
+    req.path.startsWith('/hud') || req.path.startsWith('/client');
   if (req.path.startsWith('/hud')) {
     res.setHeader('Access-Control-Allow-Origin', HUD_CORS);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
   }
   if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
+    if (corsPath) {
+      return res.sendStatus(200);
+    }
+    return res.sendStatus(404);
   }
   next();
 });
@@ -70,6 +77,15 @@ const acDataRoot = path.dirname(fileURLToPath(import.meta.url));
 const ADMIN_VIEWS_PATH = process.env.ADMIN_VIEWS_PATH || path.join(acDataRoot, '..', 'views');
 const ADMIN_PUBLIC_PATH = process.env.ADMIN_PUBLIC_PATH || path.join(acDataRoot, '..', 'public');
 
+const controlApiRateLimiter = rateLimit({
+  windowMs: 60_000,
+  max: Number(process.env.CONTROL_API_RATE_LIMIT_MAX || 120),
+  keyGenerator: (req) => ipKeyGenerator(req.ip ?? 'unknown'),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'Too many requests' },
+});
+
 app.get('/api/live', getPublicLiveHandler);
 app.get('/api/health', getPublicHealthHandler);
 app.get('/branding/images/:filename', (req, res) => {
@@ -79,7 +95,7 @@ app.get('/mods/images/:filename', (req, res) => {
   void getPublicModPreviewImageHandler(req, res);
 });
 app.use('/api', modAgentRoutes);
-app.use('/v1', controlApiRoutes);
+app.use('/v1', controlApiRateLimiter, controlApiRoutes);
 app.use('/client', ...clientLauncherMiddleware, clientSyncRoutes);
 app.use('/worker', workerIngestRoutes);
 app.use('/worker', workerQueryRoutes);

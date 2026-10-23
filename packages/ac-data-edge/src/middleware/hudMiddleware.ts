@@ -1,18 +1,14 @@
 import type { NextFunction, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
+import { isHudApiKeyAuthorized } from '@projectd/ac-data-shared/middleware/hudApiKeyAuth.js';
 import { buildHudRateLimitKey } from './hudRateLimitKey.js';
 
 const HUD_RATE_LIMIT_MAX = Number(process.env.HUD_RATE_LIMIT_MAX || 30);
 const HUD_RATE_LIMIT_AUTH_MAX = Number(process.env.HUD_RATE_LIMIT_AUTH_MAX || 120);
-const HUD_API_KEY = process.env.HUD_API_KEY || '';
 const HUD_CORS_ORIGIN = process.env.HUD_CORS_ORIGIN || '*';
 
 function isHudApiKeyValid(req: Request): boolean {
-  if (!HUD_API_KEY) {
-    return false;
-  }
-  const provided = req.headers['x-api-key'] || req.query.api_key;
-  return provided === HUD_API_KEY;
+  return isHudApiKeyAuthorized(req.headers, req.query.api_key);
 }
 
 export const hudRateLimiter = rateLimit({

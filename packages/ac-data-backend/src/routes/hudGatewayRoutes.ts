@@ -1,4 +1,8 @@
 import { Router, type Request, type Response } from 'express';
+import {
+  hubHudApiKeyMiddleware,
+  hubHudBootstrapRateLimiter,
+} from '@projectd/ac-data-shared/middleware/hudApiKeyAuth.js';
 
 import { buildHudBootstrapResponse } from '../services/hud/hudBootstrap.js';
 import {
@@ -8,7 +12,9 @@ import {
 
 const router = Router();
 
-router.get('/bootstrap', (req: Request, res: Response) => {
+router.use(hubHudApiKeyMiddleware);
+
+router.get('/bootstrap', hubHudBootstrapRateLimiter, (req: Request, res: Response) => {
   void buildHudBootstrapResponse(req)
     .then((body) => {
       if (!body.ok) {

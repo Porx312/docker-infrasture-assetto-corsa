@@ -9,6 +9,7 @@ import {
   type HudEdgeRegistryEntry,
 } from '@projectd/ac-data-shared/services/hud/hudEdgeRegistry.js';
 import { getHudRedisClient, isHudRedisConfigured } from '@projectd/ac-data-shared/services/hud/hudRedis.js';
+import { requireOutboundBaseUrl } from '@projectd/ac-data-shared/services/fleet/outboundBaseUrl.js';
 
 const REDIS_KEY = process.env.HUD_DYNAMIC_REGISTRY_REDIS_KEY || 'ac:hud:registry:state';
 
@@ -105,6 +106,7 @@ export async function applyHudRegistrySync(
   if (!instanceId || !baseUrl) {
     throw new Error('instanceId and baseUrl required');
   }
+  requireOutboundBaseUrl(baseUrl);
 
   // After hub restart, in-memory map may be empty if Redis load raced — refill once.
   if (getDynamicHudEdgeRegistryForTests().size === 0) {

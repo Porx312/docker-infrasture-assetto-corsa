@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { isProductionLike } from '../config/env.js';
 
 function jwtSecret(): string {
     return (process.env.ADMIN_JWT_SECRET || '').trim();
@@ -7,7 +8,11 @@ function jwtSecret(): string {
 
 /** SameSite=None requires Secure; for HTTP admin panel use Lax (same origin). */
 function cookieSecure(): boolean {
-    return (process.env.ADMIN_COOKIE_SECURE || '').trim().toLowerCase() === 'true';
+    const raw = (process.env.ADMIN_COOKIE_SECURE || '').trim().toLowerCase();
+    if (raw === 'true' || raw === '1') return true;
+    if (raw === 'false' || raw === '0') return false;
+    // Prod default: Secure cookies (HTTPS). Dev HTTP admin: unset → false.
+    return isProductionLike();
 }
 
 function cookieSameSite(): 'none' | 'lax' {

@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 
 type MulterFile = NonNullable<Request['file']>;
 import { resolveFleetEdge } from '@projectd/ac-data-shared/services/fleet/fleetRegistry.js';
+import { requireOutboundBaseUrl } from '@projectd/ac-data-shared/services/fleet/outboundBaseUrl.js';
 import { fleetEdgeSecret } from '@projectd/ac-data-shared/services/secrets/fleetSecrets.js';
 
 const PROXY_TIMEOUT_MS = Number(process.env.FLEET_ADMIN_PROXY_TIMEOUT_MS || 120_000);
@@ -35,7 +36,7 @@ export function buildTargetUrl(baseUrl: string, originalUrl: string): URL {
     throw new Error('invalid_proxy_target: absolute or protocol-relative URL rejected');
   }
 
-  const base = new URL(baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`);
+  const base = requireOutboundBaseUrl(baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`);
   const target = new URL(originalUrl, base);
   target.searchParams.delete('fleetEdge');
 

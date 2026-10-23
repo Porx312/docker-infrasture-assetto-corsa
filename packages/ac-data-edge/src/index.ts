@@ -23,6 +23,8 @@ import {
   getPublicLiveHandler,
 } from '@projectd/ac-data-shared/controller/healthController.js';
 import { resolveEnvFilePath } from '@projectd/ac-data-shared/config/loadEnv.js';
+import { allowApiKeyQueryParam } from '@projectd/ac-data-shared/middleware/hudApiKeyAuth.js';
+import { secretsMatch } from '@projectd/ac-data-shared/services/secrets/fleetSecrets.js';
 import { installFatalProcessHandlers } from '@projectd/ac-data-shared/services/fatalProcessHandlers.js';
 import { attachHudWs } from './services/hud/hudWs.js';
 import { isBackendIngestForwardConfigured } from '@projectd/ac-data-shared/services/edgeIngestForward.js';
@@ -111,15 +113,24 @@ const apiKeyMiddleware = (
   res: express.Response,
   next: express.NextFunction,
 ) => {
-  const providedKey = req.headers['x-api-key'] || req.query.api_key;
-  const validKey = process.env.API_KEY;
+  const validKey = (process.env.API_KEY || '').trim();
 
   if (!validKey) {
     console.warn(`⚠️ API_KEY no está definida en ${resolveEnvFilePath()}.`);
     return res.status(500).json({ error: 'Server Configuration Error: API_KEY missing' });
   }
 
-  if (providedKey !== validKey) {
+  const header = req.headers['x-api-key'];
+  const fromHeader =
+    (typeof header === 'string' ? header : Array.isArray(header) ? header[0] : undefined)?.trim() ||
+    '';
+  const query = req.query.api_key;
+  const provided =
+    fromHeader ||
+    (allowApiKeyQueryParam() && typeof query === 'string' ? query.trim() : '') ||
+    '';
+
+  if (!provided || !secretsMatch(provided, validKey)) {
     return res.status(401).json({ error: 'Unauthorized: Invalid API Key' });
   }
 

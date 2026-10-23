@@ -10,6 +10,10 @@ import {
 } from '@projectd/ac-data-shared/services/hud/hudQueryParams.js';
 import { httpsToWss } from '@projectd/ac-data-shared/services/hud/hudWsUrl.js';
 import { resolveHudEdgeBaseUrl } from '@projectd/ac-data-shared/services/hud/hudEdgeRegistry.js';
+import {
+  hudGatewayRequireApiKey,
+  isHudApiKeyAuthorized,
+} from '@projectd/ac-data-shared/middleware/hudApiKeyAuth.js';
 import { resolveHudEdgeForSteamId } from './hudPlayerRouting.js';
 
 function requireQueryString(value: unknown): string | null {
@@ -247,53 +251,70 @@ export function attachHudGatewayWs(server: HttpServer): WebSocketServer | null {
       return;
     }
 
-    const steamId = requireQueryString(url.searchParams.get('steamId'));
-    if (!steamId) {
-      rejectUpgrade(socket, 400, 'steamId required for HUD gateway');
-      return;
-    }
-
-    const legacyServerName = readServerNameFromUrl(url);
-
-    void resolveHudEdgeForSteamId(steamId, { legacyServerName }).then((routing) => {
-      const decision = decideHudGatewayWsUpgrade({
-        steamId,
-        routing,
-        searchParams: url.searchParams,
-      });
-
-      if (decision.action === 'reject') {
-        rejectUpgrade(socket, decision.statusCode, decision.message);
+    if (hudGatewayRequireApiKey()) {
+      const queryKey = url.searchParams.get('api_key');
+      if (!isHudApiKeyAuthorized(request.headers, queryKey ?? undefined)) {
+        rejectUpgrade(socket, 401, 'Invalid or missing HUD API key');
         return;
       }
-
-      const { serverName, upstreamUrl } = decision;
-
-      wss.handleUpgrade(request, socket, head, (clientWs) => {
-        wss.emit('connection', clientWs, request);
-        const upstream = new WebSocket(upstreamUrl, {
-          headers:
-            typeof request.headers['x-api-key'] === 'string'
-              ? { 'x-api-key': request.headers['x-api-key'] }
-              : {},
-        });
-
-        upstream.on('open', () => {
-          console.log(
-            `[hud-gateway-ws] proxy steamId=${steamId} serverName=${serverName} -> ${upstreamUrl}`,
-          );
-          pipeSockets(clientWs, upstream, steamId, serverName);
-        });
-
-        upstream.on('error', () => {
-          if (clientWs.readyState === WebSocket.OPEN || clientWs.readyState === WebSocket.CONNECTING) {
-            clientWs.close(1011, 'edge_unreachable');
-          }
-        });
-      });
-    });
+    }
+    continueHudWsUpgrade(request, socket, head, wss, url);
   });
 
   console.log('[hud-gateway-ws] enabled');
   return wss;
+}
+
+function continueHudWsUpgrade(
+  request: IncomingMessage,
+  socket: Socket,
+  head: Buffer,
+  wss: WebSocketServer,
+  url: URL,
+): void {
+  const steamId = requireQueryString(url.searchParams.get('steamId'));
+  if (!steamId) {
+    rejectUpgrade(socket, 400, 'steamId required for HUD gateway');
+    return;
+  }
+
+  const legacyServerName = readServerNameFromUrl(url);
+
+  void resolveHudEdgeForSteamId(steamId, { legacyServerName }).then((routing) => {
+    const decision = decideHudGatewayWsUpgrade({
+      steamId,
+      routing,
+      searchParams: url.searchParams,
+    });
+
+    if (decision.action === 'reject') {
+      rejectUpgrade(socket, decision.statusCode, decision.message);
+      return;
+    }
+
+    const { serverName, upstreamUrl } = decision;
+
+    wss.handleUpgrade(request, socket, head, (clientWs) => {
+      wss.emit('connection', clientWs, request);
+      const upstream = new WebSocket(upstreamUrl, {
+        headers:
+          typeof request.headers['x-api-key'] === 'string'
+            ? { 'x-api-key': request.headers['x-api-key'] }
+            : {},
+      });
+
+      upstream.on('open', () => {
+        console.log(
+          `[hud-gateway-ws] proxy steamId=${steamId} serverName=${serverName} -> ${upstreamUrl}`,
+        );
+        pipeSockets(clientWs, upstream, steamId, serverName);
+      });
+
+      upstream.on('error', () => {
+        if (clientWs.readyState === WebSocket.OPEN || clientWs.readyState === WebSocket.CONNECTING) {
+          clientWs.close(1011, 'edge_unreachable');
+        }
+      });
+    });
+  });
 }
