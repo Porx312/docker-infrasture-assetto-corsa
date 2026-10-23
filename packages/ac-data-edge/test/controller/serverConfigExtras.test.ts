@@ -187,3 +187,66 @@ test('applyServerConfiguration does not duplicate SERVER fields across multi-lin
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test('applyServerConfiguration cleans pre-corrupted duplicate keys and applies payload', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-cfg-corrupt-'));
+  const prev = process.env.SERVERS_PATH;
+  const name = 'server-2';
+  process.env.SERVERS_PATH = tmp;
+  try {
+    const cfgDir = path.join(tmp, name, 'cfg');
+    fs.mkdirSync(cfgDir, { recursive: true });
+    const cfgPath = path.join(cfgDir, 'server_cfg.ini');
+    fs.writeFileSync(
+      cfgPath,
+      [
+        '[SERVER]',
+        'NAME=new_top ℹ18083',
+        'TRACK=csp/3465/../90sgdsp_happogahara',
+        'SUN_ANGLE=16',
+        'NAME=mid',
+        'TRACK=csp/3465/../west_zao_s',
+        'SUN_ANGLE=-80',
+        'ADMIN_PASSWORD=admin123',
+        'NAME=stale_last',
+        'TRACK=csp/3465/../west_zao_s',
+        'SUN_ANGLE=-80',
+        'TIME_OF_DAY_MULT=1',
+        '',
+        '[PRACTICE]',
+        'NAME=akina practice',
+        'NAME=stale practice',
+        'TIME=1440',
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+    fs.writeFileSync(
+      path.join(cfgDir, 'cm_wrapper_params.json'),
+      JSON.stringify({ port: 18083 }),
+      'utf-8',
+    );
+
+    const result = applyServerConfiguration(name, {
+      displayName: 'Gunsai Clean',
+      timeOfDay: 'night',
+      track: '90sgdsp_happogahara',
+    });
+    assert.equal(result.ok, true);
+    const content = fs.readFileSync(cfgPath, 'utf-8');
+
+    assert.equal(countField(content, 'TRACK'), 1);
+    assert.equal(countField(content, 'SUN_ANGLE'), 1);
+    assert.equal(countField(content, 'NAME'), 2); // SERVER + PRACTICE
+    assert.match(content, /^NAME=Gunsai Clean \u213918083$/m);
+    assert.match(content, /\[PRACTICE\][\s\S]*?^NAME=Gunsai Clean$/m);
+    assert.match(content, /^TRACK=csp\/\d+\/\.\.\/90sgdsp_happogahara$/m);
+    assert.match(content, /^SUN_ANGLE=-80$/m);
+    assert.doesNotMatch(content, /west_zao_s/);
+    assert.doesNotMatch(content, /stale_last|akina practice|stale practice/);
+  } finally {
+    if (prev !== undefined) process.env.SERVERS_PATH = prev;
+    else delete process.env.SERVERS_PATH;
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});

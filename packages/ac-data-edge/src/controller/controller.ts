@@ -6,7 +6,10 @@ import { getServerPorts } from './serverPorts.js';
 import { normalizeTrackConfigForIni } from '@projectd/ac-data-shared/controller/trackConfig.js';
 import { applyCmNameSuffix, readCmWrapperPort } from '@projectd/ac-data-shared/controller/cmWrapper.js';
 import { applyCspMinTrackForIni } from '@projectd/ac-data-shared/mods/cspTrack.js';
-import { patchIniSectionField } from '@projectd/ac-data-shared/services/iniHelpers.js';
+import {
+    collapseDuplicateIniSectionFields,
+    patchIniSectionField,
+} from '@projectd/ac-data-shared/services/iniHelpers.js';
 import { resolveTimeOfDayPreset } from '@projectd/ac-data-shared/services/timeOfDayPresets.js';
 
 /** Lazy so unit tests can import this module without SERVERS_PATH set. */
@@ -216,6 +219,9 @@ export function applyServerConfiguration(
 
     try {
         let content = fs.readFileSync(cfgPath, 'utf-8');
+        // Corrupted INIs from prior bugs leave duplicate keys; AC typically reads the last.
+        content = collapseDuplicateIniSectionFields(content, 'SERVER');
+        content = collapseDuplicateIniSectionFields(content, 'PRACTICE');
 
         if (displayName !== undefined) {
             const cleanName = String(displayName).trim();
