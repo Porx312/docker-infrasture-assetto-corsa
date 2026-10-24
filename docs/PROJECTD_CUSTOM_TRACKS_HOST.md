@@ -151,7 +151,7 @@ Auth: `X-Worker-Secret` en todas las llamadas.
 
 | `status` | Qué hacer |
 |----------|-----------|
-| `already_present` | Blob ya existe; hub linkó `steamId`. Refresh by-steam. |
+| `already_present` | Blob ya existe; hub linkó `steamId` **y** promueve a host-catalog con `source: "catalog"`. Incluye `hostCatalogSynced`. |
 | `need_upload` | Seguir con PUT (`sessionId`, `needed[]`, `slug` / `requestedSlug` / `slugAllocated`). |
 
 **2) File** — `PUT /v1/mods/library/slim-upload/file`  
@@ -160,7 +160,7 @@ Headers: `X-Slim-Session-Id`, `X-Slim-Rel`, `X-Slim-Sha256`. Body = raw bytes. S
 **3) Commit** — `POST /v1/mods/library/slim-upload/commit`  
 `{ "sessionId", "steamId" }` → `{ ok, status: "uploaded", kind: "track", slug, acContentSlug, …, skins: [] }`.
 
-Errores / límites: mismos que cars (`CONTROL_MOD_UPLOAD_MAX_*`). Sin sync a host-catalog público.
+Errores / límites: mismos que cars (`CONTROL_MOD_UPLOAD_MAX_*`). Primer hash nuevo: sin host-catalog; `already_present` sí promueve a catalog oficial.
 
 #### 2c. Fallback — ZIP al hub
 

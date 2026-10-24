@@ -19,6 +19,7 @@ export {
   backfillHostCatalogServers,
   type HostCatalogUpsertInput,
   type HostCatalogDeleteInput,
+  type HostCatalogModSource,
   type HostCatalogSyncResult,
   type SyncHostCatalogServersResult,
   type BackfillHostCatalogServersResult,

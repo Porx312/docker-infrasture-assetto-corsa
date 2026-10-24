@@ -76,6 +76,9 @@ export function extractTrackConfigsFromZipPaths(paths: string[], track: string):
   return [...configs].sort();
 }
 
+/** Host Convex catalog provenance (`battle_cars` / `battle_tracks`). */
+export type HostCatalogModSource = 'catalog' | 'community' | 'user';
+
 export type HostCatalogUpsertInput = {
   kind: ModKind;
   displayName: string;
@@ -88,6 +91,8 @@ export type HostCatalogUpsertInput = {
   coverImageUrl?: string | null;
   /** Public cover URL (or legacy value); used as-is when set. */
   coverImageId?: string | null;
+  /** Official ProjectD catalog vs community/user; Host mutations should persist. */
+  source?: HostCatalogModSource;
 };
 
 export type HostCatalogDeleteInput = {
@@ -115,6 +120,7 @@ export function buildCarUpsertArgs(input: {
   paths?: string[];
   /** Public hub URL; omit when null/empty — Host UI uses placeholder. */
   coverImageId?: string | null;
+  source?: HostCatalogModSource;
 }): Record<string, unknown> {
   const skins = extractCarSkinsFromZipPaths(input.paths ?? [], input.carModel);
   const coverImageId = (input.coverImageId || '').trim();
@@ -123,6 +129,7 @@ export function buildCarUpsertArgs(input: {
     name: input.name,
     ...(skins.length ? { skins } : {}),
     ...(coverImageId ? { coverImageId } : {}),
+    ...(input.source ? { source: input.source } : {}),
   };
 }
 
@@ -133,6 +140,7 @@ export function buildTrackUpsertArgs(input: {
   paths?: string[];
   /** Public hub URL; omit when null/empty — Host UI uses placeholder. */
   coverImageId?: string | null;
+  source?: HostCatalogModSource;
 }): Record<string, unknown> {
   const layouts = extractTrackConfigsFromZipPaths(input.paths ?? [], input.track);
   const coverImageId = (input.coverImageId || '').trim();
@@ -141,6 +149,7 @@ export function buildTrackUpsertArgs(input: {
     name: input.name,
     configTrack: layouts.length ? layouts : ['default'],
     ...(coverImageId ? { coverImageId } : {}),
+    ...(input.source ? { source: input.source } : {}),
   };
 }
 
@@ -359,13 +368,14 @@ export async function syncHostCatalogUpsert(
         name: input.displayName,
         paths,
         coverImageId,
+        source: input.source,
       });
       await runMutation(HOST_CATALOG_MUTATIONS.upsertCar(), args);
       const skinCount = Array.isArray(args.skins) ? args.skins.length : 0;
       console.log(
         `[host-catalog] upsert car carModel=${slug}${skinCount ? ` skins=${skinCount}` : ''}${
           coverImageId ? ' cover=yes' : ''
-        }`,
+        }${input.source ? ` source=${input.source}` : ''}`,
       );
       return { synced: true };
     }
@@ -375,13 +385,14 @@ export async function syncHostCatalogUpsert(
       name: input.displayName,
       paths,
       coverImageId,
+      source: input.source,
     });
     await runMutation(HOST_CATALOG_MUTATIONS.upsertTrack(), args);
     const layouts = args.configTrack as string[];
     console.log(
       `[host-catalog] upsert track track=${slug} layouts=${layouts.length}${
         coverImageId ? ' cover=yes' : ''
-      }`,
+      }${input.source ? ` source=${input.source}` : ''}`,
     );
     return { synced: true };
   } catch (err: unknown) {

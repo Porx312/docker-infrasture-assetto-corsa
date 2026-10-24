@@ -23,7 +23,10 @@ import {
   MOD_S3_FORMAT_TAR_GZ,
 } from '@projectd/ac-data-shared/mods/modS3Manifest.js';
 import { headCanonicalObject, putCanonicalTarGz, storageMode } from './objectStorage.js';
-import { registerS3LibraryArtifact } from './s3LibraryRegister.js';
+import {
+  promoteLibraryPackageToHostCatalog,
+  registerS3LibraryArtifact,
+} from './s3LibraryRegister.js';
 import {
   findLibraryByContentHash,
   packSlimTarGz,
@@ -240,6 +243,7 @@ export type ZipUploadResult = {
   linked: true;
   steamId: string;
   hostCatalogSynced: boolean;
+  hostCatalogSyncError?: string;
   skins: string[];
 };
 
@@ -305,6 +309,15 @@ export async function processLibraryZipUpload(input: {
           art?.manifest_json,
         );
       }
+      let hostCatalogSynced = false;
+      let hostCatalogSyncError: string | undefined;
+      try {
+        const sync = await promoteLibraryPackageToHostCatalog(existing);
+        hostCatalogSynced = sync.synced;
+        if (!sync.synced) hostCatalogSyncError = sync.error;
+      } catch (err: unknown) {
+        hostCatalogSyncError = err instanceof Error ? err.message : String(err);
+      }
       return {
         ok: true,
         status: 'already_present',
@@ -320,7 +333,8 @@ export async function processLibraryZipUpload(input: {
         s3Key: existing.s3Key,
         linked: true,
         steamId,
-        hostCatalogSynced: false,
+        hostCatalogSynced,
+        ...(hostCatalogSyncError ? { hostCatalogSyncError } : {}),
         skins,
       };
     }

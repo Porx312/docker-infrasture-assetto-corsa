@@ -145,7 +145,7 @@ Respuestas 200:
 
 | `status` | Qué hacer |
 |----------|-----------|
-| `already_present` | Ya hay blob; hub ya linkó `steamId`. Refresh by-steam. Campos: `packageId`, `artifactId`, `contentHash`, `slug` / `acContentSlug`, `requestedSlug`, `slugAllocated: false`. `needed: []`. |
+| `already_present` | Ya hay blob; hub ya linkó `steamId` **y** promueve a host-catalog Convex con `source: "catalog"` (sigue en custom mods del usuario). Campos: `packageId`, `artifactId`, `contentHash`, `slug` / `acContentSlug`, `requestedSlug`, `slugAllocated: false`, `hostCatalogSynced`. `needed: []`. |
 | `need_upload` | Seguir con PUT. Campos: `sessionId`, `needed[]`, `skip[]`, `neededBytes`, `skipBytes`, **`slug`** (final), **`requestedSlug`**, **`slugAllocated`**, `displayName`. Si `slugAllocated`, el hub guardará como `{requested}-cN` (variante distinta al slug de carpeta). |
 
 **2) File** — `PUT /v1/mods/library/slim-upload/file`  
@@ -175,7 +175,7 @@ Si `slugAllocated: true`, mostrar toast “Guardado como `{slug}`” (p. ej. `pk
 
 Errores útiles: `400` validación / missing staged file; `401` secret; `404` session expired; `409` hash/size/steamId mismatch o `slug_allocate_exhausted`; `503` S3 mode off.
 
-Límites control: ~500 MB slim tree / 5000 files (`CONTROL_MOD_UPLOAD_MAX_*`). Sin host-catalog público.
+Límites control: ~500 MB slim tree / 5000 files (`CONTROL_MOD_UPLOAD_MAX_*`). Primer upload de hash nuevo: sin host-catalog. Re-subida / `already_present`: promote a catalog oficial (`source=catalog`) + link steam.
 
 #### 2c. Fallback — ZIP al hub
 

@@ -10,8 +10,13 @@ import {
   s3CanonicalStorageKey,
   type ModS3ManifestFields,
 } from '@projectd/ac-data-shared/mods/modS3Manifest.js';
-import { createPackageAndArtifact, getPackageById } from './catalogRepo.js';
-import { syncHostCatalogUpsert } from '../hostCatalog/index.js';
+import {
+  createPackageAndArtifact,
+  getArtifactById,
+  getPackageById,
+  mergeArtifactManifestS3,
+} from './catalogRepo.js';
+import { syncHostCatalogUpsert, type HostCatalogSyncResult } from '../hostCatalog/index.js';
 import { modPreviewPublicUrl } from './modPreviewImages.js';
 
 export type RegisterS3LibraryArtifactInput = {
@@ -79,7 +84,6 @@ export async function registerS3LibraryArtifact(
 
   // Ensure s3* survived ON CONFLICT preserve logic when re-registering same hash.
   // createPackageAndArtifact may keep old s3Key; if missing, merge our fields.
-  const { getArtifactById, mergeArtifactManifestS3 } = await import('./catalogRepo.js');
   const art = await getArtifactById(artifactId);
   if (art && !readModS3Fields(art.manifest_json)) {
     await mergeArtifactManifestS3(artifactId, {
@@ -104,6 +108,7 @@ export async function registerS3LibraryArtifact(
         zipPaths: manifest.entryPaths,
         coverImageFilename,
         coverImageUrl: coverImageFilename ? modPreviewPublicUrl(coverImageFilename) : null,
+        source: 'catalog',
       });
       hostCatalogSynced = sync.synced;
       if (!sync.synced) {
@@ -120,4 +125,39 @@ export async function registerS3LibraryArtifact(
     hostCatalogSynced,
     ...(hostCatalogSyncError ? { hostCatalogSyncError } : {}),
   };
+}
+
+export type PromoteLibraryPackageInput = {
+  packageId: string;
+  artifactId: string;
+  kind: string;
+  acContentSlug: string;
+  displayName: string;
+};
+
+/**
+ * Re-upload / already_present: push existing S3 library package into Convex host catalog
+ * as official ProjectD (`source: catalog`) without re-uploading the blob.
+ */
+export async function promoteLibraryPackageToHostCatalog(
+  existing: PromoteLibraryPackageInput,
+): Promise<HostCatalogSyncResult> {
+  const kind = existing.kind as ModKind;
+  if (kind !== 'car' && kind !== 'track') {
+    return { synced: false, error: `kind ${existing.kind} is not synced to Convex` };
+  }
+  const pkg = await getPackageById(existing.packageId);
+  const art = await getArtifactById(existing.artifactId);
+  const manifest = art?.manifest_json;
+  const coverImageFilename = pkg?.preview_image_filename ?? null;
+  return syncHostCatalogUpsert({
+    kind,
+    displayName: (pkg?.display_name || existing.displayName).trim(),
+    acContentSlug: (pkg?.ac_content_slug || existing.acContentSlug).trim(),
+    manifest,
+    zipPaths: manifest?.entryPaths,
+    coverImageFilename,
+    coverImageUrl: coverImageFilename ? modPreviewPublicUrl(coverImageFilename) : null,
+    source: 'catalog',
+  });
 }

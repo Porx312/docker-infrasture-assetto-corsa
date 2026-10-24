@@ -30,7 +30,10 @@ import {
 import { getModPool } from './db.js';
 import { getPackageById } from './catalogRepo.js';
 import { headCanonicalObject, putCanonicalTarGz, storageMode } from './objectStorage.js';
-import { registerS3LibraryArtifact } from './s3LibraryRegister.js';
+import {
+  promoteLibraryPackageToHostCatalog,
+  registerS3LibraryArtifact,
+} from './s3LibraryRegister.js';
 import {
   isValidSteam64,
   normalizeSteamId,
@@ -323,6 +326,15 @@ export async function handleLibrarySlimUploadPlan(
     if (steamId) {
       await upsertModSteamLink(steamId, existing.packageId);
     }
+    let hostCatalogSynced = false;
+    let hostCatalogSyncError: string | undefined;
+    try {
+      const sync = await promoteLibraryPackageToHostCatalog(existing);
+      hostCatalogSynced = sync.synced;
+      if (!sync.synced) hostCatalogSyncError = sync.error;
+    } catch (err: unknown) {
+      hostCatalogSyncError = err instanceof Error ? err.message : String(err);
+    }
     res.json({
       ok: true,
       status: 'already_present',
@@ -338,6 +350,8 @@ export async function handleLibrarySlimUploadPlan(
       s3Key: existing.s3Key,
       linked: Boolean(steamId),
       steamId: steamId || undefined,
+      hostCatalogSynced,
+      ...(hostCatalogSyncError ? { hostCatalogSyncError } : {}),
       needed: [],
       skip: files,
     });

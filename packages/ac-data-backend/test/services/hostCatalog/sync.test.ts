@@ -120,6 +120,26 @@ describe('hostCatalog Convex payload builders', () => {
     assert.deepEqual(args.skins, ['red']);
   });
 
+  it('buildCarUpsertArgs includes source catalog when set', () => {
+    const args = buildCarUpsertArgs({
+      carModel: 'bmw_m3',
+      name: 'BMW',
+      paths: [],
+      source: 'catalog',
+    });
+    assert.equal(args.source, 'catalog');
+  });
+
+  it('buildTrackUpsertArgs includes source catalog when set', () => {
+    const args = buildTrackUpsertArgs({
+      track: 'akina',
+      name: 'Akina',
+      paths: [],
+      source: 'catalog',
+    });
+    assert.equal(args.source, 'catalog');
+  });
+
   it('buildTrackUpsertArgs keeps detected layouts', () => {
     const args = buildTrackUpsertArgs({
       track: 'akina',

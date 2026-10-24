@@ -165,7 +165,7 @@ Local inventory on each VPS is separate; availability merges central + edge inve
 
 ### User library (steamId links — Contabo S3)
 
-Convex Action BFF uploads user mods here. **Hub stores blobs + `mod_steam_links`.** Convex does **not** store mod metadata — only auth + `steamId`. Same content hash → `already_present` and a new link (no second S3 object). If the folder **slug is already taken** but the slim tree is **different** (tuned car / edited track), the hub allocates `{slug}-c1`, `{slug}-c2`, … and returns `slugAllocated: true` + final `slug` / `acContentSlug` (no silent replace). User uploads do **not** sync to the public host-catalog.
+Convex Action BFF uploads user mods here. **Hub stores blobs + `mod_steam_links`.** Convex does **not** store mod metadata — only auth + `steamId`. Same content hash → `already_present`: new steam link (no second S3 object) **and** promote to public host-catalog with `source: "catalog"` (official ProjectD; Host mutations must accept `source`). If the folder **slug is already taken** but the slim tree is **different** (tuned car / edited track), the hub allocates `{slug}-c1`, `{slug}-c2`, … and returns `slugAllocated: true` + final `slug` / `acContentSlug` (no silent replace). **First-time** control uploads of a new hash still skip host-catalog (`syncHostCatalog: false`); only the `already_present` path promotes.
 
 | Method | Path | Who |
 |--------|------|-----|
@@ -176,7 +176,7 @@ Convex Action BFF uploads user mods here. **Hub stores blobs + `mod_steam_links`
 | `GET` | `/v1/mods/library/by-steam/:steamId` | Convex — list linked packages |
 | `DELETE` | `/v1/mods/library/:packageId` | Convex — body/query `steamId`; always unlink; purge only if last link and not on servers |
 
-**Slim upload (Host preferred):** browser slim-scan (`scanZipForSlimUpload` en el paquete Host `@projectd/ac-mod-slim-client`); BFF proxies plan/file/commit with worker secret. Plan may return `already_present` (link only) or `need_upload` + `sessionId` (includes final `slug`, `requestedSlug`, `slugAllocated`).
+**Slim upload (Host preferred):** browser slim-scan (`scanZipForSlimUpload` en el paquete Host `@projectd/ac-mod-slim-client`); BFF proxies plan/file/commit with worker secret. Plan may return `already_present` (steam link + host-catalog promote, `hostCatalogSynced`) or `need_upload` + `sessionId` (includes final `slug`, `requestedSlug`, `slugAllocated`).
 
 **ZIP upload (fallback):** `multipart/form-data` fields `file`, `steamId`, `kind` (`car`\|`track`), optional `slug`, `displayName`. Hub extracts, filters server-slim paths, dedupes by content hash, may allocate `-cN` slug, links steamId.
 
